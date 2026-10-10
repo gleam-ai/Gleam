@@ -4829,16 +4829,31 @@ function openNewWorkspaceDialog() {
       touchedName = true;
     });
     cancel.addEventListener('click', () => Modal.settle(() => {}));
-    create.addEventListener('click', () => {
+    create.addEventListener('click', async () => {
       if (!picked) return;
+      const wsName = nameInput.value.trim() || wsShort(picked);
       saveWsMeta(picked, {
         icon: iconIdx,
         color: colorIdx,
         index: idxBtn.getAttribute('aria-checked') === 'true',
-        name: nameInput.value.trim(),
+        name: wsName,
       });
       Modal.settle(() => {});
-      chooseWorkspace(picked);
+      // 建「工作区」＝建一个空间：不建空间它就不会出现在左侧「工作区」树里。
+      // SpaceCreate 会先按 path 校验并切换工作文件夹，等价于原来的 chooseWorkspace。
+      try {
+        const view = await api('POST', '/api/spaces', {
+          name: wsName,
+          path: picked,
+        });
+        spaceState.activeId = view.active_id || spaceState.activeId;
+        spaceState.spaces = view.spaces || [];
+        if (view.workspace) renderWorkspace({ workspace: view.workspace });
+        await loadConvoList(currentConvo && currentConvo.id);
+        toast(`工作区已创建：${wsName}`, 'success');
+      } catch (err) {
+        toast(`创建失败：${err.message}`, 'error');
+      }
     });
 
     paintIcons();
@@ -4887,9 +4902,12 @@ const SPACE_ICONS = {
   add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
 };
 
+// 返回 null 表示「用户从没存过偏好」，与「存过、但是空集」区分开：
+// 前者默认展开激活空间，后者要尊重用户把它们全折叠掉的选择。
 function loadExpandedSpaces() {
   try {
-    return new Set(JSON.parse(localStorage.getItem(SPACE_EXPAND_KEY) || '[]'));
+    const raw = localStorage.getItem(SPACE_EXPAND_KEY);
+    return raw === null ? null : new Set(JSON.parse(raw));
   } catch {
     return new Set();
   }
@@ -4939,14 +4957,18 @@ async function loadConvoList(activeId) {
     return;
   }
 
-  const expanded = loadExpandedSpaces();
+  let expanded = loadExpandedSpaces();
+  if (expanded === null) {
+    expanded = new Set(spaceState.activeId ? [spaceState.activeId] : []);
+    saveExpandedSpaces(expanded);
+  }
   const currentConvoId = activeId || (currentConvo && currentConvo.id);
 
   spaceState.spaces.forEach((sp) => {
     const list = bySpace.get(sp.id) || [];
     const isActive = sp.id === spaceState.activeId;
     // 激活空间默认展开；用户折叠过的偏好也尊重（激活空间仍展开）
-    const open = isActive || expanded.has(sp.id);
+    const open = expanded.has(sp.id);
     root.appendChild(
       spaceGroupEl(sp, list, { open, active: isActive, currentConvoId }),
     );
@@ -5025,14 +5047,12 @@ function spaceGroupEl(sp, list, opts) {
 }
 
 async function toggleSpace(spaceId, groupEl) {
-  const expanded = loadExpandedSpaces();
+  const expanded = loadExpandedSpaces() || new Set();
   const willOpen = !groupEl.classList.contains('open');
   if (willOpen) {
     groupEl.classList.add('open');
     expanded.add(spaceId);
   } else {
-    // 激活空间不允许折叠收起（保持当前空间始终可见）
-    if (spaceId === spaceState.activeId) return;
     groupEl.classList.remove('open');
     expanded.delete(spaceId);
   }
@@ -5114,89 +5134,7 @@ async function deleteSpace(id, name, count) {
   }
 }
 
-function createSpaceDialog() {
-  Modal.open('新建微光空间', (box) => {
-    const wrap = el('div');
-    wrap.innerHTML = `
-      <p class="field-hint" style="margin: 0 0 var(--space-3);">每个空间对应一个独立文件夹，对话按空间隔离分组。可先不绑定文件夹，之后在工作区里再设置。</p>
-      <div class="field">
-        <label class="field-label">空间名称</label>
-        <input class="input" id="sp-name" type="text" maxlength="30" placeholder="例如：官网改版、学习笔记" />
-      </div>
-      <div class="field">
-        <label class="field-label">绑定文件夹（可选）</label>
-        <div class="ws-crumb" id="sp-crumb"></div>
-        <div id="sp-dirs" style="max-height: 220px; overflow: auto;"></div>
-      </div>`;
-    box.appendChild(wrap);
-    const nameInput = $('#sp-name', box);
-    let chosenPath = '';
-
-    async function browse(path) {
-      const res = await api(
-        'GET',
-        '/api/fs?path=' + encodeURIComponent(path || ''),
-      );
-      chosenPath = res.current || path || '';
-      const crumb = $('#sp-crumb', box);
-      crumb.innerHTML = '';
-      if (res.parent) {
-        const up = el('button', 'btn btn-secondary btn-sm', '上一级');
-        up.addEventListener('click', () => browse(res.parent));
-        crumb.appendChild(up);
-      }
-      crumb.appendChild(el('span', null, chosenPath || '根目录（未选择）'));
-      const dirs = $('#sp-dirs', box);
-      dirs.innerHTML = '';
-      (res.dirs || []).forEach((d) => {
-        const row = el('div', 'ws-row');
-        row.innerHTML = `<div class="row-main"><div class="row-title">${esc(d.name)}</div><div class="row-sub">${esc(d.path)}</div></div>`;
-        row.addEventListener('click', () => browse(d.path));
-        dirs.appendChild(row);
-      });
-      if (!(res.dirs || []).length)
-        dirs.innerHTML =
-          '<p class="field-hint" style="margin:0;">此目录下没有子文件夹</p>';
-    }
-
-    const actions = el('div', 'modal-actions');
-    const skip = el('button', 'btn btn-secondary', '暂不绑定文件夹');
-    skip.type = 'button';
-    skip.addEventListener('click', () => submitSpace(''));
-    const cancel = el('button', 'btn btn-secondary', '取消');
-    cancel.type = 'button';
-    cancel.addEventListener('click', Modal.close);
-    const ok = el('button', 'btn btn-primary', '创建并进入');
-    ok.type = 'button';
-    ok.addEventListener('click', () => submitSpace(chosenPath));
-    actions.appendChild(cancel);
-    actions.appendChild(skip);
-    actions.appendChild(ok);
-    box.appendChild(actions);
-
-    async function submitSpace(path) {
-      const name = nameInput.value.trim();
-      try {
-        const view = await api('POST', '/api/spaces', { name, path });
-        spaceState.activeId = view.active_id || spaceState.activeId;
-        spaceState.spaces = view.spaces || [];
-        if (view.workspace) renderWorkspace({ workspace: view.workspace });
-        Modal.close();
-        await loadConvoList();
-        toast(
-          path ? `空间已创建，工作区切换到：${wsShort(path)}` : '空间已创建',
-          'success',
-        );
-      } catch (err) {
-        toast(`创建失败：${err.message}`, 'error');
-      }
-    }
-
-    browse('');
-    setTimeout(() => nameInput.focus(), 50);
-  });
-}
-$('#space-new').addEventListener('click', createSpaceDialog);
+$('#space-new').addEventListener('click', openNewWorkspaceDialog);
 
 function convoItemEl(it, active) {
   const item = el('button', 'convo-item' + (active ? ' active' : ''));

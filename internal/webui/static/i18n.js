@@ -513,7 +513,6 @@ const I18N_EN = {
   '文件 · 目标 · 插件 · 记忆': 'Files · Goals · Plugins · Memory',
   '文案撰写、报告生成、内容润色与翻译':
     'Copywriting, report writing, editing and translation',
-  新建微光空间: 'New space',
   新建浏览器标签: 'New browser tab',
   新建窗口: 'New window',
   星云紫: 'Nebula purple',
