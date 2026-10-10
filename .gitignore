@@ -5,6 +5,9 @@ bin/
 *.out
 tmp/
 
+# 依赖目录：根 package.json（JS 工具链）会生成根 node_modules/
+node_modules/
+
 # 变异脚本 import _harness 留下的字节码缓存（每次跑批都会生成，不该进仓库）
 __pycache__/
 *.pyc

@@ -1,0 +1,24 @@
+# 全仓基准。所有格式化器都必须输出 LF：.gitattributes 是 `* -text`，
+# 工作区字节必须与提交字节一致。见 docs/engineering/google-style-conformance.md。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+indent_style = tab
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{js,mjs,cjs,ts,css,html,json,yml,yaml,sh}]
+indent_style = space
+indent_size = 2
+
+# Markdown 行尾两个空格是换行，不能去。
+[*.md]
+trim_trailing_whitespace = false
