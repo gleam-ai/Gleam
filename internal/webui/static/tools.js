@@ -36,8 +36,14 @@ async function loadTools() {
       sel.value = t.overridden ? t.permission : 'default';
       sel.addEventListener('change', async () => {
         try {
-          await api('POST', '/api/tools/permission', { name: t.name, permission: sel.value });
-          toast(`工具 ${t.name} 权限已更新（${sel.value === 'default' ? '恢复内置默认' : (PERM_LABELS[sel.value] || sel.value)}）`, 'success');
+          await api('POST', '/api/tools/permission', {
+            name: t.name,
+            permission: sel.value,
+          });
+          toast(
+            `工具 ${t.name} 权限已更新（${sel.value === 'default' ? '恢复内置默认' : PERM_LABELS[sel.value] || sel.value}）`,
+            'success',
+          );
           loadTools();
         } catch (err) {
           toast(err.message, 'error');
@@ -45,76 +51,105 @@ async function loadTools() {
         }
       });
     });
-  } catch (err) { loadError(list, err, loadTools); }
+  } catch (err) {
+    loadError(list, err, loadTools);
+  }
 }
 
 // schemaSummary（L6，2026-09-23 QA）：JSON Schema 直 dump 对不写代码的人是天书，
 // 先渲染「参数名 · 类型 · 必填 · 一句话说明」表，原始 JSON 收进二级折叠。
 function schemaSummary(schema) {
   const props = schema && schema.properties;
-  if (!props || !Object.keys(props).length) return '<div class="row-sub">此工具不需要参数。</div>';
-  const required = new Set((schema.required || []));
-  const rows = Object.entries(props).map(([k, v]) => {
-    const type = v.type || (v.enum ? '枚举' : '任意');
-    const req = required.has(k) ? '<span class="badge badge--warn">必填</span>' : '<span class="row-sub">可选</span>';
-    const desc = esc(v.description || '—');
-    const enm = v.enum ? `<div class="row-sub">可选值：${v.enum.map((x) => esc(String(x))).join(' · ')}</div>` : '';
-    const dft = v.default !== undefined ? `<div class="row-sub">默认：${esc(JSON.stringify(v.default))}</div>` : '';
-    return `<tr><td><code>${esc(k)}</code></td><td>${esc(type)}</td><td>${req}</td><td>${desc}${enm}${dft}</td></tr>`;
-  }).join('');
+  if (!props || !Object.keys(props).length)
+    return '<div class="row-sub">此工具不需要参数。</div>';
+  const required = new Set(schema.required || []);
+  const rows = Object.entries(props)
+    .map(([k, v]) => {
+      const type = v.type || (v.enum ? '枚举' : '任意');
+      const req = required.has(k)
+        ? '<span class="badge badge--warn">必填</span>'
+        : '<span class="row-sub">可选</span>';
+      const desc = esc(v.description || '—');
+      const enm = v.enum
+        ? `<div class="row-sub">可选值：${v.enum.map((x) => esc(String(x))).join(' · ')}</div>`
+        : '';
+      const dft =
+        v.default !== undefined
+          ? `<div class="row-sub">默认：${esc(JSON.stringify(v.default))}</div>`
+          : '';
+      return `<tr><td><code>${esc(k)}</code></td><td>${esc(type)}</td><td>${req}</td><td>${desc}${enm}${dft}</td></tr>`;
+    })
+    .join('');
   return `<table class="schema-table"><thead><tr><th>参数</th><th>类型</th><th></th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function openToolCallDialog(t) {
-  Modal.open(`调用 <code style="font-family:var(--font-mono);font-size:var(--fs-md)">${esc(t.name)}</code>`, (box) => {
-    const form = el('form');
-    const f = el('div', 'field');
-    f.innerHTML = `<label class="field-label" for="tool-args">参数（JSON）</label>`;
-    const ta = el('textarea', 'textarea');
-    ta.id = 'tool-args';
-    ta.rows = 6;
-    ta.value = '{}';
-    if (t.schema && t.schema.properties) {
-      const sample = {};
-      Object.entries(t.schema.properties).forEach(([k, v]) => { sample[k] = v.type === 'integer' || v.type === 'number' ? 0 : v.type === 'boolean' ? false : ''; });
-      ta.value = JSON.stringify(sample, null, 2);
-    }
-    f.appendChild(ta);
-    form.appendChild(f);
-    const actions = el('div', 'modal-actions');
-    const cancel = el('button', 'btn btn-secondary', '取消');
-    cancel.type = 'button';
-    cancel.addEventListener('click', Modal.close);
-    const run = el('button', 'btn btn-primary', '执行');
-    actions.appendChild(cancel);
-    actions.appendChild(run);
-    form.appendChild(actions);
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      let args;
-      try { args = JSON.parse(ta.value || '{}'); }
-      catch { toast('参数不是合法 JSON', 'error'); return; }
-      run.disabled = true;
-      run.innerHTML = ICONS.spinner + ' 执行中';
-      try {
-        const out = await api('POST', '/api/tools/call', { name: t.name, args });
-        Modal.close();
-        Modal.open(`执行结果 · ${esc(t.name)}`, (b) => {
-          const pre = el('pre');
-          pre.textContent = JSON.stringify(out.output, null, 2);
-          b.appendChild(pre);
-          const act = el('div', 'modal-actions');
-          const close = el('button', 'btn btn-secondary', '关闭');
-          close.addEventListener('click', Modal.close);
-          act.appendChild(close);
-          b.appendChild(act);
+  Modal.open(
+    `调用 <code style="font-family:var(--font-mono);font-size:var(--fs-md)">${esc(t.name)}</code>`,
+    (box) => {
+      const form = el('form');
+      const f = el('div', 'field');
+      f.innerHTML = `<label class="field-label" for="tool-args">参数（JSON）</label>`;
+      const ta = el('textarea', 'textarea');
+      ta.id = 'tool-args';
+      ta.rows = 6;
+      ta.value = '{}';
+      if (t.schema && t.schema.properties) {
+        const sample = {};
+        Object.entries(t.schema.properties).forEach(([k, v]) => {
+          sample[k] =
+            v.type === 'integer' || v.type === 'number'
+              ? 0
+              : v.type === 'boolean'
+                ? false
+                : '';
         });
-      } catch (err) {
-        toast(`调用失败：${err.message}`, 'error', 6500);
-        run.disabled = false;
-        run.textContent = '执行';
+        ta.value = JSON.stringify(sample, null, 2);
       }
-    });
-    box.appendChild(form);
-  });
+      f.appendChild(ta);
+      form.appendChild(f);
+      const actions = el('div', 'modal-actions');
+      const cancel = el('button', 'btn btn-secondary', '取消');
+      cancel.type = 'button';
+      cancel.addEventListener('click', Modal.close);
+      const run = el('button', 'btn btn-primary', '执行');
+      actions.appendChild(cancel);
+      actions.appendChild(run);
+      form.appendChild(actions);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        let args;
+        try {
+          args = JSON.parse(ta.value || '{}');
+        } catch {
+          toast('参数不是合法 JSON', 'error');
+          return;
+        }
+        run.disabled = true;
+        run.innerHTML = ICONS.spinner + ' 执行中';
+        try {
+          const out = await api('POST', '/api/tools/call', {
+            name: t.name,
+            args,
+          });
+          Modal.close();
+          Modal.open(`执行结果 · ${esc(t.name)}`, (b) => {
+            const pre = el('pre');
+            pre.textContent = JSON.stringify(out.output, null, 2);
+            b.appendChild(pre);
+            const act = el('div', 'modal-actions');
+            const close = el('button', 'btn btn-secondary', '关闭');
+            close.addEventListener('click', Modal.close);
+            act.appendChild(close);
+            b.appendChild(act);
+          });
+        } catch (err) {
+          toast(`调用失败：${err.message}`, 'error', 6500);
+          run.disabled = false;
+          run.textContent = '执行';
+        }
+      });
+      box.appendChild(form);
+    },
+  );
 }

@@ -18,7 +18,11 @@ const TrayLink = (() => {
   let seq = 0; // 两次 push 撞在一起时，只让最后出发的那次写菜单
 
   function lang() {
-    return (document.documentElement.getAttribute('lang') || '').startsWith('en') ? 'en' : 'zh';
+    return (document.documentElement.getAttribute('lang') || '').startsWith(
+      'en',
+    )
+      ? 'en'
+      : 'zh';
   }
 
   async function push() {
@@ -63,8 +67,15 @@ const TrayLink = (() => {
     });
 
     const list = $('#convo-list');
-    if (list) new MutationObserver(soon).observe(list, { childList: true, subtree: true });
-    new MutationObserver(soon).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    if (list)
+      new MutationObserver(soon).observe(list, {
+        childList: true,
+        subtree: true,
+      });
+    new MutationObserver(soon).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['lang'],
+    });
     push();
   }
 

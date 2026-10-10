@@ -7,7 +7,8 @@
 /* ---------- 技能 ---------- */
 async function loadSkills() {
   const grid = $('#skills-grid');
-  grid.innerHTML = '<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
+  grid.innerHTML =
+    '<div class="skeleton" style="height:80px"></div><div class="skeleton" style="height:80px"></div>';
   try {
     const { skills } = await api('GET', '/api/skills');
     grid.innerHTML = '';
@@ -43,13 +44,23 @@ function skillCard(sk) {
   const toggle = el('button', 'btn btn-ghost btn-sm');
   toggle.type = 'button';
   toggle.textContent = sk.disabled ? '启用' : '停用';
-  toggle.title = sk.disabled ? '启用后重新进入技能清单，可被引用与运行' : '停用后保留内容与统计，但不再进技能清单';
-  toggle.setAttribute('aria-label', `${sk.disabled ? '启用' : '停用'}技能 ${sk.name}`);
+  toggle.title = sk.disabled
+    ? '启用后重新进入技能清单，可被引用与运行'
+    : '停用后保留内容与统计，但不再进技能清单';
+  toggle.setAttribute(
+    'aria-label',
+    `${sk.disabled ? '启用' : '停用'}技能 ${sk.name}`,
+  );
   toggle.addEventListener('click', async () => {
     toggle.disabled = true;
     try {
-      await api('POST', `/api/skills/${encodeURIComponent(sk.name)}/enabled`, { enabled: sk.disabled });
-      toast(sk.disabled ? `技能「${sk.name}」已启用` : `技能「${sk.name}」已停用`, 'success');
+      await api('POST', `/api/skills/${encodeURIComponent(sk.name)}/enabled`, {
+        enabled: sk.disabled,
+      });
+      toast(
+        sk.disabled ? `技能「${sk.name}」已启用` : `技能「${sk.name}」已停用`,
+        'success',
+      );
       loadSkills();
     } catch (err) {
       toast(err.message, 'error');
@@ -61,9 +72,21 @@ function skillCard(sk) {
   delBtn.innerHTML = ICONS.trash;
   delBtn.setAttribute('aria-label', `删除技能 ${sk.name}`);
   delBtn.addEventListener('click', async () => {
-    if (!await confirmModal(`删除技能「${sk.name}」？此操作不可恢复。`, '删除技能', { okText: '删除', danger: true })) return;
-    try { await api('DELETE', `/api/skills/${encodeURIComponent(sk.name)}`); toast('技能已删除', 'success'); loadSkills(); }
-    catch (err) { toast(err.message, 'error'); }
+    if (
+      !(await confirmModal(
+        `删除技能「${sk.name}」？此操作不可恢复。`,
+        '删除技能',
+        { okText: '删除', danger: true },
+      ))
+    )
+      return;
+    try {
+      await api('DELETE', `/api/skills/${encodeURIComponent(sk.name)}`);
+      toast('技能已删除', 'success');
+      loadSkills();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
   });
   actions.appendChild(delBtn);
   head.appendChild(main);
@@ -84,7 +107,8 @@ function openSkillRunDialog(sk) {
       f.appendChild(input);
       form.appendChild(f);
     });
-    if (!(sk.params || []).length) form.appendChild(el('p', 'field-hint', '该技能无需参数。'));
+    if (!(sk.params || []).length)
+      form.appendChild(el('p', 'field-hint', '该技能无需参数。'));
     const actions = el('div', 'modal-actions');
     const cancel = el('button', 'btn btn-secondary', '取消');
     cancel.type = 'button';
@@ -99,11 +123,21 @@ function openSkillRunDialog(sk) {
       run.disabled = true;
       run.innerHTML = ICONS.spinner + ' 执行中';
       const params = {};
-      (sk.params || []).forEach((p) => { params[p] = form.elements[p].value; });
+      (sk.params || []).forEach((p) => {
+        params[p] = form.elements[p].value;
+      });
       try {
-        const out = await api('POST', `/api/skills/${encodeURIComponent(sk.name)}/run`, { params });
+        const out = await api(
+          'POST',
+          `/api/skills/${encodeURIComponent(sk.name)}/run`,
+          { params },
+        );
         Modal.close();
-        toast(`技能执行${out.status === 'success' ? '成功' : '结束'}（${out.summary || ''}）`, out.status === 'success' ? 'success' : 'info', 6000);
+        toast(
+          `技能执行${out.status === 'success' ? '成功' : '结束'}（${out.summary || ''}）`,
+          out.status === 'success' ? 'success' : 'info',
+          6000,
+        );
       } catch (err) {
         toast(`执行失败：${err.message}`, 'error');
         run.disabled = false;
@@ -145,12 +179,18 @@ function openSkillSaveDialog(sk) {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const skillName = nameInput.value.trim();
-      if (!skillName) { toast('技能名不能为空', 'error'); nameInput.focus(); return; }
+      if (!skillName) {
+        toast('技能名不能为空', 'error');
+        nameInput.focus();
+        return;
+      }
       if (save.disabled) return; // 连点两次会覆盖保存或报重名
       save.disabled = true;
       try {
         await api('POST', '/api/skills', {
-          name: skillName, description: descInput.value.trim(), steps: sk.steps,
+          name: skillName,
+          description: descInput.value.trim(),
+          steps: sk.steps,
         });
         Modal.close();
         toast(`技能「${skillName}」已保存`, 'success');

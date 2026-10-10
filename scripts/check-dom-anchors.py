@@ -181,15 +181,21 @@ def self_test(js_text, html_text) -> int:
         return 1
     cases = [
         ("JS 引用了不存在的锚点", js_text + "\nconst probe = $('#rail-anchor-that-is-gone');\n", html_text),
-        ("面板格子没人接", js_text, html_text.replace('<dl class="readout">', '<dl class="readout">\n<div class="readout-row"><dt>孤儿</dt><dd id="ro-orphan">0</dd></div>', 1)),
-        ("输入区格子没人接", js_text, html_text.replace('<div class="cp-model-list" id="cp-model-list"', '<div id="cp-orphan">0</div>\n<div class="cp-model-list" id="cp-model-list"', 1)),
-        ("预览面板按钮没人接", js_text, html_text.replace('<div class="bp-quick" id="bp-quick"', '<button id="bp-orphan" type="button">孤儿</button>\n<div class="bp-quick" id="bp-quick"', 1)),
+        # 孤儿锚点一律**附加**到 HTML 末尾，不按源码字面量 replace：
+        # 判据只按 id="…" 认锚点（ID_ATTR_RE），附加即可生效；而 replace 的字面量
+        # 会在 index.html 被重新排版（长标签折行）后静默失配——2026-10-11 跑
+        # Google Style 的 prettier 时，`<div class="cp-model-list" id="cp-model-list"`
+        # 与 `<div class="bp-quick" id="bp-quick"` 因为多了 role/aria-label 被折行，
+        # 两条负例当场构造不出来（判据报"没被拦住"）。附加写法与版式无关。
+        ("面板格子没人接", js_text, html_text + '\n<dl class="readout"><dd id="ro-orphan">0</dd></dl>\n'),
+        ("输入区格子没人接", js_text, html_text + '\n<div id="cp-orphan">0</div>\n'),
+        ("预览面板按钮没人接", js_text, html_text + '\n<button id="bp-orphan" type="button">孤儿</button>\n'),
         # 台账的表体与范围文案都是 JS 填的：HTML 先画出空壳、app.js 没接，
         # 这一屏就永远是那个「—」——而它恰恰是用户判断"我有没有被交代清楚"的那一屏。
-        ("台账格子没人接", js_text, html_text.replace('<div id="cx-conn-list"', '<p id="cx-orphan">—</p>\n<div id="cx-conn-list"', 1)),
+        ("台账格子没人接", js_text, html_text + '\n<p id="cx-orphan">—</p>\n'),
         # 候补目标整块的显隐、卡片、尾句都是 JS 算的：HTML 先画壳而 app.js 没接，
         # 用户看到的就是几张按不动的卡片——那两个按钮是把主动性交回给人的唯一出口。
-        ("候补目标格子没人接", js_text, html_text.replace('<div class="cue-list" id="cu-list">', '<p id="cu-orphan">—</p>\n<div class="cue-list" id="cu-list">', 1)),
+        ("候补目标格子没人接", js_text, html_text + '\n<p id="cu-orphan">—</p>\n'),
         # 只加一个函数定义、外面一句调用都不给。真出过这一类：`renderChanges` 写好了、
         # 注释也写了，卡片上那个槽位却永远是空的——因为没人调它。
         ("函数没有任何调用方", js_text + "\nfunction renderAnchorThatNobodyCalls(t) { return t; }\n", html_text),

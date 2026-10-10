@@ -22,7 +22,10 @@ async function loadGEO() {
           const on = cb.checked;
           try {
             await api('POST', '/api/settings', { agent: { geo_enabled: on } });
-            toast(on ? '已开启：创作完成后自动给出 GEO 建议' : '已关闭创作自动分析', 'success');
+            toast(
+              on ? '已开启：创作完成后自动给出 GEO 建议' : '已关闭创作自动分析',
+              'success',
+            );
           } catch (err) {
             cb.checked = !on;
             toast('设置保存失败：' + err.message, 'error');
@@ -31,13 +34,18 @@ async function loadGEO() {
       }
     }
     renderGEOList(data.records || []);
-  } catch { /* 静默：GEO 板块不可用不影响主流程 */ }
+  } catch {
+    /* 静默：GEO 板块不可用不影响主流程 */
+  }
 }
 
 function renderGEOStats(stats) {
-  const total = $('#geo-total'); if (!total) return;
+  const total = $('#geo-total');
+  if (!total) return;
   total.textContent = stats.total || 0;
-  $('#geo-avg').textContent = stats.avg_score ? Math.round(stats.avg_score) : '—';
+  $('#geo-avg').textContent = stats.avg_score
+    ? Math.round(stats.avg_score)
+    : '—';
   $('#geo-best').textContent = stats.best_score ? stats.best_score : '—';
 }
 
@@ -46,7 +54,8 @@ function renderGEOList(records) {
   if (!wrap) return;
   wrap.innerHTML = '';
   if (!records.length) {
-    wrap.innerHTML = '<p class="empty-hint">还没有分析记录。用「内容创作者」角色写点东西，或在这里手动分析一段文字。</p>';
+    wrap.innerHTML =
+      '<p class="empty-hint">还没有分析记录。用「内容创作者」角色写点东西，或在这里手动分析一段文字。</p>';
     return;
   }
   records.forEach((r) => wrap.appendChild(geoCard(r)));
@@ -55,19 +64,54 @@ function renderGEOList(records) {
 function geoCard(r) {
   const item = el('div', 'geo-item');
   const score = Number(r.score) || 0;
-  const cls = score >= 80 ? 'geo-score--high' : score >= 60 ? 'geo-score--mid' : 'geo-score--low';
-  const time = r.created_at ? new Date(r.created_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const cls =
+    score >= 80
+      ? 'geo-score--high'
+      : score >= 60
+        ? 'geo-score--mid'
+        : 'geo-score--low';
+  const time = r.created_at
+    ? new Date(r.created_at).toLocaleString('zh-CN', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
   const src = r.source === 'manual' ? '手动分析' : '创作自动分析';
-  let html = '<div class="geo-item-head">' +
-    '<span class="geo-score ' + cls + '">' + score + '</span>' +
-    '<div class="geo-item-meta"><div class="geo-item-title">' + esc(r.goal || '未命名内容') + '</div>' +
-    '<div class="geo-item-sub">' + esc(src) + (time ? ' · ' + esc(time) : '') + '</div></div></div>';
+  let html =
+    '<div class="geo-item-head">' +
+    '<span class="geo-score ' +
+    cls +
+    '">' +
+    score +
+    '</span>' +
+    '<div class="geo-item-meta"><div class="geo-item-title">' +
+    esc(r.goal || '未命名内容') +
+    '</div>' +
+    '<div class="geo-item-sub">' +
+    esc(src) +
+    (time ? ' · ' + esc(time) : '') +
+    '</div></div></div>';
   if (r.summary) html += '<p class="geo-summary">' + esc(r.summary) + '</p>';
   html += geoPairs('已做好', r.strengths) + geoPairs('待优化', r.weaknesses);
   if (Array.isArray(r.actionables) && r.actionables.length) {
-    html += '<div class="geo-sub-title">可以这样改</div><ol class="geo-actions">' +
-      r.actionables.map((a) => '<li><span class="geo-pri geo-pri--' + prioKey(a.priority) + '">' + prioLabel(a.priority) +
-        '</span><span class="geo-cat">' + esc(a.category || '语义') + '</span>' + esc(a.description) + '</li>').join('') +
+    html +=
+      '<div class="geo-sub-title">可以这样改</div><ol class="geo-actions">' +
+      r.actionables
+        .map(
+          (a) =>
+            '<li><span class="geo-pri geo-pri--' +
+            prioKey(a.priority) +
+            '">' +
+            prioLabel(a.priority) +
+            '</span><span class="geo-cat">' +
+            esc(a.category || '语义') +
+            '</span>' +
+            esc(a.description) +
+            '</li>',
+        )
+        .join('') +
       '</ol>';
   }
   item.innerHTML = html;
@@ -76,8 +120,13 @@ function geoCard(r) {
 
 function geoPairs(title, list) {
   if (!Array.isArray(list) || !list.length) return '';
-  return '<div class="geo-sub-title">' + title + '</div><ul class="geo-pairs">' +
-    list.map((v) => '<li>' + esc(v) + '</li>').join('') + '</ul>';
+  return (
+    '<div class="geo-sub-title">' +
+    title +
+    '</div><ul class="geo-pairs">' +
+    list.map((v) => '<li>' + esc(v) + '</li>').join('') +
+    '</ul>'
+  );
 }
 
 function prioKey(p) {
@@ -104,7 +153,9 @@ function bindGEOControls() {
         renderGEOList([]);
         renderGEOStats({});
         toast('已清空 GEO 历史', 'success');
-      } catch (err) { toast('清空失败：' + err.message, 'error'); }
+      } catch (err) {
+        toast('清空失败：' + err.message, 'error');
+      }
     });
   }
 }
@@ -114,7 +165,10 @@ async function runGEOAnalyze() {
   const goal = ($('#geo-goal').value || '').trim();
   const btn = $('#geo-analyze');
   const hint = $('#geo-analyze-hint');
-  if (content.length < 10) { toast('请至少输入 10 个字再分析', 'warning'); return; }
+  if (content.length < 10) {
+    toast('请至少输入 10 个字再分析', 'warning');
+    return;
+  }
   btn.disabled = true;
   hint.textContent = '分析中…';
   try {
