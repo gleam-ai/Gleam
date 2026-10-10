@@ -1,5 +1,4 @@
-# 全仓基准。所有格式化器都必须输出 LF：.gitattributes 是 `* -text`，
-# 工作区字节必须与提交字节一致。见 docs/engineering/google-style-conformance.md。
+# 行尾一律 LF：.gitattributes 是 `* -text`，格式化器写 CRLF 会让工作区字节与提交字节不一致。
 root = true
 
 [*]

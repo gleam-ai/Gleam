@@ -3,9 +3,8 @@ line-length = 80
 target-version = "py312"
 
 [tool.ruff.lint]
-# 只开导入排序（机械、Google Python 指南明确要求分组）。
-# E/F/W/D 一族留作后续单独评估：本仓的 `import _utf8  # noqa: F401`
-# 正是 F401 会误报的副作用导入；「补 docstring 内容」属语义改写，已列为非目标。
+# 只开导入排序。E/F/W 会误报本仓的副作用导入（`import _utf8  # noqa: F401`），
+# 开 D（补 docstring）则属语义改写。
 select = ["I"]
 
 [tool.ruff.format]

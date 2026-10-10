@@ -1,7 +1,6 @@
 import tseslint from 'typescript-eslint';
 
-// 只开语义安全、可自动修的规则。eqeqeq 只 warn：
-// 把 == 改成 === 是语义改动（全仓 16 处），属非目标。
+// 只开语义安全、可自动修的规则；eqeqeq 是语义改动，只 warn。
 export default tseslint.config(
   {
     ignores: [
