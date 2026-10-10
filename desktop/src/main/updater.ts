@@ -5,7 +5,12 @@
 // 更新从哪来不在这里决定：electron-builder 会把 electron-builder.yml 里的 `publish` 块
 // 写进 resources/app-update.yml，打包时定下来。
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
-import { autoUpdater, type ProgressInfo, type UpdateDownloadedEvent, type UpdateInfo } from 'electron-updater';
+import {
+  autoUpdater,
+  type ProgressInfo,
+  type UpdateDownloadedEvent,
+  type UpdateInfo,
+} from 'electron-updater';
 import { APP_HOST, APP_SCHEME } from './protocol';
 
 /** 推给界面的形状。`idle` 只是初始快照（按钮保持隐藏）。 */
@@ -53,19 +58,27 @@ export function installUpdater(host: UpdaterHost): void {
   // 更新要能原地替换自己。Windows（NSIS）可以；纯 Linux 的 `dir` 构建不行——
   // 只有 AppImage 会自己报上 $APPIMAGE。
   const supported = process.platform !== 'linux' || !!process.env.APPIMAGE;
-  if (!supported) log('this build cannot replace itself in place: checks stay off');
+  if (!supported)
+    log('this build cannot replace itself in place: checks stay off');
 
   const push = (status: UpdateStatus) => {
     if (status.kind === 'downloaded') staged = status.version;
-    else if (status.kind === 'available' && staged && status.version !== staged) staged = null; // 更新的版本来了：那份存档作废，重新下
-    else if (staged && (status.kind === 'checking' || status.kind === 'not-available' || status.kind === 'error')) {
+    else if (status.kind === 'available' && staged && status.version !== staged)
+      staged = null; // 更新的版本来了：那份存档作废，重新下
+    else if (
+      staged &&
+      (status.kind === 'checking' ||
+        status.kind === 'not-available' ||
+        status.kind === 'error')
+    ) {
       // 手上已经躺着一份下好并验证过的更新：之后那几次「没更新 / 出错」的结论不推翻它，
       // 否则界面上的「重启」会被下一次定时检查抹掉，而安装包还在磁盘上。
       return;
     }
     latest = status;
     for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send('desktop:update-status', status);
+      if (!win.isDestroyed())
+        win.webContents.send('desktop:update-status', status);
     }
   };
 
@@ -105,7 +118,8 @@ export function installUpdater(host: UpdaterHost): void {
   // 否则刷新之后"重启"按钮就丢在那次刷新里。
   app.on('browser-window-created', (_e, win) => {
     win.webContents.on('did-finish-load', () => {
-      if (!win.isDestroyed()) win.webContents.send('desktop:update-status', latest);
+      if (!win.isDestroyed())
+        win.webContents.send('desktop:update-status', latest);
     });
   });
 
@@ -131,7 +145,9 @@ export function installUpdater(host: UpdaterHost): void {
     version = '';
     push({ kind: 'not-available' });
   });
-  autoUpdater.on('error', (err: Error) => push({ kind: 'error', version, message: err.message }));
+  autoUpdater.on('error', (err: Error) =>
+    push({ kind: 'error', version, message: err.message }),
+  );
 
   void check();
   const timer = setInterval(() => void check(), CHECK_EVERY_MS);

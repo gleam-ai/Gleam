@@ -26,7 +26,13 @@ export interface RuntimeProbe {
 export function runtimesRoot(): string {
   const packaged = join(process.resourcesPath, 'runtimes');
   if (existsSync(packaged)) return packaged;
-  return join(__dirname, '..', '..', '.runtimes', `${process.platform}-${process.arch}`);
+  return join(
+    __dirname,
+    '..',
+    '..',
+    '.runtimes',
+    `${process.platform}-${process.arch}`,
+  );
 }
 
 /** 要补进子进程 PATH 的目录。不存在的直接跳过——开发态没跑过 fetch:runtimes 是正常情况。 */
@@ -36,19 +42,33 @@ export function runtimeBinDirs(): string[] {
 }
 
 /** 把运行时目录接到一段 PATH 前面。空列表时原样返回（不要平白多出一个分隔符）。 */
-export function pathWithRuntimes(pathValue: string | undefined, dirs = runtimeBinDirs()): string {
+export function pathWithRuntimes(
+  pathValue: string | undefined,
+  dirs = runtimeBinDirs(),
+): string {
   if (dirs.length === 0) return pathValue ?? '';
-  return dirs.join(process.platform === 'win32' ? ';' : ':') + (pathValue ? (process.platform === 'win32' ? ';' : ':') + pathValue : '');
+  return (
+    dirs.join(process.platform === 'win32' ? ';' : ':') +
+    (pathValue ? (process.platform === 'win32' ? ';' : ':') + pathValue : '')
+  );
 }
 
 /** 探测版本。失败返回空串——首启探测不能因为一个命令超时就整个卡住。 */
 function versionOf(command: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: 8000, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) return resolve('');
-      const first = String(stdout || stderr || '').trim().split(/\r?\n/)[0] ?? '';
-      resolve(first.replace(/^v/, '').trim());
-    });
+    execFile(
+      command,
+      args,
+      { timeout: 8000, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (err) return resolve('');
+        const first =
+          String(stdout || stderr || '')
+            .trim()
+            .split(/\r?\n/)[0] ?? '';
+        resolve(first.replace(/^v/, '').trim());
+      },
+    );
   });
 }
 
@@ -56,7 +76,9 @@ function versionOf(command: string, args: string[]): Promise<string> {
  * 首启检查。**内置的两样用绝对路径去问**（不靠 PATH 解析，否则 PATH 没接好时
  * 会把"没接上"误报成"没装"），git 则按系统 PATH 找——它本来就是系统级的东西。
  */
-export async function probeRuntimes(lang: Lang = 'zh'): Promise<RuntimeProbe[]> {
+export async function probeRuntimes(
+  lang: Lang = 'zh',
+): Promise<RuntimeProbe[]> {
   const root = runtimesRoot();
   const isWin = process.platform === 'win32';
   const nodeExe = join(root, 'node', isWin ? 'node.exe' : 'bin/node');
@@ -78,9 +100,14 @@ export async function probeRuntimes(lang: Lang = 'zh'): Promise<RuntimeProbe[]> 
       ok: !!nodeVer && npxThere,
       bundled: true,
       version: nodeVer,
-      detail: nodeVer && npxThere
-        ? (zh ? '市场里用 npx 起的 MCP 服务器可以直接装' : 'MCP servers that run through npx install straight from the market')
-        : (zh ? '内置的 Node 没跑起来（可能被安全软件拦了）。用到 npx 的功能会提示重装' : 'The bundled Node did not start (security software may have blocked it). Features that need npx will offer to reinstall'),
+      detail:
+        nodeVer && npxThere
+          ? zh
+            ? '市场里用 npx 起的 MCP 服务器可以直接装'
+            : 'MCP servers that run through npx install straight from the market'
+          : zh
+            ? '内置的 Node 没跑起来（可能被安全软件拦了）。用到 npx 的功能会提示重装'
+            : 'The bundled Node did not start (security software may have blocked it). Features that need npx will offer to reinstall',
     },
     {
       name: 'uv',
@@ -88,9 +115,14 @@ export async function probeRuntimes(lang: Lang = 'zh'): Promise<RuntimeProbe[]> 
       ok: !!uvVer && uvxThere,
       bundled: true,
       version: uvVer,
-      detail: uvVer && uvxThere
-        ? (zh ? '市场里用 uvx 起的 Python 类 MCP 服务器可以直接装' : 'Python-based MCP servers that run through uvx install straight from the market')
-        : (zh ? '内置的 uv 没跑起来。用到 uvx 的功能会提示重装' : 'The bundled uv did not start. Features that need uvx will offer to reinstall'),
+      detail:
+        uvVer && uvxThere
+          ? zh
+            ? '市场里用 uvx 起的 Python 类 MCP 服务器可以直接装'
+            : 'Python-based MCP servers that run through uvx install straight from the market'
+          : zh
+            ? '内置的 uv 没跑起来。用到 uvx 的功能会提示重装'
+            : 'The bundled uv did not start. Features that need uvx will offer to reinstall',
     },
     {
       name: 'git',
@@ -99,8 +131,12 @@ export async function probeRuntimes(lang: Lang = 'zh'): Promise<RuntimeProbe[]> 
       bundled: false,
       version: gitVer.replace(/^git version\s*/i, ''),
       detail: gitVer
-        ? (zh ? '编程任务里的分支、提交、worktree 都用它' : 'Used for branches, commits and worktrees in coding tasks')
-        : (zh ? '没检测到 Git：编程类任务会提示先装。内置不打包它（体积几百 MB，系统里通常已经有了）' : 'No Git detected: coding tasks will ask you to install it. Not bundled (hundreds of MB, and most systems already have it)'),
+        ? zh
+          ? '编程任务里的分支、提交、worktree 都用它'
+          : 'Used for branches, commits and worktrees in coding tasks'
+        : zh
+          ? '没检测到 Git：编程类任务会提示先装。内置不打包它（体积几百 MB，系统里通常已经有了）'
+          : 'No Git detected: coding tasks will ask you to install it. Not bundled (hundreds of MB, and most systems already have it)',
     },
   ];
 }

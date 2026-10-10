@@ -9,7 +9,17 @@
 // 「最近」那份数据由渲染层的托盘桥推过来（internal/webui/static/tray.js）：它读的是界面
 // 同一条 /api/conversations（Go 侧已按最近更新倒序），取前若干条。主进程不自己去查——
 // 同一个列表两个 owner 迟早会漂。
-import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type NativeImage } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  ipcMain,
+  nativeImage,
+  type IpcMainInvokeEvent,
+  type MenuItemConstructorOptions,
+  type NativeImage,
+} from 'electron';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { APP_HOST, APP_SCHEME } from './protocol';
@@ -20,17 +30,45 @@ const RECENT_MORE = 10;
 const TITLE_MAX = 40;
 
 export type TrayLang = 'zh' | 'en';
-export interface TrayRecent { id: string; title: string }
-export type TrayAction = { action: 'new-chat' | 'open-convo' | 'settings'; id?: string };
+export interface TrayRecent {
+  id: string;
+  title: string;
+}
+export type TrayAction = {
+  action: 'new-chat' | 'open-convo' | 'settings';
+  id?: string;
+};
 
 const TEXT = {
-  zh: { recent: '最近', more: '更多', newChat: '新建聊天', open: '打开 Gleam', settings: '设置', quit: '退出 Gleam' },
-  en: { recent: 'Recent', more: 'More', newChat: 'New chat', open: 'Open Gleam', settings: 'Settings', quit: 'Quit Gleam' },
+  zh: {
+    recent: '最近',
+    more: '更多',
+    newChat: '新建聊天',
+    open: '打开 Gleam',
+    settings: '设置',
+    quit: '退出 Gleam',
+  },
+  en: {
+    recent: 'Recent',
+    more: 'More',
+    newChat: 'New chat',
+    open: 'Open Gleam',
+    settings: 'Settings',
+    quit: 'Quit Gleam',
+  },
 } as const;
 
 const HINT = {
-  zh: { title: 'Gleam 仍在后台运行', content: '关闭窗口只是把它收起来。要退出，请用托盘图标右键菜单里的「退出 Gleam」。' },
-  en: { title: 'Gleam is still running', content: 'Closing the window only hides it. To quit, use "Quit Gleam" in the tray menu.' },
+  zh: {
+    title: 'Gleam 仍在后台运行',
+    content:
+      '关闭窗口只是把它收起来。要退出，请用托盘图标右键菜单里的「退出 Gleam」。',
+  },
+  en: {
+    title: 'Gleam is still running',
+    content:
+      'Closing the window only hides it. To quit, use "Quit Gleam" in the tray menu.',
+  },
 } as const;
 
 let tray: Tray | null = null;
@@ -55,16 +93,22 @@ function fromAppFrame(e: IpcMainInvokeEvent): boolean {
 function trayIcon(): NativeImage {
   const assets = join(__dirname, '..', '..', '..', 'assets');
   const res = process.resourcesPath ?? '';
-  const candidates = process.platform === 'win32'
-    ? [join(res, 'tray', 'gleam.ico'), join(assets, 'gleam.ico')]
-    : [join(res, 'tray', 'gleam-32.png'), join(assets, 'icons', 'gleam-32.png')];
+  const candidates =
+    process.platform === 'win32'
+      ? [join(res, 'tray', 'gleam.ico'), join(assets, 'gleam.ico')]
+      : [
+          join(res, 'tray', 'gleam-32.png'),
+          join(assets, 'icons', 'gleam-32.png'),
+        ];
   for (const p of candidates) {
     if (p && existsSync(p)) {
       const img = nativeImage.createFromPath(p);
       if (!img.isEmpty()) return img;
     }
   }
-  console.warn(`[tray] 没找到托盘图标，先用空图（图标位置仍然在，只是透明的）：${candidates.join(' | ')}`);
+  console.warn(
+    `[tray] 没找到托盘图标，先用空图（图标位置仍然在，只是透明的）：${candidates.join(' | ')}`,
+  );
   return nativeImage.createEmpty();
 }
 
@@ -98,11 +142,14 @@ function label(title: string, fallback: string): string {
 /** 菜单当前长什么样，一行说完。dev 下打日志用：这样不看托盘也能核对结构与文案。 */
 export function describeTrayMenu(): string {
   const t = TEXT[lang];
-  const head = recents.slice(0, RECENT_TOP).map((r) => JSON.stringify(label(r.title, r.id.slice(0, 8))));
+  const head = recents
+    .slice(0, RECENT_TOP)
+    .map((r) => JSON.stringify(label(r.title, r.id.slice(0, 8))));
   const rest = recents.length - RECENT_TOP;
-  const recent = recents.length === 0
-    ? `${t.recent}(灰)`
-    : `${t.recent}[${head.join(' / ')}${rest > 0 ? ` + ${t.more}(${Math.min(rest, RECENT_MORE)})` : ''}]`;
+  const recent =
+    recents.length === 0
+      ? `${t.recent}(灰)`
+      : `${t.recent}[${head.join(' / ')}${rest > 0 ? ` + ${t.more}(${Math.min(rest, RECENT_MORE)})` : ''}]`;
   return [recent, t.newChat, t.open, t.settings, t.quit].join(' | ');
 }
 
@@ -120,15 +167,25 @@ function buildMenu(): Menu {
   } else {
     const sub = recents.slice(0, RECENT_TOP).map(convoItem);
     const rest = recents.slice(RECENT_TOP, RECENT_TOP + RECENT_MORE);
-    if (rest.length) sub.push({ type: 'separator' }, { label: t.more, submenu: rest.map(convoItem) });
+    if (rest.length)
+      sub.push(
+        { type: 'separator' },
+        { label: t.more, submenu: rest.map(convoItem) },
+      );
     items.push({ label: t.recent, submenu: sub });
   }
 
   items.push(
     { type: 'separator' },
-    { label: t.newChat, click: () => dispatchTrayAction({ action: 'new-chat' }) },
+    {
+      label: t.newChat,
+      click: () => dispatchTrayAction({ action: 'new-chat' }),
+    },
     { label: t.open, click: reveal },
-    { label: t.settings, click: () => dispatchTrayAction({ action: 'settings' }) },
+    {
+      label: t.settings,
+      click: () => dispatchTrayAction({ action: 'settings' }),
+    },
     { type: 'separator' },
     { label: t.quit, click: () => app.quit() }, // 不设 quitting：让 before-quit 照常去停后端
   );
@@ -137,13 +194,21 @@ function buildMenu(): Menu {
 
 /** 渲染层推来的状态：语言 + 最近会话。形状不对的部分一律忽略，只吃认得的。 */
 function applySync(state: unknown): void {
-  const s = (typeof state === 'object' && state !== null ? state : {}) as { lang?: unknown; recents?: unknown };
+  const s = (typeof state === 'object' && state !== null ? state : {}) as {
+    lang?: unknown;
+    recents?: unknown;
+  };
   if (s.lang === 'en' || s.lang === 'zh') lang = s.lang;
   if (Array.isArray(s.recents)) {
     recents = s.recents
-      .filter((r): r is TrayRecent => !!r && typeof r === 'object'
-        && typeof (r as TrayRecent).id === 'string' && (r as TrayRecent).id !== ''
-        && typeof (r as TrayRecent).title === 'string')
+      .filter(
+        (r): r is TrayRecent =>
+          !!r &&
+          typeof r === 'object' &&
+          typeof (r as TrayRecent).id === 'string' &&
+          (r as TrayRecent).id !== '' &&
+          typeof (r as TrayRecent).title === 'string',
+      )
       .slice(0, RECENT_TOP + RECENT_MORE)
       .map((r) => ({ id: r.id, title: r.title }));
   }
@@ -171,7 +236,9 @@ export function installTray(): void {
     applySync(state);
     return { ok: true };
   });
-  console.log(`[tray] 已创建：icon=${icon.isEmpty() ? '(empty)' : 'ok'} 后端语言默认=${lang}`);
+  console.log(
+    `[tray] 已创建：icon=${icon.isEmpty() ? '(empty)' : 'ok'} 后端语言默认=${lang}`,
+  );
 }
 
 /**
