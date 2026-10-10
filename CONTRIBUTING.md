@@ -81,6 +81,47 @@ go run ./cmd/gleam webui       # loopback API + web UI; prints the token file pa
 go run ./cmd/gleam version     # the version owner, see below
 ```
 
+### Formatting and lint (Google style)
+
+The repo follows the [Google Style Guides](https://google.github.io/styleguide/)
+per language. Every rule below is enforced by the `style` job in CI, so none of
+it has to be remembered:
+
+```bash
+npm ci                     # once: the JS/TS toolchain lives in the root package.json
+npm run format             # prettier --write .
+npm run format:check       # what CI runs
+npm run lint               # eslint .
+
+python -m ruff format .    # Python; config in pyproject.toml
+python -m ruff check .
+
+shfmt -d -i 2 -ci scripts/*.sh scripts/lib/*.sh
+```
+
+| Language | Tool | Standard |
+| --- | --- | --- |
+| Go | `gofmt` (already in the gate) | Google's Go guide defers to gofmt and sets no column limit |
+| JS / TS | prettier + eslint | 2-space, 80 columns, single quotes, semicolons |
+| CSS | prettier | **double** quotes — Google's CSS guide differs from its JS guide, which is why `.prettierrc.json` carries an `overrides` entry |
+| Python | ruff | 4-space, 80 columns, import sorting only |
+| Shell | shfmt | 2-space, indented `case` |
+| Markdown / YAML | — | no published Google guide; `.editorconfig` covers indentation and line endings |
+
+Two rules are deliberately **off**; enabling them is a separate decision, not a
+formatting one:
+
+- **`eqeqeq` is a warning.** Rewriting `==` to `===` changes behaviour.
+- **Ruff selects only `I`.** `import _utf8  # noqa: F401` is a side-effect import
+  that `F401` would misfire on, and requiring docstring *content* is a semantic
+  change.
+
+`shellcheck` is not wired in yet — its findings (quoting, `[[ ]]`) are semantic
+fixes, so adopting it means agreeing to take those changes.
+
+`.editorconfig` sets `end_of_line = lf` everywhere, matching `.gitattributes`
+(`* -text`): the working tree must stay byte-identical to what is committed.
+
 ### Gates that guard the documentation
 
 Several checks read the repository's own prose, so documentation is not optional
