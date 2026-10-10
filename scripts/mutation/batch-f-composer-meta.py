@@ -59,60 +59,90 @@ MUTATIONS = [
         # （{6,4,100}：万一上游异常或容量被改小，也不给前端一个撑破条的宽度）。
         "name": "fillPct 不钳 100（异常输入报出 150%）",
         "file": "internal/harness/memory/store.go",
-        "edits": [(
-            """	if p := 100 * turns / capacity; p < 100 {
+        "edits": [
+            (
+                """	if p := 100 * turns / capacity; p < 100 {
 		return p
 	}
 	return 100
 """,
-            "	return 100 * turns / capacity\n")],
+                "	return 100 * turns / capacity\n",
+            )
+        ],
         "targets": [t(MEM, "TestFillPct_ZeroCap")],
     },
     # ---------- 水位的接线（四个出口，两处最容易漏） ----------
     {
         "name": "水位多算一轮（空窗口一打开就报 25%）",
         "file": "internal/harness/memory/store.go",
-        "edits": [("		FillPct:      fillPct(m.Short.Len(), m.Short.cap),",
-                   "		FillPct:      fillPct(m.Short.Len()+1, m.Short.cap),")],
+        "edits": [
+            (
+                "		FillPct:      fillPct(m.Short.Len(), m.Short.cap),",
+                "		FillPct:      fillPct(m.Short.Len()+1, m.Short.cap),",
+            )
+        ],
         "targets": [t(MEM, "TestManager_StatsFillPct")],
     },
     {
         "name": "Manager.Stats 恒报水位 0（源头一漏，下游全绿）",
         "file": "internal/harness/memory/store.go",
-        "edits": [("		FillPct:      fillPct(m.Short.Len(), m.Short.cap),", "		FillPct:      0,")],
+        "edits": [
+            (
+                "		FillPct:      fillPct(m.Short.Len(), m.Short.cap),",
+                "		FillPct:      0,",
+            )
+        ],
         "targets": [t(WEBUI, "TestContext_CarriesWaterLevel")],
     },
     {
         "name": "ContextView 不发 fill_pct（输入区水位条没有数据来源）",
         "file": "internal/agent/webfacade.go",
-        "edits": [('		"fill_pct":      st.FillPct, // 轮数口径：短期窗口攒了多少轮（上限是配置的轮数容量，与模型无关）\n', "")],
+        "edits": [
+            (
+                '		"fill_pct":      st.FillPct, // 轮数口径：短期窗口攒了多少轮（上限是配置的轮数容量，与模型无关）\n',
+                "",
+            )
+        ],
         "targets": [t(WEBUI, "TestContext_CarriesWaterLevel")],
     },
     # ---------- 就地切模型的补丁语义（只发一个键不许清掉别的） ----------
     {
         "name": "补丁把没发的 fast_model 清空（切模型后压缩悄悄退回主模型）",
         "file": "internal/config/config.go",
-        "edits": [("		getStrAssign(v, \"fast_model\", &c.LLM.FastModel)",
-                   "		c.LLM.FastModel, _ = v[\"fast_model\"].(string)")],
+        "edits": [
+            (
+                '		getStrAssign(v, "fast_model", &c.LLM.FastModel)',
+                '		c.LLM.FastModel, _ = v["fast_model"].(string)',
+            )
+        ],
         "targets": [t(WEBUI, "TestSettings_ModelOnlyPatchIsAccepted")],
     },
     {
         "name": "补丁把档位表当成整段重置（切一次模型，两张档位都没了）",
         "file": "internal/config/config.go",
-        "edits": [(
-            """		if tiers, ok := v["tiers"].(map[string]any); ok {
+        "edits": [
+            (
+                """		if tiers, ok := v["tiers"].(map[string]any); ok {
 			c.LLM.Tiers = map[string]string{}
 			for name, model := range tiers {
 """,
-            """		c.LLM.Tiers = map[string]string{}
+                """		c.LLM.Tiers = map[string]string{}
 		if tiers, ok := v["tiers"].(map[string]any); ok {
 			for name, model := range tiers {
-""")],
+""",
+            )
+        ],
         "targets": [t(WEBUI, "TestSettings_ModelOnlyPatchIsAccepted")],
     },
 ]
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 F：输入区水位与模型的负例控制", MUTATIONS,
-                       timeout=180, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 F：输入区水位与模型的负例控制",
+            MUTATIONS,
+            timeout=180,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

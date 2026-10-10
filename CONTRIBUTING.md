@@ -81,6 +81,52 @@ go run ./cmd/gleam webui       # loopback API + web UI; prints the token file pa
 go run ./cmd/gleam version     # the version owner, see below
 ```
 
+### Formatting and lint: this project follows the Google Style Guides
+
+**The standard is the [Google Style Guides](https://google.github.io/styleguide/),
+applied per language.** That is a project rule, not a preference: every file in
+this repository is expected to conform, and the `style` job in CI fails the
+build when one does not. Run the same commands locally before pushing:
+
+```bash
+npm ci                     # once: the JS/TS toolchain lives in the root package.json
+npm run format             # prettier --write .
+npm run format:check       # what CI runs
+npm run lint               # eslint .
+
+python -m ruff format .    # Python; config in pyproject.toml
+python -m ruff check .
+
+shfmt -d -i 2 -ci scripts/*.sh scripts/lib/*.sh
+```
+
+Which guide applies to which language, and what enforces it:
+
+| Language | Google guide | Enforced by | Notes |
+| --- | --- | --- | --- |
+| Go | Go Style Guide | `gofmt` (already in the gate) | the guide defers to gofmt and sets no column limit |
+| JavaScript / TypeScript | JS / TS Style Guide | prettier + eslint | 2-space, 80 columns, single quotes, semicolons |
+| CSS | HTML/CSS Style Guide | prettier | **double** quotes — the CSS guide differs from the JS guide, hence the `overrides` entry in `.prettierrc.json` |
+| Python | Python Style Guide | ruff | 4-space, 80 columns, import sorting only |
+| Shell | Shell Style Guide | shfmt | 2-space, indented `case` |
+| HTML | HTML/CSS Style Guide | prettier | 2-space |
+| Markdown / YAML / JSON | — | prettier (JSON), `.editorconfig` (all) | no published Google guide for Markdown or YAML |
+| Every language | — | `.editorconfig` | indentation, UTF-8, final newline, trailing whitespace |
+
+Three deviations are deliberate, and changing them is a separate decision
+rather than a formatting one:
+
+- **`eqeqeq` is a warning, not an error.** Rewriting `==` to `===` changes
+  behaviour.
+- **Ruff selects only `I`.** `import _utf8  # noqa: F401` is a side-effect import
+  that `F401` would misfire on, and requiring docstring *content* is a semantic
+  change.
+- **`shellcheck` is not wired in yet** — its findings (quoting, `[[ ]]`) are
+  semantic fixes, so adopting it means agreeing to take those changes.
+
+`.editorconfig` sets `end_of_line = lf` everywhere, matching `.gitattributes`
+(`* -text`): the working tree must stay byte-identical to what is committed.
+
 ### Gates that guard the documentation
 
 Several checks read the repository's own prose, so documentation is not optional

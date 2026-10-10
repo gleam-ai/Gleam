@@ -40,8 +40,14 @@ source scripts/lib/gonoise.sh
 
 PASS=0
 FAIL=0
-ok() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
-bad() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
+ok() {
+  echo "  ✓ $1"
+  PASS=$((PASS + 1))
+}
+bad() {
+  echo "  ✗ $1"
+  FAIL=$((FAIL + 1))
+}
 
 echo "[smoke] 临时目录 $TMP（不清理）"
 echo "[smoke] 构建二进制…"
@@ -51,14 +57,16 @@ go_retry "smoke 构建" go build -trimpath -ldflags="-s -w" -o "$BIN" ./cmd/glea
 }
 
 # Mock 响应脚本：规划 → 反思
-cat > "$TMP/script.json" <<'EOF'
+cat >"$TMP/script.json" <<'EOF'
 [
   {"kind":"plan","texts":["{\"steps\":[{\"id\":\"s1\",\"description\":\"写入问候\",\"tool\":\"file.write\",\"args\":{\"path\":\"smoke.txt\",\"content\":\"Hello Gleam\"}},{\"id\":\"s2\",\"description\":\"读取验证\",\"tool\":\"file.read\",\"args\":{\"path\":\"smoke.txt\"},\"depends_on\":[\"s1\"]},{\"id\":\"s3\",\"description\":\"回复\",\"tool\":\"reply\",\"args\":{\"text\":\"冒烟测试通过：smoke.txt 已创建\"}}],\"estimated_time\":\"short\"}"]},
   {"kind":"reflect","texts":["{\"score\":97,\"verdict\":\"done\",\"reason\":\"全部成功\",\"suggestion\":\"可以把该流程固化为技能\"}"]}
 ]
 EOF
 
-WS="$TMP/ws"; DATA="$TMP/data"; mkdir -p "$WS" || exit 1
+WS="$TMP/ws"
+DATA="$TMP/data"
+mkdir -p "$WS" || exit 1
 
 # 交给**二进制**（Windows 程序）与 HTTP 的路径，一律转成 cygpath 形态。
 #
@@ -79,7 +87,8 @@ WSC=$(slash "$WS")
 DATAC=$(slash "$DATA")
 # 切到一个**新**目录，这样"已持久化"才是真的在证明"切换生效了"，
 # 而不是在证明"启动参数写过这个路径"。
-WS2="$TMP/ws2"; mkdir -p "$WS2" || exit 1
+WS2="$TMP/ws2"
+mkdir -p "$WS2" || exit 1
 WS2C=$(slash "$WS2")
 
 OUT="$TMP/session.out"
@@ -117,7 +126,7 @@ wait_out() {
   sleep 0.3
   printf '%s\n' '{"jsonrpc":"2.0","id":9,"method":"shutdown","params":{}}'
   sleep 1
-} | GLEAM_NO_SYS_NOTIFY=1 "$BIN" serve --mock-llm --mock-script "$TMPC/script.json" --workspace "$WSC" --data-dir "$DATAC" > "$OUT" 2>"$TMP/err.log"
+} | GLEAM_NO_SYS_NOTIFY=1 "$BIN" serve --mock-llm --mock-script "$TMPC/script.json" --workspace "$WSC" --data-dir "$DATAC" >"$OUT" 2>"$TMP/err.log"
 
 echo "===== 会话输出（关键行） ====="
 grep -q '"method":"goal/progress"' "$OUT" && ok "goal/progress 推送" || bad "goal/progress 推送"
@@ -150,7 +159,7 @@ page_has() {
 # GLEAM_NO_SYS_NOTIFY=1：冒烟会真的触发定时任务，不禁用就会在开发机上弹系统通知。
 # 禁用**不是**静默丢弃——待发内容会打到 stderr（webui.out），所以"通知到底发了没有"
 # 仍然可断言。这条断言正是本批 P0 的端到端出口：判据对但线没接，本仓库栽过四次。
-GLEAM_WEBUI_TOKEN="$SMOKE_TOKEN" GLEAM_NO_SYS_NOTIFY=1 "$BIN" webui --addr "127.0.0.1:$PORT" --mock-llm --mock-script "$TMPC/script.json" --workspace "$WSC" --data-dir "$DATAC" > "$TMP/webui.out" 2>&1 &
+GLEAM_WEBUI_TOKEN="$SMOKE_TOKEN" GLEAM_NO_SYS_NOTIFY=1 "$BIN" webui --addr "127.0.0.1:$PORT" --mock-llm --mock-script "$TMPC/script.json" --workspace "$WSC" --data-dir "$DATAC" >"$TMP/webui.out" 2>&1 &
 WEBPID=$!
 trap 'kill "${WEBPID:-}" 2>/dev/null || true' EXIT
 sleep 1.5
@@ -158,7 +167,7 @@ sleep 1.5
 curl -sf "http://127.0.0.1:$PORT/api/info" | grep -q '"name":"gleam"' && ok "WebUI /api/info" || bad "WebUI /api/info"
 CODE=$(command curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/api/info")
 [ "$CODE" = "401" ] && ok "WebUI 无口令请求被拒（401）" || bad "WebUI 无口令请求被拒（实际 $CODE）"
-[ "$(tr -d '[:space:]' < "$DATA/webui.token" 2>/dev/null)" = "$SMOKE_TOKEN" ] && ok "WebUI 口令文件 webui.token" || bad "WebUI 口令文件 webui.token"
+[ "$(tr -d '[:space:]' <"$DATA/webui.token" 2>/dev/null)" = "$SMOKE_TOKEN" ] && ok "WebUI 口令文件 webui.token" || bad "WebUI 口令文件 webui.token"
 page_has 'name="gleam-token"' && ok "WebUI 首页注入口令" || bad "WebUI 首页注入口令"
 page_has "Gleam" && ok "WebUI 首页渲染" || bad "WebUI 首页渲染"
 curl -sf -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/assets/app.js" | grep -q 200 && ok "WebUI 静态资源" || bad "WebUI 静态资源"
@@ -169,10 +178,10 @@ curl -sf -X POST "http://127.0.0.1:$PORT/api/hooks/smoke-job" | grep -q '"trigge
 # 这几条不只验"接口通"，而是验**接线通**：策略存得下、读得回、非法值被拒，
 # 最后真的触发一次任务，看通知路径有没有跑到。
 curl -sf -X POST "http://127.0.0.1:$PORT/api/schedules" -H "Content-Type: application/json" \
-  -d '{"name":"notify-job","goal":"定时冒烟","interval_sec":3600,"notify":"always"}' \
-  | grep -q '"notify":"always"' && ok "定时任务可带通知策略创建" || bad "定时任务可带通知策略创建"
-curl -sf "http://127.0.0.1:$PORT/api/schedules" | grep -q '"name":"notify-job"' \
-  && ok "定时任务出现在列表" || bad "定时任务出现在列表"
+  -d '{"name":"notify-job","goal":"定时冒烟","interval_sec":3600,"notify":"always"}' |
+  grep -q '"notify":"always"' && ok "定时任务可带通知策略创建" || bad "定时任务可带通知策略创建"
+curl -sf "http://127.0.0.1:$PORT/api/schedules" | grep -q '"name":"notify-job"' &&
+  ok "定时任务出现在列表" || bad "定时任务出现在列表"
 curl -sf -X POST "http://127.0.0.1:$PORT/api/schedules/notify-job/notify" -H "Content-Type: application/json" \
   -d '{"notify":"never"}' | grep -q '"notify":"never"' && ok "通知策略可改（always → never）" || bad "通知策略可改（always → never）"
 curl -sf -X POST "http://127.0.0.1:$PORT/api/schedules/notify-job/notify" -H "Content-Type: application/json" \

@@ -21,7 +21,9 @@ function resolveAppIcon(): string | undefined {
 // minimise / maximise / close buttons in the 44px top bar (--topbar-h in style.css), and marks the
 // rest of the top bar as a drag region. macOS keeps the system traffic lights (hidden title bar);
 // the UI pads the top bar for them via html[data-platform="darwin"] (unverified on macOS).
-export function createMainWindow(opts: { width?: number; height?: number } = {}): BrowserWindow {
+export function createMainWindow(
+  opts: { width?: number; height?: number } = {},
+): BrowserWindow {
   const isMac = process.platform === 'darwin';
   const icon = resolveAppIcon();
   console.log(`[desktop] window icon: ${icon ?? '(built-in)'}`);
@@ -35,7 +37,12 @@ export function createMainWindow(opts: { width?: number; height?: number } = {})
     title: 'Gleam',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#161615' : '#f5f5f2',
     autoHideMenuBar: true,
-    ...(isMac ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 14, y: 14 } } : { frame: false }),
+    ...(isMac
+      ? {
+          titleBarStyle: 'hidden' as const,
+          trafficLightPosition: { x: 14, y: 14 },
+        }
+      : { frame: false }),
     webPreferences: {
       preload: join(__dirname, '..', 'preload', 'index.js'),
       contextIsolation: true,

@@ -5,6 +5,9 @@ bin/
 *.out
 tmp/
 
+# 依赖目录：根 package.json（JS 工具链）会生成根 node_modules/
+node_modules/
+
 # 变异脚本 import _harness 留下的字节码缓存（每次跑批都会生成，不该进仓库）
 __pycache__/
 *.pyc
@@ -28,8 +31,7 @@ desktop/dist2/
 .claude/
 .agents/
 
-# 内部文档（仅 README.md 对外展示）
-AGENTS.md
+# 内部文档（只在本机保留；AGENTS.md 不在此列，它是给所有人的 agent 入口）
 *对照与升级清单.md
 CODE_REVIEW_REPORT.md
 Gleam 技术设计文档.md

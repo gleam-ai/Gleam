@@ -20,6 +20,7 @@
 用法：python scripts/check-atomic-write.py [仓库根目录]
 退出码：0 = 没有越界写法；1 = 有（逐条打印 文件:行号）。
 """
+
 import io
 import os
 import re
@@ -30,7 +31,17 @@ import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会�
 # 允许直接写文件的唯一位置：原子写这一层自己。
 ALLOW_PREFIX = os.path.join("internal", "atomicfile")
 RAW_WRITE = re.compile(r"\bos\.WriteFile\s*\(")
-SKIP_DIRS = {".git", "node_modules", "dist", ".workbuddy-ai", ".qoder-cn", ".cursor", ".claude", ".agents", "bin"}
+SKIP_DIRS = {
+    ".git",
+    "node_modules",
+    "dist",
+    ".workbuddy-ai",
+    ".qoder-cn",
+    ".cursor",
+    ".claude",
+    ".agents",
+    "bin",
+}
 
 
 def main() -> int:
@@ -57,20 +68,32 @@ def main() -> int:
                     print("读不到 %s：%s" % (p, e))
                     return 1
                 for i, line in enumerate(text.splitlines(), 1):
-                    code = line.split("//", 1)[0]  # 注释里提它是在解释规矩，不算越界
+                    code = line.split("//", 1)[
+                        0
+                    ]  # 注释里提它是在解释规矩，不算越界
                     if RAW_WRITE.search(code):
                         bad.append("%s:%d" % (p.replace("\\", "/"), i))
 
     if scanned == 0:
-        print("一个 .go 文件都没扫到（%s）：检查本身失效，请先修本脚本。" % ", ".join(scan_roots))
+        print(
+            "一个 .go 文件都没扫到（%s）：检查本身失效，请先修本脚本。"
+            % ", ".join(scan_roots)
+        )
         return 1
     if bad:
-        print("持久化写入必须走 internal/atomicfile（半截 JSON = 整份状态丢失），但下列位置直接 os.WriteFile：")
+        print(
+            "持久化写入必须走 internal/atomicfile（半截 JSON = 整份状态丢失），但下列位置直接 os.WriteFile："
+        )
         for b in bad:
             print("  " + b)
-        print("  共 %d 处。改成 atomicfile.Write(path, data, perm)。" % len(bad))
+        print(
+            "  共 %d 处。改成 atomicfile.Write(path, data, perm)。" % len(bad)
+        )
         return 1
-    print("  落盘写法干净：%d 个非测试 .go 文件，状态写入都走 internal/atomicfile" % scanned)
+    print(
+        "  落盘写法干净：%d 个非测试 .go 文件，状态写入都走 internal/atomicfile"
+        % scanned
+    )
     return 0
 
 

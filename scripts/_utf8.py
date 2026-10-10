@@ -16,6 +16,7 @@
 
 用法：在 `check-*.py` 里 `import _utf8  # noqa: F401`（同目录，无需处理 sys.path）。
 """
+
 import sys
 
 for _name in ("stdout", "stderr"):

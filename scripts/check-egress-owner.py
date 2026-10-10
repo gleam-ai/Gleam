@@ -45,6 +45,7 @@ kind 传变量 / 清单解析不出 / 文案里带 markdown 强调）断言会�
 用法：python scripts/check-egress-owner.py [--self-test] [仓库根目录]
 退出码：0 = 双向对上、没有传变量的落点、文案没有 markdown 标记；1 = 否则。
 """
+
 import io
 import os
 import re
@@ -90,14 +91,14 @@ def scan_sites(docs):
     literals, variables = [], []
     for label, src in docs:
         for m in re.finditer(r"\b%s\(" % CALL_NAME, src):
-            before = src[:m.start()]
+            before = src[: m.start()]
             # 跳过函数定义本身（`func (g *Gate) RecordEgress(kind, host …)`）：
             # 它的第一参数按定义就是变量，把它算成"传变量的落点"会在第一天就红在自己身上。
             if re.search(r"func\s+(?:\([^)]*\)\s*)?$", before):
                 continue
             arg = first_arg(src, m.end() - 1)
             lit = STR_RE.fullmatch(arg)
-            line = src[:m.start()].count("\n") + 1
+            line = src[: m.start()].count("\n") + 1
             if lit:
                 literals.append((lit.group(1), "%s:%d" % (label, line)))
             else:
@@ -122,7 +123,7 @@ def markdown_in_texts(src):
     hits = []
     for m in STR_RE.finditer(src):
         if "**" in m.group(0):
-            hits.append((src[:m.start()].count("\n") + 1, m.group(1)[:56]))
+            hits.append((src[: m.start()].count("\n") + 1, m.group(1)[:56]))
     return hits
 
 
@@ -130,14 +131,21 @@ def judge(kinds, literals, variables, md_hits, say):
     """判据只写这一份：真文件与负例共用同一套判断，否则负例证的不是真判据。"""
     rc = 0
     if kinds is None:
-        say("解析不出 egressKinds（owner：%s）：判据失效，请先修本脚本或补回清单。"
-            % OWNER_FILE.replace("\\", "/"))
+        say(
+            "解析不出 egressKinds（owner：%s）：判据失效，请先修本脚本或补回清单。"
+            % OWNER_FILE.replace("\\", "/")
+        )
         return 1
     if not kinds:
-        say("egressKinds 是空的：那这张台账就没有任何出网行，判据也无从对账——红。")
+        say(
+            "egressKinds 是空的：那这张台账就没有任何出网行，判据也无从对账——红。"
+        )
         return 1
     if not literals and not variables:
-        say("全仓一个 %s 调用点都没扫到：留痕接线被删了还是改了名？检查本身失效。" % CALL_NAME)
+        say(
+            "全仓一个 %s 调用点都没扫到：留痕接线被删了还是改了名？检查本身失效。"
+            % CALL_NAME
+        )
         return 1
 
     listed = set(kinds)
@@ -145,8 +153,10 @@ def judge(kinds, literals, variables, md_hits, say):
 
     unlisted = sorted(k for k in recorded if k not in listed)
     if unlisted:
-        say("这些出网落点记了留痕，却不在台账清单 egressKinds 里（界面上没有这一行，"
-            "等于连了没交代）：")
+        say(
+            "这些出网落点记了留痕，却不在台账清单 egressKinds 里（界面上没有这一行，"
+            "等于连了没交代）："
+        )
         for k in unlisted:
             where = [loc for kk, loc in literals if kk == k]
             say("  %s ← %s" % (k, "、".join(where)))
@@ -154,27 +164,39 @@ def judge(kinds, literals, variables, md_hits, say):
 
     unrecorded = sorted(k for k in listed if k not in recorded)
     if unrecorded:
-        say("台账清单里登记了这些出网落点，代码里却没有任何一处记它（那一行的读数永远说"
-            "\"没有记录\"，而真实原因是\"没往这一类记\"）：")
+        say(
+            "台账清单里登记了这些出网落点，代码里却没有任何一处记它（那一行的读数永远说"
+            '"没有记录"，而真实原因是"没往这一类记"）：'
+        )
         for k in unrecorded:
             say("  %s" % k)
         rc = 1
 
     if variables:
-        say("这些 %s 调用点的 kind 不是字符串字面量，闸门与台账都无从对账——请写死：" % CALL_NAME)
+        say(
+            "这些 %s 调用点的 kind 不是字符串字面量，闸门与台账都无从对账——请写死："
+            % CALL_NAME
+        )
         for loc, arg in variables:
             say("  %s  first arg = %s" % (loc, arg))
         rc = 1
 
     if md_hits:
-        say("台账文案里有 markdown 强调标记：这张表按纯文本呈现，星号会原样显示在界面上——")
+        say(
+            "台账文案里有 markdown 强调标记：这张表按纯文本呈现，星号会原样显示在界面上——"
+        )
         for line, snippet in md_hits:
-            say("  %s:%d  「%s」" % (OWNER_FILE.replace("\\", "/"), line, snippet))
+            say(
+                "  %s:%d  「%s」"
+                % (OWNER_FILE.replace("\\", "/"), line, snippet)
+            )
         rc = 1
 
     if rc == 0:
-        say("  出网落点对上：%d 条登记、%d 个字面量调用点、无传变量的落点、文案无 markdown 标记"
-            % (len(listed), len(literals)))
+        say(
+            "  出网落点对上：%d 条登记、%d 个字面量调用点、无传变量的落点、文案无 markdown 标记"
+            % (len(listed), len(literals))
+        )
     return rc
 
 
@@ -198,31 +220,55 @@ def go_files(root):
 
 def self_test() -> int:
     """四份坏文本必须拦住 + 一份干扰文本不许误报。"""
-    head = "var egressKinds = []string{\"llm\", \"web.fetch\", \"cloud\", \"feedback\"}\n"
-    good_sites = ('a := "x"\n'
-                  'llm.SetEgressHook(func(host string, n int) { gate.RecordEgress("llm", host, n) })\n'
-                  'webTool.OnEgress = func(host string, n int) { gate.RecordEgress("web.fetch", host, n) }\n'
-                  'authMgr.OnEgress = func(host string, n int) { gate.RecordEgress("cloud", host, n) }\n'
-                  's.Agent.Gate.RecordEgress("feedback", host, n)\n')
+    head = (
+        'var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback"}\n'
+    )
+    good_sites = (
+        'a := "x"\n'
+        'llm.SetEgressHook(func(host string, n int) { gate.RecordEgress("llm", host, n) })\n'
+        'webTool.OnEgress = func(host string, n int) { gate.RecordEgress("web.fetch", host, n) }\n'
+        'authMgr.OnEgress = func(host string, n int) { gate.RecordEgress("cloud", host, n) }\n'
+        's.Agent.Gate.RecordEgress("feedback", host, n)\n'
+    )
     sink = []
-    if judge(owner_kinds(strip_go_comments(head)), *scan_sites([("main.go", good_sites)]),
-             markdown_in_texts(strip_go_comments(head) + good_sites), sink.append) != 0:
+    if (
+        judge(
+            owner_kinds(strip_go_comments(head)),
+            *scan_sites([("main.go", good_sites)]),
+            markdown_in_texts(strip_go_comments(head) + good_sites),
+            sink.append,
+        )
+        != 0
+    ):
         print("真形状被判红，self-test 无从对照：\n  " + "\n  ".join(sink))
         return 1
 
     bad = [
         ("新增落点没登记", head, 'gate.RecordEgress("telemetry", host, n)\n'),
-        ("登记了却没人记", 'var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "push"}\n',
-         good_sites),
-        ("kind 传变量", head, good_sites + 'gate.RecordEgress(kindArg, host, n)\n'),
+        (
+            "登记了却没人记",
+            'var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "push"}\n',
+            good_sites,
+        ),
+        (
+            "kind 传变量",
+            head,
+            good_sites + "gate.RecordEgress(kindArg, host, n)\n",
+        ),
         ("清单解析不出", 'var somethingElse = []string{"llm"}\n', good_sites),
-        ("文案带 markdown 强调", head, good_sites + 'r.Trigger = "它是只读工具，**默认不经过你的批准**"\n'),
+        (
+            "文案带 markdown 强调",
+            head,
+            good_sites + 'r.Trigger = "它是只读工具，**默认不经过你的批准**"\n',
+        ),
     ]
     rc = 0
     for name, kinds_src, sites_src in bad:
         sink = []
         kinds = owner_kinds(strip_go_comments(kinds_src))
-        literals, variables = scan_sites([("case.go", strip_go_comments(sites_src))])
+        literals, variables = scan_sites(
+            [("case.go", strip_go_comments(sites_src))]
+        )
         md_hits = markdown_in_texts(strip_go_comments(kinds_src + sites_src))
         if judge(kinds, literals, variables, md_hits, sink.append) == 0:
             print("负例没被拦住：%s —— 判据在永远点头，本脚本要修" % name)
@@ -231,10 +277,15 @@ def self_test() -> int:
             print("  拦住：%s（%s）" % (name, sink[0][:56]))
 
     # 干扰文本一：注释里提一句这个函数名（台账的文档注释就是这么写的），不许凭空多出一个落点。
-    decoy_src = ('// 门控留痕见 gate.%s("cloud", host, n)——注释不是调用点。\n' % CALL_NAME) + head
+    decoy_src = (
+        '// 门控留痕见 gate.%s("cloud", host, n)——注释不是调用点。\n'
+        % CALL_NAME
+    ) + head
     sink = []
     kinds = owner_kinds(strip_go_comments(decoy_src))
-    literals, variables = scan_sites([("comment.go", strip_go_comments(decoy_src))])
+    literals, variables = scan_sites(
+        [("comment.go", strip_go_comments(decoy_src))]
+    )
     if literals:
         print("注释里的调用点被当成了真落点：%s —— 剥注释没生效" % literals)
         rc = 1
@@ -243,7 +294,7 @@ def self_test() -> int:
 
     # 干扰文本二：注释里用 `**` 标重点（这个文件的注释本来就在这么写），不许判红。
     # 注释是写给读源码的人的，只有字符串会上界面——判据混在一起，第一天就红在满屏假告警上。
-    decoy_md = '// egressKinds 出网落点清单，**这一份是 owner**。\n' + head
+    decoy_md = "// egressKinds 出网落点清单，**这一份是 owner**。\n" + head
     hits = markdown_in_texts(strip_go_comments(decoy_md))
     if hits:
         print("注释里的 markdown 标记被当成了文案：%s —— 剥注释没生效" % hits)
@@ -263,7 +314,9 @@ def main() -> int:
         print(str(e))
         return 1
     if not docs:
-        print("一个 .go 文件都没扫到（%s）：检查本身失效，请先修本脚本。" % root)
+        print(
+            "一个 .go 文件都没扫到（%s）：检查本身失效，请先修本脚本。" % root
+        )
         return 1
 
     owner_label = OWNER_FILE.replace("\\", "/")
@@ -273,7 +326,10 @@ def main() -> int:
             owner_src = src
             break
     if owner_src is None:
-        print("扫到了 %d 个 .go 文件却没有 %s：清单搬家了？判据失效。" % (len(docs), owner_label))
+        print(
+            "扫到了 %d 个 .go 文件却没有 %s：清单搬家了？判据失效。"
+            % (len(docs), owner_label)
+        )
         return 1
 
     kinds = owner_kinds(owner_src)

@@ -15,14 +15,16 @@ import { installTray, dispatchTrayAction, trayHintOnce } from './tray';
 import { installUpdater } from './updater';
 
 const t0 = Date.now();
-const log = (msg: string) => console.log(`[desktop +${Date.now() - t0}ms] ${msg}`);
+const log = (msg: string) =>
+  console.log(`[desktop +${Date.now() - t0}ms] ${msg}`);
 
 /** 内置运行时没就绪时，启动屏停几秒让人看清原因（主界面同时在后面加载）。 */
 const SPLASH_HOLD_SECONDS = 5;
 
 // Dev/test knob: isolate Electron's profile (localStorage prefs, single-instance lock) from the real one.
 // Must be set before the single-instance lock, which is scoped to userData.
-if (process.env.GLEAM_DESKTOP_USER_DATA) app.setPath('userData', resolve(process.env.GLEAM_DESKTOP_USER_DATA));
+if (process.env.GLEAM_DESKTOP_USER_DATA)
+  app.setPath('userData', resolve(process.env.GLEAM_DESKTOP_USER_DATA));
 
 registerAppScheme();
 app.enableSandbox();
@@ -30,24 +32,43 @@ app.enableSandbox();
 function sidecarSpec(): SidecarSpec {
   const exe = process.platform === 'win32' ? 'gleam.exe' : 'gleam';
   // Extra sidecar flags, e.g. "--mock-llm --data-dir /tmp/x". Dev/test knob; Phase 1 decides whether it ships.
-  const args = (process.env.GLEAM_SIDECAR_ARGS || '').split(/\s+/).filter(Boolean);
+  const args = (process.env.GLEAM_SIDECAR_ARGS || '')
+    .split(/\s+/)
+    .filter(Boolean);
   const extraPath = runtimeBinDirs();
   if (process.env.GLEAM_SIDECAR_BIN) {
-    return { bin: resolve(process.env.GLEAM_SIDECAR_BIN), args, cwd: process.cwd(), extraPath };
+    return {
+      bin: resolve(process.env.GLEAM_SIDECAR_BIN),
+      args,
+      cwd: process.cwd(),
+      extraPath,
+    };
   }
   if (app.isPackaged) {
-    return { bin: join(process.resourcesPath, 'bin', exe), args, cwd: homedir(), extraPath };
+    return {
+      bin: join(process.resourcesPath, 'bin', exe),
+      args,
+      cwd: homedir(),
+      extraPath,
+    };
   }
   // Dev: desktop/dist/main/index.js -> desktop/.sidecar/<platform>-<arch>/gleam; run from the repo root
   // so the sidecar picks up configs/config.yaml exactly like `gleam webui` does.
   const desktopDir = resolve(__dirname, '..', '..');
-  const bin = join(desktopDir, '.sidecar', `${process.platform}-${process.arch}`, exe);
+  const bin = join(
+    desktopDir,
+    '.sidecar',
+    `${process.platform}-${process.arch}`,
+    exe,
+  );
   return { bin, args, cwd: resolve(desktopDir, '..'), extraPath };
 }
 
 if (!app.requestSingleInstanceLock()) {
   // Another instance owns the profile: it gets 'second-instance' and focuses its window. We just leave.
-  console.log('[desktop] another instance is running; handing over and exiting');
+  console.log(
+    '[desktop] another instance is running; handing over and exiting',
+  );
   app.exit(0);
 } else {
   run();
@@ -84,23 +105,34 @@ function run(): void {
     });
   });
 
-  for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => app.quit());
+  for (const sig of ['SIGINT', 'SIGTERM'] as const)
+    process.on(sig, () => app.quit());
 
   const w = Number(process.env.GLEAM_DESKTOP_WIDTH) || undefined;
   const h = Number(process.env.GLEAM_DESKTOP_HEIGHT) || undefined;
 
   app.whenReady().then(async () => {
     hardenSession(session.defaultSession);
-    installIpc(() => ({ sidecarVersion: sidecar?.ready?.version ?? null }), () => {
-      // File ▸ New window (Ctrl+Shift+N): another window on the same sidecar / app:// origin.
-      const extra = createMainWindow({ width: w, height: h });
-      void extra.loadURL(`${APP_ORIGIN}/`);
-    });
-    installAppProtocol(() => (sidecar?.ready ? { addr: sidecar.ready.addr, token: sidecar.token } : null));
+    installIpc(
+      () => ({ sidecarVersion: sidecar?.ready?.version ?? null }),
+      () => {
+        // File ▸ New window (Ctrl+Shift+N): another window on the same sidecar / app:// origin.
+        const extra = createMainWindow({ width: w, height: h });
+        void extra.loadURL(`${APP_ORIGIN}/`);
+      },
+    );
+    installAppProtocol(() =>
+      sidecar?.ready
+        ? { addr: sidecar.ready.addr, token: sidecar.token }
+        : null,
+    );
 
     const spec = sidecarSpec();
     if (!existsSync(spec.bin)) {
-      dialog.showErrorBox('Gleam', `Backend binary not found:\n${spec.bin}\n\nRun "npm run build:sidecar" first.`);
+      dialog.showErrorBox(
+        'Gleam',
+        `Backend binary not found:\n${spec.bin}\n\nRun "npm run build:sidecar" first.`,
+      );
       app.exit(1);
       return;
     }
@@ -114,22 +146,28 @@ function run(): void {
     if (!process.env.GLEAM_NO_SPLASH) {
       splash = new Splash(lang);
       splash.render({
-        status: lang === 'zh' ? '正在检查内置运行时…' : 'Checking bundled runtimes…',
-        items: [], total: 3, holdSeconds: 0,
+        status:
+          lang === 'zh' ? '正在检查内置运行时…' : 'Checking bundled runtimes…',
+        items: [],
+        total: 3,
+        holdSeconds: 0,
       });
     }
     const probes = await probeRuntimes(lang);
     const broken = probes.filter((p) => p.bundled && !p.ok);
-    for (const p of probes) log(`runtime ${p.name}: ${p.ok ? 'ok' : 'missing'} ${p.version || ''}`);
+    for (const p of probes)
+      log(`runtime ${p.name}: ${p.ok ? 'ok' : 'missing'} ${p.version || ''}`);
     // 有坏消息时留几秒让人看清原因，到点自己放行；一切正常就不留——这屏是给"坏消息"用的，
     // 不是给"每次都看一遍"用的。
     const holdSeconds = broken.length ? SPLASH_HOLD_SECONDS : 0;
     splash?.render({
       status: broken.length
-        ? (lang === 'zh'
+        ? lang === 'zh'
           ? `${broken.length} 项没就绪——可以继续，用到它的功能会提示`
-          : `${broken.length} item(s) not ready — you can continue; features that need them will tell you`)
-        : (lang === 'zh' ? '环境已就绪，正在启动…' : 'Environment ready — starting…'),
+          : `${broken.length} item(s) not ready — you can continue; features that need them will tell you`
+        : lang === 'zh'
+          ? '环境已就绪，正在启动…'
+          : 'Environment ready — starting…',
       items: probes,
       total: probes.length,
       holdSeconds,
@@ -141,15 +179,23 @@ function run(): void {
       log(`sidecar exited unexpectedly (code=${code}, signal=${signal})`);
       if (quitting) return;
       quitting = true;
-      dialog.showErrorBox('Gleam', `The Gleam backend stopped unexpectedly (code=${code}, signal=${signal}).`);
+      dialog.showErrorBox(
+        'Gleam',
+        `The Gleam backend stopped unexpectedly (code=${code}, signal=${signal}).`,
+      );
       app.quit();
     });
     try {
       const ready = await sidecar.start();
-      log(`sidecar ready pid=${ready.pid} addr=${ready.addr} version=${ready.version}`);
+      log(
+        `sidecar ready pid=${ready.pid} addr=${ready.addr} version=${ready.version}`,
+      );
     } catch (err) {
       log(`sidecar failed to start: ${String(err)}`);
-      dialog.showErrorBox('Gleam', `The Gleam backend failed to start:\n${String(err)}`);
+      dialog.showErrorBox(
+        'Gleam',
+        `The Gleam backend failed to start:\n${String(err)}`,
+      );
       app.exit(1);
       return;
     }
@@ -169,29 +215,47 @@ function run(): void {
       win?.hide();
       trayHintOnce();
     });
-    win.webContents.once('did-finish-load', () => log('renderer did-finish-load'));
+    win.webContents.once('did-finish-load', () =>
+      log('renderer did-finish-load'),
+    );
     await win.loadURL(`${APP_ORIGIN}/`);
     // 有坏消息时让那屏多留几秒（页面上有倒计时）；没坏消息时立刻收掉。
-    if (holdSeconds > 0) await new Promise((r) => setTimeout(r, holdSeconds * 1000));
+    if (holdSeconds > 0)
+      await new Promise((r) => setTimeout(r, holdSeconds * 1000));
     splash?.close();
 
-    if (app.isPackaged) installUpdater({ allowClose: () => { allowWindowClose = true; } });
+    if (app.isPackaged)
+      installUpdater({
+        allowClose: () => {
+          allowWindowClose = true;
+        },
+      });
 
     // 测试/排障用（与 GLEAM_SIDECAR_ARGS 同类的 knob）：把若干托盘动作按序打一遍，
     // 好让"点菜单"这条链路在本机能被自动走一遍。形如
     //   GLEAM_TRAY_ACTION="settings,new-chat,open-convo:<id>"
     // 不带这个变量时一行都不会跑。
-    const demo = (process.env.GLEAM_TRAY_ACTION || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const demo = (process.env.GLEAM_TRAY_ACTION || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     demo.forEach((spec, i) => {
       const [action, id] = spec.split(':');
-      if (action !== 'new-chat' && action !== 'settings' && action !== 'open-convo') {
+      if (
+        action !== 'new-chat' &&
+        action !== 'settings' &&
+        action !== 'open-convo'
+      ) {
         log(`tray demo: 不认的动作 ${spec}`);
         return;
       }
-      setTimeout(() => {
-        log(`tray demo: ${spec}`);
-        dispatchTrayAction(id ? { action, id } : { action });
-      }, 6000 * (i + 1));
+      setTimeout(
+        () => {
+          log(`tray demo: ${spec}`);
+          dispatchTrayAction(id ? { action, id } : { action });
+        },
+        6000 * (i + 1),
+      );
     });
   });
 }

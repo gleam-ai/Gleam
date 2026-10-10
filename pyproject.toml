@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 80
+target-version = "py312"
+
+[tool.ruff.lint]
+# 只开导入排序。E/F/W 会误报本仓的副作用导入（`import _utf8  # noqa: F401`），
+# 开 D（补 docstring）则属语义改写。
+select = ["I"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"

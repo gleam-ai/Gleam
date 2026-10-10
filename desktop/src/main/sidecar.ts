@@ -39,7 +39,11 @@ export class Sidecar extends EventEmitter {
   }
 
   get running(): boolean {
-    return this.child !== null && this.child.exitCode === null && this.child.signalCode === null;
+    return (
+      this.child !== null &&
+      this.child.exitCode === null &&
+      this.child.signalCode === null
+    );
   }
 
   get pid(): number | undefined {
@@ -47,7 +51,10 @@ export class Sidecar extends EventEmitter {
   }
 
   start(timeoutMs = 15_000): Promise<SidecarReady> {
-    const env: NodeJS.ProcessEnv = { ...process.env, GLEAM_WEBUI_TOKEN: this.token };
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      GLEAM_WEBUI_TOKEN: this.token,
+    };
     // 内置运行时只接进**这一棵进程树**：sidecar 自己起的 shell.exec / MCP 子进程能用到
     // npx / uvx，而用户自己的终端里不会凭空多出这几条路径。
     if (this.spec.extraPath?.length) {
@@ -68,7 +75,8 @@ export class Sidecar extends EventEmitter {
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d: string) => {
-      for (const line of d.split('\n')) if (line.trim()) console.log(`[sidecar] ${line}`);
+      for (const line of d.split('\n'))
+        if (line.trim()) console.log(`[sidecar] ${line}`);
     });
     // Writing to a dead child's stdin must not crash the main process.
     child.stdin.on('error', () => {});
@@ -82,11 +90,19 @@ export class Sidecar extends EventEmitter {
         this.forceKill();
         reject(err);
       };
-      const timer = setTimeout(() => fail(new Error(`sidecar not ready within ${timeoutMs} ms`)), timeoutMs);
+      const timer = setTimeout(
+        () => fail(new Error(`sidecar not ready within ${timeoutMs} ms`)),
+        timeoutMs,
+      );
 
       child.once('error', (err) => fail(err));
       child.once('exit', (code, signal) => {
-        if (!settled) fail(new Error(`sidecar exited before ready (code=${code}, signal=${signal})`));
+        if (!settled)
+          fail(
+            new Error(
+              `sidecar exited before ready (code=${code}, signal=${signal})`,
+            ),
+          );
         else if (!this.stopping) this.emit('unexpected-exit', code, signal);
       });
 
@@ -108,14 +124,18 @@ export class Sidecar extends EventEmitter {
             this.ready = info;
             resolve(info);
           })
-          .catch((err) => fail(err instanceof Error ? err : new Error(String(err))));
+          .catch((err) =>
+            fail(err instanceof Error ? err : new Error(String(err))),
+          );
       });
     });
   }
 
   /** The ready line only says "listening"; one authenticated request proves it is our server and the token works. */
   private async probe(addr: string): Promise<void> {
-    const res = await fetch(`http://${addr}/api/info`, { headers: { [TOKEN_HEADER]: this.token } });
+    const res = await fetch(`http://${addr}/api/info`, {
+      headers: { [TOKEN_HEADER]: this.token },
+    });
     if (res.status !== 200 || res.headers.get('x-gleam-server') !== 'gleam') {
       throw new Error(`sidecar probe failed: HTTP ${res.status}`);
     }
@@ -148,7 +168,10 @@ export class Sidecar extends EventEmitter {
     if (!child || child.pid === undefined || !this.running) return;
     if (process.platform === 'win32') {
       // /T takes the whole tree. Phase 1 replaces this with a Job Object (kill-on-close).
-      spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
       return;
     }
     try {

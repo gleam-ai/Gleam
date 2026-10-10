@@ -26,6 +26,7 @@
 用法：python scripts/check-mutation-anchors.py [--self-test] [仓库根目录]
 退出码：0 = 全部锚点各出现一次；1 = 有失配（逐条打印）或检查自身失效。
 """
+
 import importlib.util
 import os
 import re
@@ -46,18 +47,27 @@ def load_batches(root):
     """
     d = os.path.join(root, MUTDIR)
     try:
-        names = sorted(n for n in os.listdir(d) if n.startswith("batch-") and n.endswith(".py"))
+        names = sorted(
+            n
+            for n in os.listdir(d)
+            if n.startswith("batch-") and n.endswith(".py")
+        )
     except OSError as e:
         print("读不到 %s：%s" % (MUTDIR.replace("\\", "/"), e))
         return None
     if not names:
-        print("在 %s 里没找到任何 batch-*.py：检查本身失效，请先修本脚本。" % MUTDIR.replace("\\", "/"))
+        print(
+            "在 %s 里没找到任何 batch-*.py：检查本身失效，请先修本脚本。"
+            % MUTDIR.replace("\\", "/")
+        )
         return None
 
     # 批次脚本自己会 import _utf8（在 scripts/）与 _harness（在 scripts/mutation/）
     sys.path.insert(0, os.path.abspath(os.path.join(root, "scripts")))
     sys.path.insert(0, os.path.abspath(d))
-    sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.insert(
+        0, os.path.abspath(os.path.dirname(os.path.abspath(__file__)))
+    )
 
     out = []
     for n in names:
@@ -67,7 +77,9 @@ def load_batches(root):
         mod = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(mod)
-        except Exception as e:  # 导入不了 = 这批从来没跑过，比锚点失配更早一步坏掉
+        except (
+            Exception
+        ) as e:  # 导入不了 = 这批从来没跑过，比锚点失配更早一步坏掉
             print("%s 导入失败：%s" % (n, e))
             return None
         muts = getattr(mod, "MUTATIONS", None)
@@ -91,7 +103,10 @@ def judge(root, batches):
                     problems.append("%s → %s" % (label, p))
             except OSError as e:
                 # 目标文件被改名或删掉：变异无处可施，同样是静默失效
-                problems.append("%s → %s：目标文件读不到（%s）" % (label, mut.get("name", "?"), e))
+                problems.append(
+                    "%s → %s：目标文件读不到（%s）"
+                    % (label, mut.get("name", "?"), e)
+                )
     return problems
 
 
@@ -100,29 +115,79 @@ def self_test() -> int:
     root = tempfile.mkdtemp(prefix="gleam-anchor-selftest-")
     try:
         os.makedirs(os.path.join(root, "internal"))
-        anchor = "\treturn filepath.Join(dataDir, \"replays\")\n"
+        anchor = '\treturn filepath.Join(dataDir, "replays")\n'
         with open(os.path.join(root, "internal", "one.go"), "wb") as f:
-            f.write(("package x\n\nfunc a() string {\n" + anchor + "}\n").encode("utf-8"))
+            f.write(
+                ("package x\n\nfunc a() string {\n" + anchor + "}\n").encode(
+                    "utf-8"
+                )
+            )
         with open(os.path.join(root, "internal", "two.go"), "wb") as f:
-            f.write(("package x\n\nfunc a() string {\n" + anchor + "}\n\nfunc b() string {\n"
-                     + anchor + "}\n").encode("utf-8"))
+            f.write(
+                (
+                    "package x\n\nfunc a() string {\n"
+                    + anchor
+                    + "}\n\nfunc b() string {\n"
+                    + anchor
+                    + "}\n"
+                ).encode("utf-8")
+            )
 
-        good = {"name": "ok", "file": "internal/one.go", "edits": [(anchor, "\treturn \"\"\n")],
-                "targets": [("agent", "go test ./internal/agent/ -count=1 -timeout 90s")]}
+        good = {
+            "name": "ok",
+            "file": "internal/one.go",
+            "edits": [(anchor, '\treturn ""\n')],
+            "targets": [
+                ("agent", "go test ./internal/agent/ -count=1 -timeout 90s")
+            ],
+        }
         bad_cases = [
-            ("锚点已被重构走（出现 0 次）",
-             {"name": "rotted", "file": "internal/one.go",
-              "edits": [("\tdir := filepath.Join(dataDir, \"replays\")\n", "\tx\n")],
-              "targets": good["targets"]}),
-            ("锚点匹配到两处",
-             {"name": "twice", "file": "internal/two.go", "edits": good["edits"],
-              "targets": good["targets"]}),
-            ("目标文件不存在",
-             {"name": "gone", "file": "internal/nope.go", "edits": good["edits"],
-              "targets": good["targets"]}),
-            ("目标命令含 `|`（cmd.exe 会当管道，命令压根没跑）",
-             {"name": "pipe", "file": "internal/one.go", "edits": good["edits"],
-              "targets": [("agent", "go test ./internal/agent/ -run 'A|B' -timeout 90s")]}),
+            (
+                "锚点已被重构走（出现 0 次）",
+                {
+                    "name": "rotted",
+                    "file": "internal/one.go",
+                    "edits": [
+                        (
+                            '\tdir := filepath.Join(dataDir, "replays")\n',
+                            "\tx\n",
+                        )
+                    ],
+                    "targets": good["targets"],
+                },
+            ),
+            (
+                "锚点匹配到两处",
+                {
+                    "name": "twice",
+                    "file": "internal/two.go",
+                    "edits": good["edits"],
+                    "targets": good["targets"],
+                },
+            ),
+            (
+                "目标文件不存在",
+                {
+                    "name": "gone",
+                    "file": "internal/nope.go",
+                    "edits": good["edits"],
+                    "targets": good["targets"],
+                },
+            ),
+            (
+                "目标命令含 `|`（cmd.exe 会当管道，命令压根没跑）",
+                {
+                    "name": "pipe",
+                    "file": "internal/one.go",
+                    "edits": good["edits"],
+                    "targets": [
+                        (
+                            "agent",
+                            "go test ./internal/agent/ -run 'A|B' -timeout 90s",
+                        )
+                    ],
+                },
+            ),
         ]
         rc = 0
         for why, mut in bad_cases:
@@ -156,12 +221,20 @@ def main() -> int:
     problems = judge(root, batches)
     total = sum(len(m) for _, m in batches)
     if problems:
-        print("变异批次的锚点已失效（%d 批 / %d 个变异，%d 处问题）：" % (len(batches), total, len(problems)))
+        print(
+            "变异批次的锚点已失效（%d 批 / %d 个变异，%d 处问题）："
+            % (len(batches), total, len(problems))
+        )
         for p in problems:
             print("    %s" % p)
-        print("  这些变异现在一条都跑不了：源码重构后锚点没跟着走。改 scripts/mutation/ 里的 edits。")
+        print(
+            "  这些变异现在一条都跑不了：源码重构后锚点没跟着走。改 scripts/mutation/ 里的 edits。"
+        )
         return 1
-    print("  变异锚点自检通过：%d 批 / %d 个变异，锚点各恰好出现一次" % (len(batches), total))
+    print(
+        "  变异锚点自检通过：%d 批 / %d 个变异，锚点各恰好出现一次"
+        % (len(batches), total)
+    )
     if not selftest:
         return 0
     return self_test()

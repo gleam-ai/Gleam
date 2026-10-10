@@ -99,17 +99,66 @@ jobs:
           $env:TEMP = $tmp
           go test ./... -count=1 -timeout 300s
 
+  style:
+    name: Style (JS / TS / Python / Shell)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      # Versions are pinned to what was verified locally; `@latest` would make
+      # this job drift on its own.
+      - name: Install formatters
+        run: |
+          npm ci
+          python -m pip install ruff==0.17.0
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1
+
+      - name: Prettier (JS / TS / CSS / HTML / JSON)
+        run: npx prettier --check .
+
+      - name: ESLint
+        run: npx eslint .
+
+      - name: Ruff format
+        run: python -m ruff format --check .
+
+      - name: Ruff check
+        run: python -m ruff check .
+
+      - name: shfmt
+        run: |
+          "$(go env GOPATH)/bin/shfmt" -d -i 2 -ci scripts/*.sh scripts/lib/*.sh
+
   ci-success:
     name: CI Success
     if: ${{ always() }}
-    needs: [format-vet-build, test]
+    needs: [format-vet-build, test, style]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         shell: bash
         run: |
           set -euo pipefail
-          for r in "${{ needs.format-vet-build.result }}" "${{ needs.test.result }}"; do
+          for r in "${{ needs.format-vet-build.result }}" "${{ needs.test.result }}" "${{ needs.style.result }}"; do
             echo "result=$r"
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               exit 1

@@ -31,8 +31,18 @@ mkdirSync(outDir, { recursive: true });
 const out = join(outDir, goos === 'windows' ? 'gleam.exe' : 'gleam');
 
 const ldflags = `-s -w -X gleam/internal/buildinfo.Version=${version}`;
-const args = ['build', '-trimpath', '-ldflags', ldflags, '-o', out, './cmd/gleam'];
-console.log(`[build-sidecar] GOOS=${goos} GOARCH=${goarch} go ${args.join(' ')}`);
+const args = [
+  'build',
+  '-trimpath',
+  '-ldflags',
+  ldflags,
+  '-o',
+  out,
+  './cmd/gleam',
+];
+console.log(
+  `[build-sidecar] GOOS=${goos} GOARCH=${goarch} go ${args.join(' ')}`,
+);
 execFileSync('go', args, {
   cwd: repoRoot,
   stdio: 'inherit',

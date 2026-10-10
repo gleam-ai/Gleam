@@ -43,8 +43,14 @@ for arg in "$@"; do
     # 用法 = 文件头部那段注释，**自动推导**而不是写死行号：
     # 原来写的是 `sed -n '2,28p'`，于是"注释块有多长"这个事实被写了两遍——
     # 往头部加几行说明，`--help` 就会**悄悄截掉「用法」段**（真发生过一次）。
-    -h|--help) awk 'NR>1 { if ($0 ~ /^#/) { print; next } ; exit }' "$0"; exit 0 ;;
-    *) echo "未知参数：$arg（可用：--quick）"; exit 2 ;;
+    -h | --help)
+      awk 'NR>1 { if ($0 ~ /^#/) { print; next } ; exit }' "$0"
+      exit 0
+      ;;
+    *)
+      echo "未知参数：$arg（可用：--quick）"
+      exit 2
+      ;;
   esac
 done
 
@@ -59,7 +65,10 @@ source scripts/lib/gonoise.sh
 # 文档字数预算（告警）。两处各解析一遍，迟早一处改了另一处没改。
 PY=""
 for c in python3 python py; do
-  if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
+  if command -v "$c" >/dev/null 2>&1; then
+    PY="$c"
+    break
+  fi
 done
 
 step() { # step <层名> <命令…>
@@ -165,9 +174,9 @@ smoke_layer() {
 }
 
 # ── 第 2/3/4 层 · 走 go_retry（带环境噪声重试，实现见 scripts/lib/gonoise.sh） ──
-vet_layer()   { go_retry "go vet"   go vet ./...; }
+vet_layer() { go_retry "go vet" go vet ./...; }
 build_layer() { go_retry "go build" go build ./...; }
-test_layer()  { go_retry "go test"  go test ./... -count=1 -timeout 300s; }
+test_layer() { go_retry "go test" go test ./... -count=1 -timeout 300s; }
 
 # ── 第 6 层 · 就绪与评测回归 ──
 # 仍然**不用 `go run`**：本机实测它会偶发解析不到标准库（5 次里中 1 次）。

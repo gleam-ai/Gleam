@@ -33,7 +33,8 @@ function brandDataUrl(): string {
     join(__dirname, '..', '..', '..', 'assets', 'icons', 'gleam-128.png'),
   ];
   for (const p of candidates) {
-    if (existsSync(p)) return 'data:image/png;base64,' + readFileSync(p).toString('base64');
+    if (existsSync(p))
+      return 'data:image/png;base64,' + readFileSync(p).toString('base64');
   }
   return '';
 }
@@ -130,13 +131,18 @@ export class Splash {
       show: false,
       backgroundColor: '#F5F5F2',
     });
-    this.win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html(brandDataUrl(), this.lang)));
+    this.win.loadURL(
+      'data:text/html;charset=utf-8,' +
+        encodeURIComponent(html(brandDataUrl(), this.lang)),
+    );
     this.win.once('ready-to-show', () => this.win.show());
   }
 
   render(state: SplashState): void {
     if (this.win.isDestroyed()) return;
-    void this.win.webContents.executeJavaScript(`window.render(${JSON.stringify(state)})`).catch(() => {});
+    void this.win.webContents
+      .executeJavaScript(`window.render(${JSON.stringify(state)})`)
+      .catch(() => {});
   }
 
   close(): void {

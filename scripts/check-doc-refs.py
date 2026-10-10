@@ -19,6 +19,7 @@ gofmt 管代码文本，本脚本管文档文本。两者都便宜（各只一�
 用法：python scripts/check-doc-refs.py [仓库根目录]
 退出码：0 = 全部引用有效（或本机没放设计文档，跳过）；1 = 有悬空引用（逐条打印文件:行号 §小节号）。
 """
+
 import io
 import os
 import re
@@ -29,7 +30,16 @@ import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会�
 DESIGN = "Gleam 技术设计文档.md"
 # §4.6.x 这种**泛指**写法不算引用（它说的是"这一片"，不是某一节）。
 REF = re.compile(r"§(4\.6\.\d+)")
-SKIP_DIRS = {".git", "node_modules", "dist", ".workbuddy-ai", ".qoder-cn", ".cursor", ".claude", ".agents"}
+SKIP_DIRS = {
+    ".git",
+    "node_modules",
+    "dist",
+    ".workbuddy-ai",
+    ".qoder-cn",
+    ".cursor",
+    ".claude",
+    ".agents",
+}
 
 
 def main() -> int:
@@ -54,7 +64,9 @@ def main() -> int:
     if not headings:
         # 设计文档里一个小节都没解析到，说明这个检查本身失效了——
         # 报"通过"会是最坏的结果（结构变了但检查还在假装有效）。
-        print("在设计文档里没解析到任何 §4.6.N 小节，检查本身失效，请先修本脚本。")
+        print(
+            "在设计文档里没解析到任何 §4.6.N 小节，检查本身失效，请先修本脚本。"
+        )
         return 1
 
     bad = []
@@ -79,15 +91,21 @@ def main() -> int:
                     bad.append((p, line, m.group(1)))
 
     if bad:
-        print("文档引用不完整：%d 处悬空引用（共 %d 处引用 / %d 个文件 / 设计文档 %d 个小节）"
-              % (len(bad), total, files, len(headings)))
+        print(
+            "文档引用不完整：%d 处悬空引用（共 %d 处引用 / %d 个文件 / 设计文档 %d 个小节）"
+            % (len(bad), total, files, len(headings))
+        )
         for p, line, sec in bad:
             print("    %s:%d  §%s 不存在" % (p, line, sec))
-        print("\n要么改引用，要么补小节——别让它悬着：读者跟着走到空处，只会以为文档没写。")
+        print(
+            "\n要么改引用，要么补小节——别让它悬着：读者跟着走到空处，只会以为文档没写。"
+        )
         return 1
 
-    print("文档引用完整：%d 处 §4.6.N 引用全部指向真实小节（%d 个文件 / 设计文档 %d 个小节）"
-          % (total, files, len(headings)))
+    print(
+        "文档引用完整：%d 处 §4.6.N 引用全部指向真实小节（%d 个文件 / 设计文档 %d 个小节）"
+        % (total, files, len(headings))
+    )
     return 0
 
 

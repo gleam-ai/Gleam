@@ -1,0 +1,16 @@
+{
+  "name": "gleam-workspace",
+  "private": true,
+  "description": "Repo-wide JS/TS formatting and lint tooling (Google style). Not published.",
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "^10.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

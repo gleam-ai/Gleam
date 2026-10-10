@@ -50,60 +50,106 @@ MUTATIONS = [
     {
         "name": "投递前不脱敏（本机已知机密原样发出）",
         "file": "internal/webui/feedback_handlers.go",
-        "edits": [("out, redacted := feedback.Redact(f, s.feedbackSecrets())",
-                   "out, redacted := feedback.Redact(f, []string{})")],
+        "edits": [
+            (
+                "out, redacted := feedback.Redact(f, s.feedbackSecrets())",
+                "out, redacted := feedback.Redact(f, []string{})",
+            )
+        ],
         "targets": [t(WEBUI, "TestFeedbackSubmit_DeliversRedactedCopy")],
     },
     {
         "name": "现场字段带上完整接入 URL（白名单失守）",
         "file": "internal/webui/feedback_handlers.go",
-        "edits": [("Model:      strings.TrimSpace(cfg.LLM.Model),",
-                   'Model:      strings.TrimSpace(cfg.LLM.Model + " @" + cfg.LLM.BaseURL),')],
-        "targets": [t(WEBUI, "TestFeedbackSubmit_ContextIsServerSideAndHostOnly")],
+        "edits": [
+            (
+                "Model:      strings.TrimSpace(cfg.LLM.Model),",
+                'Model:      strings.TrimSpace(cfg.LLM.Model + " @" + cfg.LLM.BaseURL),',
+            )
+        ],
+        "targets": [
+            t(WEBUI, "TestFeedbackSubmit_ContextIsServerSideAndHostOnly")
+        ],
     },
     {
         "name": "投递失败静默写成 local_only（没配与没送成分不开）",
         "file": "internal/webui/feedback_handlers.go",
-        "edits": [("f.Delivery = types.FeedbackFailed", "f.Delivery = types.FeedbackLocalOnly")],
-        "targets": [t(WEBUI, "TestFeedbackSubmit_DeliveryFailureStaysLocalAndVisible")],
+        "edits": [
+            (
+                "f.Delivery = types.FeedbackFailed",
+                "f.Delivery = types.FeedbackLocalOnly",
+            )
+        ],
+        "targets": [
+            t(WEBUI, "TestFeedbackSubmit_DeliveryFailureStaysLocalAndVisible")
+        ],
     },
     {
         "name": "投递结果不回写归档（失败状态只活一次响应）",
         "file": "internal/webui/feedback_handlers.go",
-        "edits": [("""	if err := s.feedback.Save(f); err != nil {
+        "edits": [
+            (
+                """	if err := s.feedback.Save(f); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 反馈 %s 的投递状态没写回去：%v\\n", f.ID, err)
-	}""", "\t_ = f")],
-        "targets": [t(WEBUI, "TestFeedbackSubmit_DeliveryFailureStaysLocalAndVisible")],
+	}""",
+                "\t_ = f",
+            )
+        ],
+        "targets": [
+            t(WEBUI, "TestFeedbackSubmit_DeliveryFailureStaysLocalAndVisible")
+        ],
     },
     {
         "name": "已送达还重复投（表里多出一条重复行）",
         "file": "internal/webui/feedback_handlers.go",
-        "edits": [("if sink == nil || f.Delivery == types.FeedbackSent {", "if sink == nil {")],
+        "edits": [
+            (
+                "if sink == nil || f.Delivery == types.FeedbackSent {",
+                "if sink == nil {",
+            )
+        ],
         "targets": [t(WEBUI, "TestFeedbackResend_DoesNotRepeatSentRows")],
     },
     {
         "name": "图片不校验文件头（什么字节都当 PNG 收）",
         "file": "internal/harness/feedback/store.go",
-        "edits": [("""	case "image/webp":
+        "edits": [
+            (
+                """	case "image/webp":
 		return ".webp", true
 	}
-	return "", false""", """	case "image/webp":
+	return "", false""",
+                """	case "image/webp":
 		return ".webp", true
 	}
-	return ".png", true""")],
-        "targets": [t(STORE, "TestAttachment_SniffsRealType"),
-                    t(WEBUI, "TestFeedbackSubmit_FakeImageRollsBack")],
+	return ".png", true""",
+            )
+        ],
+        "targets": [
+            t(STORE, "TestAttachment_SniffsRealType"),
+            t(WEBUI, "TestFeedbackSubmit_FakeImageRollsBack"),
+        ],
     },
     {
         "name": "空描述被放过（一条没字的反馈照样落盘）",
         "file": "internal/webui/feedback_handlers.go",
-        "edits": [('	if text == "" {\n\t\twriteErr(w, 400, "请先写一句描述',
-                   '	if text == "\\x00绝不可能等于描述" {\n\t\twriteErr(w, 400, "请先写一句描述')],
+        "edits": [
+            (
+                '	if text == "" {\n\t\twriteErr(w, 400, "请先写一句描述',
+                '	if text == "\\x00绝不可能等于描述" {\n\t\twriteErr(w, 400, "请先写一句描述',
+            )
+        ],
         "targets": [t(WEBUI, "TestFeedbackSubmit_RejectsBadInput")],
     },
 ]
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 D：反馈与建议（F10）判断的负例控制", MUTATIONS,
-                       timeout=300, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 D：反馈与建议（F10）判断的负例控制",
+            MUTATIONS,
+            timeout=300,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

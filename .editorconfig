@@ -1,0 +1,23 @@
+# 行尾一律 LF：.gitattributes 是 `* -text`，格式化器写 CRLF 会让工作区字节与提交字节不一致。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+indent_style = tab
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{js,mjs,cjs,ts,css,html,json,yml,yaml,sh}]
+indent_style = space
+indent_size = 2
+
+# Markdown 行尾两个空格是换行，不能去。
+[*.md]
+trim_trailing_whitespace = false

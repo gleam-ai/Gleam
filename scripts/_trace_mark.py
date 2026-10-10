@@ -5,8 +5,10 @@
 所以不做平滑（平滑会把内凹尖角填圆，反而更不像）。
 只跑一次，不进构建。用法：python scripts/_trace_mark.py <参考PNG>
 """
+
 import re
 import sys
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -32,10 +34,14 @@ def add(a, b):
 
 ys, xs = np.nonzero(M)
 for y, x in zip(ys, xs):
-    if not M[y - 1, x]: add((x, y), (x + 1, y))
-    if not M[y, x + 1]: add((x + 1, y), (x + 1, y + 1))
-    if not M[y + 1, x]: add((x + 1, y + 1), (x, y + 1))
-    if not M[y, x - 1]: add((x, y + 1), (x, y))
+    if not M[y - 1, x]:
+        add((x, y), (x + 1, y))
+    if not M[y, x + 1]:
+        add((x + 1, y), (x + 1, y + 1))
+    if not M[y + 1, x]:
+        add((x + 1, y + 1), (x, y + 1))
+    if not M[y, x - 1]:
+        add((x, y + 1), (x, y))
 
 start = min(edges)
 loop, cur = [start], start
@@ -60,7 +66,10 @@ def rdp(pts, eps):
     if L == 0:
         d = [float(np.hypot(*(np.array(p, float) - p0))) for p in pts]
     else:
-        d = [abs(float(line[0] * (p[1] - p0[1]) - line[1] * (p[0] - p0[0]))) / L for p in pts]
+        d = [
+            abs(float(line[0] * (p[1] - p0[1]) - line[1] * (p[0] - p0[0]))) / L
+            for p in pts
+        ]
     i = int(np.argmax(d))
     if d[i] > eps:
         return rdp(pts[: i + 1], eps)[:-1] + rdp(pts[i:], eps)
@@ -73,11 +82,19 @@ if poly[0] == poly[-1]:
 
 k = OUT / W
 pts = [(round(x * k, 1), round(y * k, 1)) for x, y in poly]
-d = " ".join(("M" if i == 0 else "L") + ("%g %g" % p) for i, p in enumerate(pts)) + "Z"
+d = (
+    " ".join(
+        ("M" if i == 0 else "L") + ("%g %g" % p) for i, p in enumerate(pts)
+    )
+    + "Z"
+)
 
 img = Image.new("L", (W, H), 0)
 ImageDraw.Draw(img).polygon([(float(x), float(y)) for x, y in poly], fill=255)
-iou = np.logical_and(np.asarray(img) > 127, mask).sum() / np.logical_or(np.asarray(img) > 127, mask).sum()
+iou = (
+    np.logical_and(np.asarray(img) > 127, mask).sum()
+    / np.logical_or(np.asarray(img) > 127, mask).sum()
+)
 print("pts %d  IoU %.4f  bytes %d" % (len(pts), iou, len(d)))
 
 # ---- 圆角方块半径 ----
@@ -105,19 +122,29 @@ XS = [p[0] for p in pts]
 YS = [p[1] for p in pts]
 side = 680.0
 vb = "%.0f %.0f %.0f %.0f" % (
-    round((min(XS) + max(XS)) / 2 - side / 2), round((min(YS) + max(YS)) / 2 - side / 2), side, side)
+    round((min(XS) + max(XS)) / 2 - side / 2),
+    round((min(YS) + max(YS)) / 2 - side / 2),
+    side,
+    side,
+)
 
-LOGO = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">\n'
-        '  <title>Gleam</title>\n'
-        '  <rect width="1024" height="1024" rx="%d" fill="#0b0b0a"/>\n'
-        '  <path fill="#d7fb58" d="%s"/>\n</svg>\n' % (round(rad * OUT / W), d))
-SQUARE = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">\n'
-          '  <title>Gleam</title>\n'
-          '  <rect width="1024" height="1024" fill="#0b0b0a"/>\n'
-          '  <path fill="#d7fb58" d="%s"/>\n</svg>\n' % d)
-MARK = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" width="24" height="24" fill="currentColor">\n'
-        '  <title>Gleam</title>\n'
-        '  <path d="%s"/>\n</svg>\n' % (vb, d))
+LOGO = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">\n'
+    "  <title>Gleam</title>\n"
+    '  <rect width="1024" height="1024" rx="%d" fill="#0b0b0a"/>\n'
+    '  <path fill="#d7fb58" d="%s"/>\n</svg>\n' % (round(rad * OUT / W), d)
+)
+SQUARE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">\n'
+    "  <title>Gleam</title>\n"
+    '  <rect width="1024" height="1024" fill="#0b0b0a"/>\n'
+    '  <path fill="#d7fb58" d="%s"/>\n</svg>\n' % d
+)
+MARK = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" width="24" height="24" fill="currentColor">\n'
+    "  <title>Gleam</title>\n"
+    '  <path d="%s"/>\n</svg>\n' % (vb, d)
+)
 
 for p in ("assets/gleam-logo.svg", "internal/webui/static/gleam-logo.svg"):
     open(p, "w", encoding="utf-8").write(LOGO)
@@ -128,6 +155,6 @@ print("wrote 4 svg")
 # ---- 回写 make-icon.go：markPath + cornerRatio ----
 g = open("scripts/make-icon.go", encoding="utf-8").read()
 g = re.sub(r'const markPath = "[^"]*"', 'const markPath = "%s"' % d, g)
-g = re.sub(r'const cornerRatio = [0-9.]+', 'const cornerRatio = %s' % ratio, g)
+g = re.sub(r"const cornerRatio = [0-9.]+", "const cornerRatio = %s" % ratio, g)
 open("scripts/make-icon.go", "w", encoding="utf-8").write(g)
 print("patched make-icon.go (markPath + cornerRatio %s)" % ratio)

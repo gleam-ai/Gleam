@@ -145,7 +145,9 @@ func TestWebUI_InfoAndStatic(t *testing.T) {
 	}
 	var buf [96]byte
 	n, _ := resp.Body.Read(buf[:])
-	if !strings.Contains(string(buf[:n]), "<!DOCTYPE html>") {
+	// 大小写无关：prettier 会把 doctype 规范成小写（`<!doctype html>`），而
+	// desktop/src/main/splash.ts 本来发的就是小写。doctype 本身大小写不敏感。
+	if !strings.Contains(strings.ToLower(string(buf[:n])), "<!doctype html>") {
 		t.Errorf("首页内容异常: %q", string(buf[:n]))
 	}
 	if resp2, err := http.Get(f.ts.URL + "/assets/app.js"); err != nil || resp2.StatusCode != 200 {

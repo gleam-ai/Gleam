@@ -1,6 +1,6 @@
 import json
-from playwright.sync_api import sync_playwright
 
+from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8891"
 
@@ -14,9 +14,15 @@ with sync_playwright() as playwright:
         path = route.request.url.split(BASE, 1)[-1]
         if path == "/api/goals" and route.request.method == "POST":
             submitted.append(json.loads(route.request.post_data or "{}"))
-            route.fulfill(json={"task_id": "keyboard-test", "status": "running"})
+            route.fulfill(
+                json={"task_id": "keyboard-test", "status": "running"}
+            )
         elif path.startswith("/api/skills"):
-            route.fulfill(json={"skills": [{"name": "周报整理", "description": "整理周报"}]})
+            route.fulfill(
+                json={
+                    "skills": [{"name": "周报整理", "description": "整理周报"}]
+                }
+            )
         elif path.startswith("/api/workspace"):
             route.fulfill(json={"workspace": "D:/workspace", "recents": []})
         elif path.startswith("/api/tools/call"):
@@ -26,7 +32,9 @@ with sync_playwright() as playwright:
         elif path.startswith("/api/info"):
             route.fulfill(json={"name": "gleam", "model": "mock", "tools": 21})
         elif path.startswith("/api/roles"):
-            route.fulfill(json={"roles": [{"id": "general", "name": "通用助手"}]})
+            route.fulfill(
+                json={"roles": [{"id": "general", "name": "通用助手"}]}
+            )
         elif path.startswith("/api/settings"):
             route.fulfill(json={"safety": {"mode": "plan_first"}})
         elif path.startswith("/api/approvals"):
@@ -44,8 +52,12 @@ with sync_playwright() as playwright:
     field.fill("@")
     page.wait_for_selector(".mention-item")
     field.press("Enter")
-    assert len(submitted) == 0, "Enter selecting a mention must not submit the goal"
-    assert page.locator(".ref-chip").count() == 1, "selected mention should become a reference chip"
+    assert len(submitted) == 0, (
+        "Enter selecting a mention must not submit the goal"
+    )
+    assert page.locator(".ref-chip").count() == 1, (
+        "selected mention should become a reference chip"
+    )
 
     field.fill("整理本周工作")
     field.press("Enter")

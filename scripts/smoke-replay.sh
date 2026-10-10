@@ -46,13 +46,15 @@ if command -v cygpath >/dev/null 2>&1; then
   DATAC=$(cygpath -m "$DATA")
   TMPC=$(cygpath -m "$TMP")
 else
-  WSC="$WS"; DATAC="$DATA"; TMPC="$TMP"
+  WSC="$WS"
+  DATAC="$DATA"
+  TMPC="$TMP"
 fi
 
 echo "[smoke-replay] 构建二进制…"
 go_retry "smoke-replay 构建" go build -o "$BIN" ./cmd/gleam
 
-cat > "$TMP/config.yaml" <<EOF
+cat >"$TMP/config.yaml" <<EOF
 llm:
   provider: mock
 
@@ -68,7 +70,7 @@ EOF
 # s1/s2 是 file.write：它们的副作用（文件出现）就是"工具有没有被再调用"的证据。
 # s3 是 file.read 一个当时不存在的文件——这是**可恢复**的失败，把文件补上就能成功，
 # 于是重放能演示"同一前提、只改了环境，结果从失败变成功"。
-cat > "$DATA/tasks/t-smoke.json" <<EOF
+cat >"$DATA/tasks/t-smoke.json" <<EOF
 {
  "task_id": "t-smoke",
  "goal": "三步任务：写两个文件，读第三个",
@@ -88,7 +90,7 @@ cat > "$DATA/tasks/t-smoke.json" <<EOF
 EOF
 
 # 把当时缺失的文件补上：这是**唯一**被改动的变量。
-printf 'C' > "$WS/c.txt"
+printf 'C' >"$WS/c.txt"
 
 echo "[smoke-replay] 恢复：--from s3（前两步应沿用，不重新执行）…"
 set +e
@@ -97,7 +99,10 @@ set -e
 echo "$OUT" | sed 's/^/    /'
 
 fail=0
-check() { if eval "$2"; then echo "  ✓ $1"; else echo "  ✗ $1"; fail=1; fi; }
+check() { if eval "$2"; then echo "  ✓ $1"; else
+  echo "  ✗ $1"
+  fail=1
+fi; }
 
 echo "===== 断言 ====="
 # 0) 命令本身必须跑起来。命令没跑起来时，"文件没被创建"照样成立——
@@ -175,7 +180,7 @@ check "分叉记录写明改动" "echo \"\$FORKREC\" | grep -q '工具=file.list
 
 # ---------- 缺记录就拒绝：不能把恢复悄悄变成重跑 ----------
 echo "[smoke-replay] 反例：起点之前的步骤没有结果记录时必须拒绝…"
-cat > "$DATA/tasks/t-gap.json" <<EOF
+cat >"$DATA/tasks/t-gap.json" <<EOF
 {
  "task_id": "t-gap",
  "goal": "缺记录的恢复",
@@ -201,7 +206,7 @@ check "拒绝之后没有产生任何副作用" "[ ! -f '$WS/x.txt' ] && [ ! -f 
 
 # ---------- 运行中退出：运行日志是唯一凭据 ----------
 echo "[smoke-replay] 只跑了半截的运行（只有运行日志）…"
-printf '%s\n' '{"step_id":"s1","tool":"file.write","status":"succeeded","outcome":"ok","duration_ms":1}' > "$DATA/runs/t-half.jsonl"
+printf '%s\n' '{"step_id":"s1","tool":"file.write","status":"succeeded","outcome":"ok","duration_ms":1}' >"$DATA/runs/t-half.jsonl"
 set +e
 HALF=$("$BIN" replay t-half --config "$TMPC/config.yaml" --data-dir "$DATAC" 2>&1)
 set -e

@@ -52,74 +52,124 @@ from _harness import run_batch  # noqa: E402
 CUE_CHECK = ("cue-owner", "python scripts/check-cue-owner.py .")
 DOM_CHECK = ("dom-anchors", "python scripts/check-dom-anchors.py .")
 
-SIGNALS = 'var cueSignals = []string{"repeat_failure", "half_done", "tool_failure"}'
+SIGNALS = (
+    'var cueSignals = []string{"repeat_failure", "half_done", "tool_failure"}'
+)
 
 MUTATIONS = [
     {
         "name": "清单少登记一项：deriveCues 还在派生 half_done，这一页说的「只从这几条里想」成假话",
         "file": "internal/agent/cues.go",
-        "edits": [(SIGNALS, 'var cueSignals = []string{"repeat_failure", "tool_failure"}')],
+        "edits": [
+            (
+                SIGNALS,
+                'var cueSignals = []string{"repeat_failure", "tool_failure"}',
+            )
+        ],
         "targets": [CUE_CHECK],
     },
     {
         "name": "清单多登记一项却没人派生（calendar_sync）：那一类永远不出现，清单成了许愿单",
         "file": "internal/agent/cues.go",
-        "edits": [(SIGNALS, SIGNALS.replace('"tool_failure"}', '"tool_failure", "calendar_sync"}'))],
+        "edits": [
+            (
+                SIGNALS,
+                SIGNALS.replace(
+                    '"tool_failure"}', '"tool_failure", "calendar_sync"}'
+                ),
+            )
+        ],
         "targets": [CUE_CHECK],
     },
     {
         "name": "牌子缺一条：half_done 浮得出卡，界面上却裸奔成枚举值（M3 那条老坑）",
         "file": "internal/agent/cues.go",
-        "edits": [('case "half_done":\n\t\treturn "同一个目标每次只做一半"\n', "")],
+        "edits": [
+            ('case "half_done":\n\t\treturn "同一个目标每次只做一半"\n', "")
+        ],
         "targets": [CUE_CHECK],
     },
     {
         "name": "提议层伸了手：CueView 顺手提交了一个任务（这一层的唯一保证就是它没有手）",
         "file": "internal/agent/cues.go",
-        "edits": [("\tkept := loadCueStore(a.Cfg.DataDir)",
-                   '\ta.RunGoal(nil, types.GoalRequest{Goal: "顺手把这件事做了"})\n'
-                   "\tkept := loadCueStore(a.Cfg.DataDir)")],
+        "edits": [
+            (
+                "\tkept := loadCueStore(a.Cfg.DataDir)",
+                '\ta.RunGoal(nil, types.GoalRequest{Goal: "顺手把这件事做了"})\n'
+                "\tkept := loadCueStore(a.Cfg.DataDir)",
+            )
+        ],
         "targets": [CUE_CHECK],
     },
     {
         "name": "卡片理由退回 markdown 强调：星号在界面上原样显示（这次是第三次）",
         "file": "internal/agent/cues.go",
-        "edits": [("它反复出现说明卡住的是做法，不是运气。",
-                   "它反复出现说明卡住的是**做法**，不是运气。")],
+        "edits": [
+            (
+                "它反复出现说明卡住的是做法，不是运气。",
+                "它反复出现说明卡住的是**做法**，不是运气。",
+            )
+        ],
         "targets": [CUE_CHECK],
     },
     {
         "name": "派生分支还在但不吐行：闸门照绿，只有运行时断言能响（闸门只读源码的那一半）",
         "file": "internal/agent/cues.go",
-        "edits": [('case "half_done":\n\t\t\trows = append(rows, halfDoneRows(groups)...)',
-                   'case "half_done":\n\t\t\t_ = halfDoneRows(groups)')],
-        "targets": [("agent-signal-rows",
-                     "go test ./internal/agent -run TestCues_EverySignalProducesARow -count=1 -timeout 120s")],
+        "edits": [
+            (
+                'case "half_done":\n\t\t\trows = append(rows, halfDoneRows(groups)...)',
+                'case "half_done":\n\t\t\t_ = halfDoneRows(groups)',
+            )
+        ],
+        "targets": [
+            (
+                "agent-signal-rows",
+                "go test ./internal/agent -run TestCues_EverySignalProducesARow -count=1 -timeout 120s",
+            )
+        ],
     },
     {
         "name": "「别再提」按错的指纹记：处置存下来了，那张卡下一屏又回来",
         "file": "internal/agent/cues.go",
         "edits": [("if !kept.muted(r.ID) {", 'if !kept.muted(r.ID + "|") {')],
-        "targets": [("agent-dismiss",
-                     "go test ./internal/agent -run TestCues_DismissSurvivesRestart -count=1 -timeout 120s")],
+        "targets": [
+            (
+                "agent-dismiss",
+                "go test ./internal/agent -run TestCues_DismissSurvivesRestart -count=1 -timeout 120s",
+            )
+        ],
     },
     {
         "name": "前端把截断提示的 id 换了个名：后端算好的「另有 2 条」静默消失",
         "file": "internal/webui/static/app.js",
-        "edits": [("$('#cu-tail').textContent = led.truncated || '';",
-                   "$('#cu-box').textContent = led.truncated || '';")],
+        "edits": [
+            (
+                "$('#cu-tail').textContent = led.truncated || '';",
+                "$('#cu-box').textContent = led.truncated || '';",
+            )
+        ],
         "targets": [DOM_CHECK],
     },
     {
         "name": "清单换成 append 拼出来（合法写法）：闸门读不出 cueSignals，必须判红而不是判绿",
         "file": "internal/agent/cues.go",
-        "edits": [(SIGNALS,
-                   'var cueSignals = append([]string{"repeat_failure", "half_done"}, "tool_failure")')],
+        "edits": [
+            (
+                SIGNALS,
+                'var cueSignals = append([]string{"repeat_failure", "half_done"}, "tool_failure")',
+            )
+        ],
         "targets": [CUE_CHECK],
     },
 ]
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 J：候补目标口径的负例控制", MUTATIONS,
-                       timeout=300, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 J：候补目标口径的负例控制",
+            MUTATIONS,
+            timeout=300,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

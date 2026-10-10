@@ -19,14 +19,22 @@ const desktopDir = resolve(here, '..');
 const out = join(os.tmpdir(), 'gleam-pack');
 const args = process.argv.slice(2);
 if (!args.length) {
-  console.error('用法：node scripts/pack-desktop.mjs <electron-builder 的参数，如 --win nsis>');
+  console.error(
+    '用法：node scripts/pack-desktop.mjs <electron-builder 的参数，如 --win nsis>',
+  );
   process.exit(2);
 }
 
 console.log(`[pack-desktop] 输出目录：${out}（工作区之外，索引器扫不到）`);
-execFileSync('npx', ['electron-builder', ...args, `--config.directories.output=${out}`], {
-  cwd: desktopDir, stdio: 'inherit', shell: process.platform === 'win32',
-});
+execFileSync(
+  'npx',
+  ['electron-builder', ...args, `--config.directories.output=${out}`],
+  {
+    cwd: desktopDir,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  },
+);
 
 // 打完把产物列出来：产物不在仓库里了，得让人一眼看到它在哪、多大。
 // 只看输出目录的**顶层**——递归下去会把 win-unpacked 里的 node.exe、npm 自带的 .yml 也列进来。
@@ -35,7 +43,12 @@ const show = (dir) => {
     if (!e.isFile()) continue;
     const p = join(dir, e.name);
     if (!/\.(exe|dmg|AppImage|deb|blockmap|yml)$/i.test(e.name)) continue;
-    console.log(`[pack-desktop] ${(statSync(p).size / 1048576).toFixed(1)} MB  ${p}`);
+    console.log(
+      `[pack-desktop] ${(statSync(p).size / 1048576).toFixed(1)} MB  ${p}`,
+    );
   }
 };
-if (existsSync(out)) { console.log('[pack-desktop] 产物：'); show(out); }
+if (existsSync(out)) {
+  console.log('[pack-desktop] 产物：');
+  show(out);
+}

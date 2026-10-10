@@ -48,22 +48,29 @@ MUTATIONS = [
     {
         "name": "取消时不摘审批（任务永远停在审批闸门上）",
         "file": "internal/webui/handlers.go",
-        "edits": [(
-            """	_ = s.Agent.CancelTask(id)
+        "edits": [
+            (
+                """	_ = s.Agent.CancelTask(id)
 	// 取消之后必须叫醒停在审批上的那一轮：ctx 已经取消，但引擎的整计划闸门等的是
 	// 审批通道，不是 ctx。"取消返回 200、任务还在 running"就是这么来的。
 	s.dropTaskApprovals(id, "任务已取消")
 """,
-            "	_ = s.Agent.CancelTask(id)\n")],
-        "targets": [t(WEBUI, "TestCancel_PlanFirstGate"), t(WEBUI, "TestCancel_StepGate")],
+                "	_ = s.Agent.CancelTask(id)\n",
+            )
+        ],
+        "targets": [
+            t(WEBUI, "TestCancel_PlanFirstGate"),
+            t(WEBUI, "TestCancel_StepGate"),
+        ],
     },
     {
         # 这一条是上一位的孪生：删掉登记、不送裁决，`/api/approvals` 立刻就说真话了，
         # 于是第 1 条变异看起来"已修复"。只有"任务还等在门后"这半会红。
         "name": "摘除只删登记、不送裁决（引擎那行还阻塞着）",
         "file": "internal/webui/webui.go",
-        "edits": [(
-            """	for _, w := range stale {
+        "edits": [
+            (
+                """	for _, w := range stale {
 		resp := types.ApprovalResponse{Approved: false, Note: note}
 		// 有缓冲，取不到也只可能是已被裁决：那种情况下不该再改它的答案。
 		select {
@@ -71,14 +78,18 @@ MUTATIONS = [
 		default:
 		}
 	}
-""", "")],
+""",
+                "",
+            )
+        ],
         "targets": [t(WEBUI, "TestCancel_PlanFirstGate")],
     },
     {
         "name": "取消的原因一律写成「用户拒绝了执行计划」",
         "file": "internal/agent/agent.go",
-        "edits": [(
-            """				cause := "用户拒绝了执行计划"
+        "edits": [
+            (
+                """				cause := "用户拒绝了执行计划"
 				switch {
 				case ctx.Err() != nil:
 					cause = "任务已取消"
@@ -87,15 +98,19 @@ MUTATIONS = [
 				}
 				res := &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Error: cause, Score: 0}
 """,
-            """				res := &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Error: "用户拒绝了执行计划", Score: 0}
-""")],
+                """				res := &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Error: "用户拒绝了执行计划", Score: 0}
+""",
+            )
+        ],
         "targets": [t(WEBUI, "TestCancel_PlanFirstGate")],
     },
     # ---------- 现场栏的读数（F11） ----------
     {
         "name": "/api/info 不带 memory（现场栏那一格永远显示 0）",
         "file": "internal/webui/handlers.go",
-        "edits": [('		"memory": s.Agent.MemoryCount(),', '		"memory": 0,')],
+        "edits": [
+            ('		"memory": s.Agent.MemoryCount(),', '		"memory": 0,')
+        ],
         "targets": [t(WEBUI, "TestInfo_CarriesMemoryCount")],
     },
     {
@@ -108,5 +123,11 @@ MUTATIONS = [
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 E：现场栏读数与审批寿命的负例控制", MUTATIONS,
-                       timeout=180, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 E：现场栏读数与审批寿命的负例控制",
+            MUTATIONS,
+            timeout=180,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

@@ -1,0 +1,16 @@
+# 生成物 / 依赖
+node_modules/
+dist/
+bin/
+desktop/dist/
+desktop/build/
+desktop/build-*/
+desktop/dist2/
+desktop/.runtimes/
+website/dist/
+package-lock.json
+
+# 无对应 Google 指南，且 churn 巨大（CHANGELOG 235 KB）
+*.md
+*.yml
+*.yaml

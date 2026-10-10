@@ -49,7 +49,7 @@ build_one() {
   local n
   for n in 1 2 3; do
     if GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -p 2 -trimpath \
-        -ldflags="$LDFLAGS $extra" -o "$out" ./cmd/gleam; then
+      -ldflags="$LDFLAGS $extra" -o "$out" ./cmd/gleam; then
       return 0
     fi
     echo "（$goos/$goarch 第 $n 次构建失败，2 秒后重试）"
@@ -61,16 +61,16 @@ build_one() {
 
 build_one windows amd64 "$DIST/gleam-windows-amd64-$DATE.exe" ""
 build_one windows amd64 "$DIST/gleam-desktop-windows-amd64-$DATE.exe" "-H=windowsgui"
-build_one darwin  amd64 "$DIST/gleam-darwin-amd64-$DATE" ""
-build_one darwin  arm64 "$DIST/gleam-darwin-arm64-$DATE" ""
-build_one linux   amd64 "$DIST/gleam-linux-amd64-$DATE" ""
+build_one darwin amd64 "$DIST/gleam-darwin-amd64-$DATE" ""
+build_one darwin arm64 "$DIST/gleam-darwin-arm64-$DATE" ""
+build_one linux amd64 "$DIST/gleam-linux-amd64-$DATE" ""
 
 echo "[2/5] 同步 latest 命名（无日期）"
-cp -f "$DIST/gleam-windows-amd64-$DATE.exe"         "$DIST/gleam-windows-amd64.exe"
+cp -f "$DIST/gleam-windows-amd64-$DATE.exe" "$DIST/gleam-windows-amd64.exe"
 cp -f "$DIST/gleam-desktop-windows-amd64-$DATE.exe" "$DIST/gleam-desktop-windows-amd64.exe"
-cp -f "$DIST/gleam-darwin-amd64-$DATE"              "$DIST/gleam-darwin-amd64"
-cp -f "$DIST/gleam-darwin-arm64-$DATE"              "$DIST/gleam-darwin-arm64"
-cp -f "$DIST/gleam-linux-amd64-$DATE"               "$DIST/gleam-linux-amd64"
+cp -f "$DIST/gleam-darwin-amd64-$DATE" "$DIST/gleam-darwin-amd64"
+cp -f "$DIST/gleam-darwin-arm64-$DATE" "$DIST/gleam-darwin-arm64"
+cp -f "$DIST/gleam-linux-amd64-$DATE" "$DIST/gleam-linux-amd64"
 
 echo "[3/5] 打包前端与官网素材包"
 # 官网不引用本地二进制：下载按钮直指 GitHub 的 `releases/latest/download/<无日期名>`，
@@ -103,7 +103,7 @@ echo "[5/5] 生成校验和"
   "gleam-linux-amd64-$DATE" \
   "webui-static-$DATE.zip" \
   "website-$DATE.zip" \
-  "Gleam-release-$DATE.zip" > "SHA256SUMS-$DATE.txt")
+  "Gleam-release-$DATE.zip" >"SHA256SUMS-$DATE.txt")
 
 echo
 echo "完成：$DIST/ 下的 $DATE 产物"

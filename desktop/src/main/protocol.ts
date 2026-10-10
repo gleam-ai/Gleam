@@ -17,7 +17,13 @@ export function registerAppScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: APP_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true },
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+        codeCache: true,
+      },
     },
   ]);
 }
@@ -31,14 +37,22 @@ export interface Upstream {
 //  - Origin / Sec-Fetch-*: describe app://gleam, which the loopback guard (correctly) treats as foreign.
 //    The origin check is enforced here instead (only app://gleam may call through).
 //  - Cookie / Host / Referer: meaningless for the upstream; Host is set by net.fetch.
-const DROP_HEADERS = new Set(['origin', 'referer', 'cookie', 'host', TOKEN_HEADER.toLowerCase()]);
+const DROP_HEADERS = new Set([
+  'origin',
+  'referer',
+  'cookie',
+  'host',
+  TOKEN_HEADER.toLowerCase(),
+]);
 
 export function installAppProtocol(getUpstream: () => Upstream | null): void {
   protocol.handle(APP_SCHEME, async (req) => {
     const url = new URL(req.url);
-    if (url.host !== APP_HOST) return new Response('not found', { status: 404 });
+    if (url.host !== APP_HOST)
+      return new Response('not found', { status: 404 });
     const origin = req.headers.get('origin');
-    if (origin && origin !== APP_ORIGIN) return new Response('forbidden origin', { status: 403 });
+    if (origin && origin !== APP_ORIGIN)
+      return new Response('forbidden origin', { status: 403 });
     const up = getUpstream();
     if (!up) return new Response('backend not running', { status: 503 });
 
@@ -51,7 +65,10 @@ export function installAppProtocol(getUpstream: () => Upstream | null): void {
     headers.set(TOKEN_HEADER, up.token);
 
     const upstream = new AbortController();
-    const init: RequestInit & { bypassCustomProtocolHandlers?: boolean; duplex?: 'half' } = {
+    const init: RequestInit & {
+      bypassCustomProtocolHandlers?: boolean;
+      duplex?: 'half';
+    } = {
       method: req.method,
       headers,
       signal: upstream.signal,
@@ -61,7 +78,10 @@ export function installAppProtocol(getUpstream: () => Upstream | null): void {
       init.body = req.body;
       init.duplex = 'half';
     }
-    const res = await net.fetch(`http://${up.addr}${url.pathname}${url.search}`, init);
+    const res = await net.fetch(
+      `http://${up.addr}${url.pathname}${url.search}`,
+      init,
+    );
 
     const type = res.headers.get('content-type') || '';
     if (!type.startsWith('text/html')) return cancelable(res, upstream);
@@ -71,7 +91,11 @@ export function installAppProtocol(getUpstream: () => Upstream | null): void {
     const out = new Headers(res.headers);
     out.set('Content-Security-Policy', buildCSP(html));
     out.delete('content-length');
-    return new Response(html, { status: res.status, statusText: res.statusText, headers: out });
+    return new Response(html, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: out,
+    });
   });
 }
 
@@ -99,14 +123,20 @@ function cancelable(res: Response, upstream: AbortController): Response {
       return reader.cancel(reason).catch(() => {});
     },
   });
-  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  return new Response(body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
 }
 
 function inlineScriptHashes(html: string): string[] {
   const hashes: string[] = [];
   const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
   for (let m = re.exec(html); m; m = re.exec(html)) {
-    hashes.push(`'sha256-${createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+    hashes.push(
+      `'sha256-${createHash('sha256').update(m[1], 'utf8').digest('base64')}'`,
+    );
   }
   return hashes;
 }
