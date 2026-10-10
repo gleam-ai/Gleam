@@ -28,8 +28,8 @@ export GLEAM_GO_FLAKE_BACKOFF=0
 source scripts/lib/gonoise.sh
 
 COUNT_FILE=$(mktemp)
-echo 0 > "$COUNT_FILE"
-bump() { echo $(( $(cat "$COUNT_FILE") + 1 )) > "$COUNT_FILE"; }
+echo 0 >"$COUNT_FILE"
+bump() { echo $(($(cat "$COUNT_FILE") + 1)) >"$COUNT_FILE"; }
 calls() { cat "$COUNT_FILE"; }
 
 # 造一条与真实噪声同签名的输出（照抄实测形态，别改措辞）。
@@ -37,7 +37,10 @@ FLAKE_LINE='C:\Go\src\runtime\error.go:9:2: package internal/bytealg is not in s
 
 fake_noise_once() {
   bump
-  if [ "$(calls)" -eq 1 ]; then printf '%s\n' "$FLAKE_LINE" >&2; return 1; fi
+  if [ "$(calls)" -eq 1 ]; then
+    printf '%s\n' "$FLAKE_LINE" >&2
+    return 1
+  fi
   echo "build ok"
 }
 
@@ -49,7 +52,10 @@ fake_real_fail() {
 
 fake_noise_twice() {
   bump
-  if [ "$(calls)" -le 2 ]; then printf '%s\n' "$FLAKE_LINE" >&2; return 1; fi
+  if [ "$(calls)" -le 2 ]; then
+    printf '%s\n' "$FLAKE_LINE" >&2
+    return 1
+  fi
   echo "build ok"
 }
 
@@ -71,49 +77,67 @@ report() { # report <期望RC> <实际RC> <期望调用次数> <实际调用次�
 }
 # 跑一次 go_retry 并把 rc 与合并输出取回来（子 shell 里跑，所以计数走文件）。
 run_probe() { # run_probe <说明> <命令名> → 打印到 PROBE_OUT / 设置 PROBE_RC
-  PROBE_OUT=$( { go_retry "$1" "$2"; echo "__rc=$?"; } 2>&1 )
+  PROBE_OUT=$({
+    go_retry "$1" "$2"
+    echo "__rc=$?"
+  } 2>&1)
   PROBE_RC=$(printf '%s\n' "$PROBE_OUT" | sed -n 's/^__rc=//p')
   PROBE_OUT=$(printf '%s\n' "$PROBE_OUT" | sed '/^__rc=/d')
 }
 
 echo "===== 探针 ① 噪声一次后成功 ====="
-echo 0 > "$COUNT_FILE"
+echo 0 >"$COUNT_FILE"
 run_probe "探针①" fake_noise_once
 printf '%s\n' "$PROBE_OUT" | sed 's/^/    /'
 report 0 "$PROBE_RC" 2 "$(calls)" "噪声后重试成功，rc=0、命令调用 2 次"
-printf '%s\n' "$PROBE_OUT" | grep -q "Go 工具链环境噪声" \
-  && echo "  ✓ 重试被打印出来了（没有静默）" \
-  || { echo "  ✗ 重试没有打印，等于把闸门抖动藏起来了"; FAIL=1; }
+printf '%s\n' "$PROBE_OUT" | grep -q "Go 工具链环境噪声" &&
+  echo "  ✓ 重试被打印出来了（没有静默）" ||
+  {
+    echo "  ✗ 重试没有打印，等于把闸门抖动藏起来了"
+    FAIL=1
+  }
 
 echo "===== 探针 ② 真实失败不被重试 ====="
-echo 0 > "$COUNT_FILE"
+echo 0 >"$COUNT_FILE"
 run_probe "探针②" fake_real_fail
 printf '%s\n' "$PROBE_OUT" | sed 's/^/    /'
 report 1 "$PROBE_RC" 1 "$(calls)" "真实失败 rc=1、命令只调用 1 次"
-printf '%s\n' "$PROBE_OUT" | grep -q "undefined: nope" \
-  && echo "  ✓ 真实失败原因被透传（tail 输出）" \
-  || { echo "  ✗ 真实失败原因没有打出来"; FAIL=1; }
-printf '%s\n' "$PROBE_OUT" | grep -q "环境噪声" \
-  && { echo "  ✗ 真实失败被当成噪声了（这会把真红变绿）"; FAIL=1; } \
-  || echo "  ✓ 真实失败没有被误认成噪声"
+printf '%s\n' "$PROBE_OUT" | grep -q "undefined: nope" &&
+  echo "  ✓ 真实失败原因被透传（tail 输出）" ||
+  {
+    echo "  ✗ 真实失败原因没有打出来"
+    FAIL=1
+  }
+printf '%s\n' "$PROBE_OUT" | grep -q "环境噪声" &&
+  {
+    echo "  ✗ 真实失败被当成噪声了（这会把真红变绿）"
+    FAIL=1
+  } ||
+  echo "  ✓ 真实失败没有被误认成噪声"
 
 echo "===== 探针 ③ 噪声两次后成功（熬过窗口） ====="
-echo 0 > "$COUNT_FILE"
+echo 0 >"$COUNT_FILE"
 run_probe "探针③" fake_noise_twice
 printf '%s\n' "$PROBE_OUT" | sed 's/^/    /'
 report 0 "$PROBE_RC" 3 "$(calls)" "噪声两次后第三次成功，rc=0、命令调用 3 次"
-printf '%s\n' "$PROBE_OUT" | grep -q "第 2 次尝试失败" \
-  && echo "  ✓ 每次重试都打印了（两次警告）" \
-  || { echo "  ✗ 重试没有逐次打印"; FAIL=1; }
+printf '%s\n' "$PROBE_OUT" | grep -q "第 2 次尝试失败" &&
+  echo "  ✓ 每次重试都打印了（两次警告）" ||
+  {
+    echo "  ✗ 重试没有逐次打印"
+    FAIL=1
+  }
 
 echo "===== 探针 ④ 噪声一直存在（不无限重试） ====="
-echo 0 > "$COUNT_FILE"
+echo 0 >"$COUNT_FILE"
 run_probe "探针④" fake_noise_always
 printf '%s\n' "$PROBE_OUT" | sed 's/^/    /'
 report 1 "$PROBE_RC" 3 "$(calls)" "噪声一直存在 rc=1、命令调用 3 次（有上限）"
-printf '%s\n' "$PROBE_OUT" | grep -q "仍失败" \
-  && echo "  ✓ 明确告知重试也没救回来" \
-  || { echo "  ✗ 没有告知重试结果"; FAIL=1; }
+printf '%s\n' "$PROBE_OUT" | grep -q "仍失败" &&
+  echo "  ✓ 明确告知重试也没救回来" ||
+  {
+    echo "  ✗ 没有告知重试结果"
+    FAIL=1
+  }
 
 echo ""
 if [ "$FAIL" -ne 0 ]; then
