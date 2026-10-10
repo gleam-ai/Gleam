@@ -69,8 +69,11 @@ def strip(text):
             out.append(nxt)
             i += 2
             continue
-        closed = (state == "raw" and c == "`") or (state == "string" and c == '"') \
+        closed = (
+            (state == "raw" and c == "`")
+            or (state == "string" and c == '"')
             or (state == "rune" and c == "'")
+        )
         out.append(c)
         if closed:
             state = ""

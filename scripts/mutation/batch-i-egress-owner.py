@@ -50,60 +50,102 @@ MUTATIONS = [
     {
         "name": "台账清单少登记一项：出网照记，界面上却没有这一行（连了没交代）",
         "file": "internal/agent/connections.go",
-        "edits": [('var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}',
-                   'var egressKinds = []string{"llm", "web.fetch", "cloud", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}')],
+        "edits": [
+            (
+                'var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}',
+                'var egressKinds = []string{"llm", "web.fetch", "cloud", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}',
+            )
+        ],
         "targets": [EGRESS_CHECK],
     },
     {
         "name": "摘掉一个真落点的接线：清单还写着 web.fetch，代码里已经没人记它",
         "file": "cmd/gleam/main.go",
-        "edits": [('\twebTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("web.fetch", host, nbytes) }\n',
-                   "")],
+        "edits": [
+            (
+                '\twebTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("web.fetch", host, nbytes) }\n',
+                "",
+            )
+        ],
         "targets": [EGRESS_CHECK],
     },
     {
         "name": "新接一条出网路径却没登记（telemetry）：这张表说的「全部」当场变假话",
         "file": "cmd/gleam/main.go",
-        "edits": [('\tllm.SetEgressHook(func(host string, nbytes int) { gate.RecordEgress("llm", host, nbytes) })\n',
-                   '\tllm.SetEgressHook(func(host string, nbytes int) { gate.RecordEgress("llm", host, nbytes) })\n'
-                   '\t_ = func(host string, nbytes int) { gate.RecordEgress("telemetry", host, nbytes) }\n')],
+        "edits": [
+            (
+                '\tllm.SetEgressHook(func(host string, nbytes int) { gate.RecordEgress("llm", host, nbytes) })\n',
+                '\tllm.SetEgressHook(func(host string, nbytes int) { gate.RecordEgress("llm", host, nbytes) })\n'
+                '\t_ = func(host string, nbytes int) { gate.RecordEgress("telemetry", host, nbytes) }\n',
+            )
+        ],
         "targets": [EGRESS_CHECK],
     },
     {
         "name": "台账文案退回 markdown 强调：星号在界面上原样显示（真机上发生过）",
         "file": "internal/agent/connections.go",
-        "edits": [('Trigger: "模型判断需要看某个网页时——它是只读工具，默认不经过你的批准",',
-                   'Trigger: "模型判断需要看某个网页时。它是只读工具，**默认不经过你的批准**",')],
+        "edits": [
+            (
+                'Trigger: "模型判断需要看某个网页时——它是只读工具，默认不经过你的批准",',
+                'Trigger: "模型判断需要看某个网页时。它是只读工具，**默认不经过你的批准**",',
+            )
+        ],
         "targets": [EGRESS_CHECK],
     },
     {
         "name": "ConnectionView 不画云端那一行：清单还在，运行时却少一行",
         "file": "internal/agent/connections.go",
-        "edits": [("rows = append(rows, a.cloudRow(rep), a.feedbackRow(rep), updateRow(rep), goToolchainRow(rep), marketRemoteRow(rep), mcpRemoteRow(rep), a.gitRemoteRow(rep), marketRow())",
-                   "rows = append(rows, a.feedbackRow(rep), updateRow(rep), goToolchainRow(rep), marketRemoteRow(rep), mcpRemoteRow(rep), a.gitRemoteRow(rep), marketRow())")],
-        "targets": [("agent-rows",
-                     "go test ./internal/agent -run TestConnections_EveryEgressKindHasARow -count=1 -timeout 120s")],
+        "edits": [
+            (
+                "rows = append(rows, a.cloudRow(rep), a.feedbackRow(rep), updateRow(rep), goToolchainRow(rep), marketRemoteRow(rep), mcpRemoteRow(rep), a.gitRemoteRow(rep), marketRow())",
+                "rows = append(rows, a.feedbackRow(rep), updateRow(rep), goToolchainRow(rep), marketRemoteRow(rep), mcpRemoteRow(rep), a.gitRemoteRow(rep), marketRow())",
+            )
+        ],
+        "targets": [
+            (
+                "agent-rows",
+                "go test ./internal/agent -run TestConnections_EveryEgressKindHasARow -count=1 -timeout 120s",
+            )
+        ],
     },
     {
         "name": "没开审计落盘却仍然指路 pending --audit：把人引向一个不存在的文件",
         "file": "internal/agent/connections.go",
         # 只换串不改分支：改分支会留下 auditPath 未使用之外的怪形状，且判据要试的是
         # "指路那句话到底跟不跟本机配置走"，那就得让配置分支还在、只是话说错。
-        "edits": [('back = "这个构建没开审计落盘，内存环之外的事没有记录"',
-                   'back = "更早的记录在落盘审计里，`gleam pending --audit --egress` 可只看这一类"')],
-        "targets": [("agent-scope",
-                     "go test ./internal/agent -run TestConnections_EgressScopeTextFollowsScanWindow -count=1 -timeout 120s")],
+        "edits": [
+            (
+                'back = "这个构建没开审计落盘，内存环之外的事没有记录"',
+                'back = "更早的记录在落盘审计里，`gleam pending --audit --egress` 可只看这一类"',
+            )
+        ],
+        "targets": [
+            (
+                "agent-scope",
+                "go test ./internal/agent -run TestConnections_EgressScopeTextFollowsScanWindow -count=1 -timeout 120s",
+            )
+        ],
     },
     {
         "name": "前端把台账表体的 id 换了个名：后端算得好好的，界面那块永远空白",
         "file": "internal/webui/static/app.js",
-        "edits": [("const box = $('#cx-conn-list');",
-                   "const box = $('#cx-conn-box');")],
+        "edits": [
+            (
+                "const box = $('#cx-conn-list');",
+                "const box = $('#cx-conn-box');",
+            )
+        ],
         "targets": [DOM_CHECK],
     },
 ]
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 I：出网台账的负例控制", MUTATIONS,
-                       timeout=300, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 I：出网台账的负例控制",
+            MUTATIONS,
+            timeout=300,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

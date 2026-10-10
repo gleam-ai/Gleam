@@ -57,15 +57,19 @@ MUTATIONS = [
         # 完全可能已经留下真实改动。只按核对列清单，用户就以为盘上没动过。
         "name": "清单只按产物核对列（漏掉失败的写入）",
         "file": "internal/agent/changes.go",
-        "edits": [(
-            """	for _, r := range recs {
+        "edits": [
+            (
+                """	for _, r := range recs {
 		key := pathKey(r.Path)
 		if _, has := display[key]; !has {
 			order = append(order, key)
 			display[key] = r.Path
 		}
 	}
-""", "")],
+""",
+                "",
+            )
+        ],
         "targets": [t(AGENT, "TestBuildChanges")],
     },
     {
@@ -73,33 +77,51 @@ MUTATIONS = [
         # 取最后一条等于只退一轮，而界面上一句"已退回到任务开始前"——那是撒谎。
         "name": "写前快照取最后一条（还原只退到中间状态）",
         "file": "internal/agent/preimage.go",
-        "edits": [(
-            """	want := pathKey(path)
+        "edits": [
+            (
+                """	want := pathKey(path)
 	for _, r := range recs {
 		if r.Path != "" && pathKey(r.Path) == want {
 			return r, true
 		}
 	}""",
-            """	want := pathKey(path)
+                """	want := pathKey(path)
 	for i := len(recs) - 1; i >= 0; i-- {
 		r := recs[i]
 		if r.Path != "" && pathKey(r.Path) == want {
 			return r, true
 		}
-	}""")],
-        "targets": [t(AGENT, "TestFirstPreImageOf"), t(AGENT, "TestBuildChanges")],
+	}""",
+            )
+        ],
+        "targets": [
+            t(AGENT, "TestFirstPreImageOf"),
+            t(AGENT, "TestBuildChanges"),
+        ],
     },
     {
         "name": "一次移动不成对退（结果是把文件复制成两份）",
         "file": "internal/agent/preimage.go",
-        "edits": [('	if first.Tool != "file.move" {', '	if first.Tool != "file.move.paired" {')],
-        "targets": [t(AGENT, "TestPreImageGroup"), t(WEBUI, "TestChanges_MoveRevertsInPairs")],
+        "edits": [
+            (
+                '	if first.Tool != "file.move" {',
+                '	if first.Tool != "file.move.paired" {',
+            )
+        ],
+        "targets": [
+            t(AGENT, "TestPreImageGroup"),
+            t(WEBUI, "TestChanges_MoveRevertsInPairs"),
+        ],
     },
     {
         "name": "清单无改动时返回空切片而非 nil（两句话被压成一句）",
         "file": "internal/agent/changes.go",
-        "edits": [("	if len(order) == 0 {\n		return nil\n	}",
-                   "	if len(order) == 0 {\n		return []types.FileChange{}\n	}")],
+        "edits": [
+            (
+                "	if len(order) == 0 {\n		return nil\n	}",
+                "	if len(order) == 0 {\n		return []types.FileChange{}\n	}",
+            )
+        ],
         "targets": [t(AGENT, "TestBuildChanges_ReadOnlyTaskHasNilList")],
     },
     {
@@ -107,28 +129,35 @@ MUTATIONS = [
         # 少说一层还可以救，说错一层不行——但 deleted 是界面上"删除"这个徽标的唯一来源。
         "name": "deleted 形态判不出来（一律落 touched）",
         "file": "internal/agent/changes.go",
-        "edits": [(
-            """	case want == wantAbsent:
+        "edits": [
+            (
+                """	case want == wantAbsent:
 		if prevExists {
 			return kindDeleted
 		}
 		return kindTouched""",
-            "	case want == wantAbsent:\n		return kindTouched")],
+                "	case want == wantAbsent:\n		return kindTouched",
+            )
+        ],
         "targets": [t(AGENT, "TestBuildChanges_Kinds")],
     },
     # ---------- 能不能还原（owner：preImage.reversible） ----------
     {
         "name": "reversible 恒真（内容没留住也报可还原）",
         "file": "internal/agent/preimage.go",
-        "edits": [("	return !p.Exists || p.File != \"\"", "	return true")],
+        "edits": [('	return !p.Exists || p.File != ""', "	return true")],
         "targets": [t(AGENT, "TestBuildChanges_BlockedReasonIsWhatUserSees")],
     },
     {
         # 非空目录里一定有不属于这次任务的东西。RemoveAll 下去，还原就成了删库。
         "name": "还原目录时递归删除",
         "file": "internal/agent/preimage.go",
-        "edits": [("		if err := os.Remove(rec.Path); err != nil {",
-                   "		if err := os.RemoveAll(rec.Path); err != nil {")],
+        "edits": [
+            (
+                "		if err := os.Remove(rec.Path); err != nil {",
+                "		if err := os.RemoveAll(rec.Path); err != nil {",
+            )
+        ],
         "targets": [t(AGENT, "TestRestorePreImage")],
     },
     # ---------- 两道闸与两处回填 ----------
@@ -137,22 +166,29 @@ MUTATIONS = [
         # 清单外的路径变成"可探测存在性、可读体量"的接口。所以判据落在 diff 那一条。
         "name": "去掉「路径必须在本次清单里」这道闸",
         "file": "internal/agent/webfacade.go",
-        "edits": [(
-            """	head, ok := firstPreImageOf(recs, target)
+        "edits": [
+            (
+                """	head, ok := firstPreImageOf(recs, target)
 	if !ok {
 		return changeRef{}, fmt.Errorf("这个路径不在本次任务的改动清单里，不能动")
 	}""",
-            "	head, _ := firstPreImageOf(recs, target)")],
+                "	head, _ := firstPreImageOf(recs, target)",
+            )
+        ],
         "targets": [t(WEBUI, "TestChanges_RejectsPathsOutsideTheList")],
     },
     {
         "name": "还原后不更新归档（重启后看不到已还原）",
         "file": "internal/agent/webfacade.go",
-        "edits": [(
-            """	if err := SaveTaskResult(a.Cfg.DataDir, g); err != nil {
+        "edits": [
+            (
+                """	if err := SaveTaskResult(a.Cfg.DataDir, g); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 改动清单已还原但归档没更新（下次读档案会看不到这一位）：%v\\n", err)
 	}
-""", "")],
+""",
+                "",
+            )
+        ],
         "targets": [t(WEBUI, "TestChanges_FullLoop")],
     },
     {
@@ -160,8 +196,9 @@ MUTATIONS = [
         # 而同一个任务在重启后反而显示已还原——两个方向相反的错答案。
         "name": "还原后不把归档回填内存",
         "file": "internal/webui/handlers.go",
-        "edits": [(
-            """	if archived, has := s.archivedTask(id); has {
+        "edits": [
+            (
+                """	if archived, has := s.archivedTask(id); has {
 		s.mu.Lock()
 		if t, ok := s.tasks[id]; ok {
 			t.Result = archived.Result
@@ -169,7 +206,10 @@ MUTATIONS = [
 		s.mu.Unlock()
 		res["refreshed"] = true
 	}
-""", "")],
+""",
+                "",
+            )
+        ],
         "targets": [t(WEBUI, "TestChanges_FullLoop")],
     },
     # ---------- 接线与对比算法 ----------
@@ -178,12 +218,15 @@ MUTATIONS = [
         # 照常报"没有写前快照"，界面上看不出任何异常——只有还原按不下去。
         "name": "DataDir 没传进执行器（快照整层不生效）",
         "file": "internal/agent/agent.go",
-        "edits": [(
-            """			DataDir:        a.Cfg.DataDir,
+        "edits": [
+            (
+                """			DataDir:        a.Cfg.DataDir,
 			OnUsage:        a.BumpUsage,
 			// 运行中落盘""",
-            """			OnUsage:        a.BumpUsage,
-			// 运行中落盘""")],
+                """			OnUsage:        a.BumpUsage,
+			// 运行中落盘""",
+            )
+        ],
         "targets": [t(AGENT, "TestRunGoal_ChangesReachResult")],
     },
     {
@@ -191,15 +234,26 @@ MUTATIONS = [
         # 变成"删了又加"，那种 diff 比不显示更坏。
         "name": "切行不去 \\\\r（CRLF 文件每次都是全删全加）",
         "file": "internal/agent/difftext.go",
-        "edits": [('	parts := strings.Split(strings.ReplaceAll(s, "\\r\\n", "\\n"), "\\n")',
-                   '	parts := strings.Split(s, "\\n")')],
-        "targets": [t(AGENT, "TestDiffText_CRLFSameContentIsNoChange"), t(AGENT, "TestSplitLines")],
+        "edits": [
+            (
+                '	parts := strings.Split(strings.ReplaceAll(s, "\\r\\n", "\\n"), "\\n")',
+                '	parts := strings.Split(s, "\\n")',
+            )
+        ],
+        "targets": [
+            t(AGENT, "TestDiffText_CRLFSameContentIsNoChange"),
+            t(AGENT, "TestSplitLines"),
+        ],
     },
     {
         "name": "对比忘了加回公共前缀的行号偏移",
         "file": "internal/agent/difftext.go",
-        "edits": [("	res.Lines = append(res.Lines, lcsLines(midA, midB, head)...)",
-                   "	res.Lines = append(res.Lines, lcsLines(midA, midB, 0)...)")],
+        "edits": [
+            (
+                "	res.Lines = append(res.Lines, lcsLines(midA, midB, head)...)",
+                "	res.Lines = append(res.Lines, lcsLines(midA, midB, 0)...)",
+            )
+        ],
         "targets": [t(AGENT, "TestDiffText_AddDelAndLineNumbers")],
     },
     {
@@ -217,5 +271,11 @@ MUTATIONS = [
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 G：改动清单与写前还原的负例控制", MUTATIONS,
-                       timeout=240, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 G：改动清单与写前还原的负例控制",
+            MUTATIONS,
+            timeout=240,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

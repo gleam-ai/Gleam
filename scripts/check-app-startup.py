@@ -23,6 +23,7 @@
 用法：python scripts/check-app-startup.py [--self-test] [仓库根目录]
 退出码：0 = 启动段是最后一段（`--self-test` 时：两份负例都被拦住）；1 = 否则。
 """
+
 import io
 import os
 import sys
@@ -56,9 +57,12 @@ def judge(lines, label, say):
                 return 1
             start = i
     if start is None:
-        say("%s 里找不到启动段标记 %r：判据失效，请先修本脚本。" % (label, MARKER))
+        say(
+            "%s 里找不到启动段标记 %r：判据失效，请先修本脚本。"
+            % (label, MARKER)
+        )
         return 1
-    if not any(l.startswith(STARTUP_HEAD) for l in lines[start:start + 3]):
+    if not any(l.startswith(STARTUP_HEAD) for l in lines[start : start + 3]):
         say("%s：启动段标记后面跟的不是 %s，判据失效。" % (label, STARTUP_HEAD))
         return 1
 
@@ -69,36 +73,65 @@ def judge(lines, label, say):
             end = j
             break
     if end is None:
-        say("%s：启动段没有 %s 收尾，本脚本无法判断「后面」从哪一行算起。" % (label, STARTUP_TAIL))
+        say(
+            "%s：启动段没有 %s 收尾，本脚本无法判断「后面」从哪一行算起。"
+            % (label, STARTUP_TAIL)
+        )
         return 1
 
-    bad = [i + 1 for i in range(end + 1, len(lines)) if is_top_level_code(lines[i])]
+    bad = [
+        i + 1 for i in range(end + 1, len(lines)) if is_top_level_code(lines[i])
+    ]
     if bad:
-        say("启动序列必须是 app.js 的最后一段，否则它同步读到的顶层 let/const 还在暂时性死区里：")
+        say(
+            "启动序列必须是 app.js 的最后一段，否则它同步读到的顶层 let/const 还在暂时性死区里："
+        )
         for n in bad[:20]:
             say("  %s:%d  %s" % (label, n, lines[n - 1].strip()[:72]))
         if len(bad) > 20:
             say("  …另有 %d 处" % (len(bad) - 20))
         say("  把这些移到启动段之前（或挪进 init() 里）。")
         return 1
-    say("  启动段是 %s 最后一段（第 %d–%d 行），其后无顶层语句" % (label, start + 1, end + 1))
+    say(
+        "  启动段是 %s 最后一段（第 %d–%d 行），其后无顶层语句"
+        % (label, start + 1, end + 1)
+    )
     return 0
 
 
 def self_test(good_lines) -> int:
     """拿真文件现造两份坏文本，断言判据会把它们拦住。"""
-    marker = next((i for i, l in enumerate(good_lines) if l.startswith(MARKER)), None)
+    marker = next(
+        (i for i, l in enumerate(good_lines) if l.startswith(MARKER)), None
+    )
     if marker is None:
         print("self-test：真文件里找不到启动段标记，负例无从构造")
         return 1
     # 必须是**启动段之后**的第一个收尾：文件里 `})();` 到处有，取错位置等于截掉了标记本身。
-    idx = next((j for j in range(marker + 1, len(good_lines)) if good_lines[j].startswith(STARTUP_TAIL)), None)
+    idx = next(
+        (
+            j
+            for j in range(marker + 1, len(good_lines))
+            if good_lines[j].startswith(STARTUP_TAIL)
+        ),
+        None,
+    )
     if idx is None:
         print("self-test：启动段之后找不到 %s，负例无从构造" % STARTUP_TAIL)
         return 1
     cases = [
-        ("尾巴上挂一条顶层语句", good_lines[:idx + 1] + ["", 'const lateThing = document.getElementById("x");']),
-        ("启动段标记丢了", [l.replace(MARKER, "/* ---------- 启动 ---------- */") for l in good_lines]),
+        (
+            "尾巴上挂一条顶层语句",
+            good_lines[: idx + 1]
+            + ["", 'const lateThing = document.getElementById("x");'],
+        ),
+        (
+            "启动段标记丢了",
+            [
+                l.replace(MARKER, "/* ---------- 启动 ---------- */")
+                for l in good_lines
+            ],
+        ),
     ]
     bad = 0
     for name, lines in cases:
@@ -125,7 +158,11 @@ def main() -> int:
         return 1
 
     lines = text.splitlines()
-    label = APP_JS.replace("\\", "/") if root == "." else os.path.join(root, APP_JS).replace("\\", "/")
+    label = (
+        APP_JS.replace("\\", "/")
+        if root == "."
+        else os.path.join(root, APP_JS).replace("\\", "/")
+    )
     rc = judge(lines, label, print)
     if rc != 0 or not selftest:
         return rc

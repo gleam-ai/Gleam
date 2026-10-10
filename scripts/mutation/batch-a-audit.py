@@ -49,10 +49,12 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         # 预置了结果却不为它放行完成信号：依赖它的步骤会一直等下去。
         # 这是"预置晚于 goroutine 启动"这类顺序错误的典型症状——死等，而不是报错。
-        "edits": [(
-            "\t\tclose(state.finished[i])\n\t\t// 沿用的步骤也要落日志",
-            "\t\t// 沿用的步骤也要落日志",
-        )],
+        "edits": [
+            (
+                "\t\tclose(state.finished[i])\n\t\t// 沿用的步骤也要落日志",
+                "\t\t// 沿用的步骤也要落日志",
+            )
+        ],
         "targets": [AGENT],
     },
     {
@@ -60,7 +62,12 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         # 沿用步不进运行日志：一次中途退出的恢复在日志里会"少了前几步"，
         # 读的人分不清是沿用了还是丢了。
-        "edits": [("\t\te.record(taskID, state.results[i])\n\t\tcarried++", "\t\tcarried++")],
+        "edits": [
+            (
+                "\t\te.record(taskID, state.results[i])\n\t\tcarried++",
+                "\t\tcarried++",
+            )
+        ],
         "targets": [AGENT],
     },
     {
@@ -70,8 +77,14 @@ MUTATIONS = [
         # 两处一起改：否则 close 会被调用两次而 panic，那样"捕获"的理由就不对了
         # （我们要证明的是"工具被重复调用"，不是"程序崩了"）。
         "edits": [
-            ("\t\tif _, ok := e.Carried[plan.Steps[i].ID]; ok {\n", "\t\tif false {\n"),
-            ("\t\tclose(state.finished[i])\n\t\t// 沿用的步骤也要落日志", "\t\t// 沿用的步骤也要落日志"),
+            (
+                "\t\tif _, ok := e.Carried[plan.Steps[i].ID]; ok {\n",
+                "\t\tif false {\n",
+            ),
+            (
+                "\t\tclose(state.finished[i])\n\t\t// 沿用的步骤也要落日志",
+                "\t\t// 沿用的步骤也要落日志",
+            ),
         ],
         "targets": [AGENT, SMOKE],
     },
@@ -80,13 +93,14 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         # 预置与执行循环都去 close 同一个通道 → panic。
         # 这条测的是"预置必须短路掉执行循环"这个不变量本身。
-        "edits": [(
-            "\t\t\t// 已预置：不执行，也不再 close（通道在上面已经关过，重复关闭会 panic）\n\t\t\tcontinue\n",
-            "",
-        )],
+        "edits": [
+            (
+                "\t\t\t// 已预置：不执行，也不再 close（通道在上面已经关过，重复关闭会 panic）\n\t\t\tcontinue\n",
+                "",
+            )
+        ],
         "targets": [AGENT],
     },
-
     # ---------- 运行日志 ----------
     {
         "name": "runlog_write_is_noop",
@@ -99,10 +113,12 @@ MUTATIONS = [
         "file": "internal/agent/runlog.go",
         # "净化后照写"会把 a/b 与 a_b 映射到同一个文件：两次不同的运行写进同一份日志，
         # 读的人会以为看到的是完整的一次运行。宁可不记，也不要记错。
-        "edits": [(
-            "\t\tcase r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':\n\t\tdefault:\n\t\t\treturn \"\"\n",
-            "\t\tcase r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':\n\t\tdefault:\n\t\t\t_ = r\n",
-        )],
+        "edits": [
+            (
+                "\t\tcase r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':\n\t\tdefault:\n\t\t\treturn \"\"\n",
+                "\t\tcase r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':\n\t\tdefault:\n\t\t\t_ = r\n",
+            )
+        ],
         "targets": [AGENT],
     },
     {
@@ -110,17 +126,24 @@ MUTATIONS = [
         "file": "internal/agent/runlog.go",
         # 日志"正常结束就删"，文件不存在是绝大多数任务的状态。
         # 把它变成错误，等于让每个调用点都得绕开一次预期中的失败。
-        "edits": [("\t\tif os.IsNotExist(err) {\n\t\t\treturn nil, nil\n\t\t}\n", "\t\tif false {\n\t\t\treturn nil, nil\n\t\t}\n")],
+        "edits": [
+            (
+                "\t\tif os.IsNotExist(err) {\n\t\t\treturn nil, nil\n\t\t}\n",
+                "\t\tif false {\n\t\t\treturn nil, nil\n\t\t}\n",
+            )
+        ],
         "targets": [AGENT],
     },
     {
         "name": "runlog_broken_line_fails_whole",
         "file": "internal/agent/runlog.go",
         # 半行 JSON 是崩溃现场的正常形态。整份拒绝解析等于把仅有的凭据也丢掉。
-        "edits": [(
-            "\t\tvar r types.StepResult\n\t\tif err := json.Unmarshal([]byte(line), &r); err != nil {\n\t\t\tcontinue\n\t\t}\n",
-            "\t\tvar r types.StepResult\n\t\tif err := json.Unmarshal([]byte(line), &r); err != nil {\n\t\t\treturn nil, err\n\t\t}\n",
-        )],
+        "edits": [
+            (
+                "\t\tvar r types.StepResult\n\t\tif err := json.Unmarshal([]byte(line), &r); err != nil {\n\t\t\tcontinue\n\t\t}\n",
+                "\t\tvar r types.StepResult\n\t\tif err := json.Unmarshal([]byte(line), &r); err != nil {\n\t\t\treturn nil, err\n\t\t}\n",
+            )
+        ],
         "targets": [AGENT],
     },
     {
@@ -131,40 +154,48 @@ MUTATIONS = [
         "edits": [("\t_ = os.Remove(path)\n", "\t_ = path\n")],
         "targets": [AGENT, SMOKE],
     },
-
     # ---------- 计数与渲染（cmd/gleam） ----------
     {
         "name": "countsteps_status_only",
         "file": "cmd/gleam/replay.go",
         # "跑完了但业务上失败"（shell 非零退出…）按 Status 算会被洗成成功——
         # 这是回放报告最不该犯的错，也是两处计数最容易分叉的一项。
-        "edits": [(
-            "\t\tcase r.Status == types.StepSucceeded && r.Outcome == types.OutcomeFailed:\n\t\t\tfailed++\n",
-            "\t\tcase false:\n\t\t\tfailed++\n",
-        )],
+        "edits": [
+            (
+                "\t\tcase r.Status == types.StepSucceeded && r.Outcome == types.OutcomeFailed:\n\t\t\tfailed++\n",
+                "\t\tcase false:\n\t\t\tfailed++\n",
+            )
+        ],
         "targets": [CMD, SMOKE],
     },
     {
         "name": "countsteps_drops_carried",
         "file": "cmd/gleam/replay.go",
-        "edits": [("\t\tif r.Carried {\n\t\t\tcarried++\n\t\t}\n", "\t\tif false {\n\t\t\tcarried++\n\t\t}\n")],
+        "edits": [
+            (
+                "\t\tif r.Carried {\n\t\t\tcarried++\n\t\t}\n",
+                "\t\tif false {\n\t\t\tcarried++\n\t\t}\n",
+            )
+        ],
         "targets": [CMD],
     },
     {
         "name": "stepline_hides_carried",
         "file": "cmd/gleam/replay.go",
         # 沿用与复用印成一个词，读的人就无法判断这次有没有产生副作用。
-        "edits": [("\t\tline += \" 沿用（未执行）\"\n", "")],
+        "edits": [('\t\tline += " 沿用（未执行）"\n', "")],
         "targets": [CMD, SMOKE],
     },
     {
         "name": "diff_drops_carried_line",
         "file": "cmd/gleam/replay.go",
         # 不印沿用步数，"这次成功 3 步"会被读成"这次跑了 3 步"。
-        "edits": [(
-            "\t\tfmt.Fprintf(&out, \"  沿用：  %d 步 → %d 步（沿用=这次没有执行，结果取自上一次）\\n\", a.Carried, b.Carried)\n",
-            "",
-        )],
+        "edits": [
+            (
+                '\t\tfmt.Fprintf(&out, "  沿用：  %d 步 → %d 步（沿用=这次没有执行，结果取自上一次）\\n", a.Carried, b.Carried)\n',
+                "",
+            )
+        ],
         "targets": [SMOKE],
     },
     {
@@ -176,14 +207,15 @@ MUTATIONS = [
         # 注意改法必须是**能编译**的：留一句不可达的代码会让整个包编译失败，
         # 于是"被捕获"的理由变成了语法错误，而不是断言真的挡住了行为——
         # 那样的变异什么也证明不了（见 _harness 对无效变异的识别）。
-        "edits": [(
-            "\treturn fmt.Sprintf(\"提醒：沿用下来的步骤 %s 当时没有成功，依赖它们的步骤这次仍会被跳过——\"+\n"
-            "\t\t\"这是当时的前提，不是恢复失败。要改这个前提，请把起点提前到那一步。\", strings.Join(bad, \"、\"))\n",
-            "\treturn \"\"\n",
-        )],
+        "edits": [
+            (
+                '\treturn fmt.Sprintf("提醒：沿用下来的步骤 %s 当时没有成功，依赖它们的步骤这次仍会被跳过——"+\n'
+                '\t\t"这是当时的前提，不是恢复失败。要改这个前提，请把起点提前到那一步。", strings.Join(bad, "、"))\n',
+                '\treturn ""\n',
+            )
+        ],
         "targets": [CMD],
     },
-
     # ---------- 存档位置与读取入口 ----------
     {
         "name": "save_replay_to_tasks",
@@ -192,15 +224,24 @@ MUTATIONS = [
         # 就被复盘动作本身污染了。
         # 锚点跟着源码走：落盘目录早先写在 saveReplay 里，后来收进 replayFile（名字规则与
         # 任务归档共用 SafeTaskName），所以这里指的是那一行 return。
-        "edits": [('\treturn filepath.Join(dataDir, "replays", id+".json")\n',
-                   '\treturn filepath.Join(dataDir, "tasks", id+".json")\n')],
+        "edits": [
+            (
+                '\treturn filepath.Join(dataDir, "replays", id+".json")\n',
+                '\treturn filepath.Join(dataDir, "tasks", id+".json")\n',
+            )
+        ],
         "targets": [CMD, SMOKE],
     },
     {
         "name": "loadrun_ambiguous_picks_task",
         "file": "cmd/gleam/replay.go",
         # 两个目录同名时随便挑一个：用户以为在看任务，其实看的是某次回放。
-        "edits": [("\tif taskOK && replayOK {\n", "\tif false && taskOK && replayOK {\n")],
+        "edits": [
+            (
+                "\tif taskOK && replayOK {\n",
+                "\tif false && taskOK && replayOK {\n",
+            )
+        ],
         "targets": [CMD],
     },
     {
@@ -208,20 +249,23 @@ MUTATIONS = [
         "file": "cmd/gleam/replay.go",
         # 缺一条历史结果就"顺手跑一遍"：把恢复悄悄变成了重跑，而重跑有副作用。
         # 用户以为只是接着跑，实际上把前面做过的又做了一遍。
-        "edits": [(
-            "\t\t\tr, ok := src.resultOf(st.ID)\n\t\t\tif !ok {\n",
-            "\t\t\tr, ok := src.resultOf(st.ID)\n\t\t\tif false && !ok {\n",
-        )],
+        "edits": [
+            (
+                "\t\t\tr, ok := src.resultOf(st.ID)\n\t\t\tif !ok {\n",
+                "\t\t\tr, ok := src.resultOf(st.ID)\n\t\t\tif false && !ok {\n",
+            )
+        ],
         "targets": [SMOKE],
     },
-
     # ---------- 接线 ----------
     {
         "name": "replay_sink_not_wired",
         "file": "cmd/gleam/replay.go",
         # 回放不接运行日志：回放记录是跑完才写的，一次跑到一半就没了的回放
         # 事后什么都查不到。
-        "edits": [("\t\te.Sink = agent.NewRunLog(dataDir)\n", "\t\t_ = dataDir\n")],
+        "edits": [
+            ("\t\te.Sink = agent.NewRunLog(dataDir)\n", "\t\t_ = dataDir\n")
+        ],
         "targets": [CMD],
     },
 ]

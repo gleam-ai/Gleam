@@ -15,6 +15,7 @@
 用法：python scripts/check-api-docs.py [仓库根目录]
 退出码：0 = 一致；1 = 有缺或有悬空条目（逐条打印）。
 """
+
 import io
 import os
 import re
@@ -67,7 +68,10 @@ def main() -> int:
     if not registered:
         # 一条都没解析到 = 检查本身失效（路由声明换了写法）。报"通过"是最坏结果：
         # 它会让所有人以为这条规则有闸门。
-        print("在 %s 里没解析到任何 /api 路由，检查本身失效，请先修本脚本。" % WEBUI)
+        print(
+            "在 %s 里没解析到任何 /api 路由，检查本身失效，请先修本脚本。"
+            % WEBUI
+        )
         return 1
 
     documented = doc_paths(readme)
@@ -75,9 +79,15 @@ def main() -> int:
     phantom = sorted(documented - registered)
 
     if missing or phantom:
-        print("接口清单与实现不一致（代码 %d 条 / 清单 %d 条）" % (len(registered), len(documented)))
+        print(
+            "接口清单与实现不一致（代码 %d 条 / 清单 %d 条）"
+            % (len(registered), len(documented))
+        )
         for p in missing:
-            print("    缺  %s —— 已注册但清单没写，下一个读仓库的人不知道它存在" % p)
+            print(
+                "    缺  %s —— 已注册但清单没写，下一个读仓库的人不知道它存在"
+                % p
+            )
         for p in phantom:
             print("    多  %s —— 清单写了但没注册，照着调只会拿到 404" % p)
         return 1

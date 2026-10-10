@@ -38,6 +38,7 @@ r"""前端不许再抄一份版本号，也不许替「有没有新版」下结�
 用法：python scripts/check-version-owner.py [--self-test] [仓库根目录]
 退出码：0 = 应用内前端无版本字面量、官网徽标与日期都等于 owner、两边都无更新结论式文案；1 = 否则。
 """
+
 import io
 import os
 import re
@@ -72,9 +73,14 @@ def app_version(root):
     except OSError as e:
         print("读不到 %s：%s" % (BUILDINFO.replace("\\", "/"), e))
         return None
-    m = re.search(r'^\s*(?:(?:const|var)\s+)?Version\s*=\s*"([^"]*)"', text, re.M)
+    m = re.search(
+        r'^\s*(?:(?:const|var)\s+)?Version\s*=\s*"([^"]*)"', text, re.M
+    )
     if not m or not m.group(1).strip():
-        print("%s 里解析不到 Version 常量：判据失效，请先修本脚本。" % BUILDINFO.replace("\\", "/"))
+        print(
+            "%s 里解析不到 Version 常量：判据失效，请先修本脚本。"
+            % BUILDINFO.replace("\\", "/")
+        )
         return None
     return m.group(1).strip()
 
@@ -106,13 +112,17 @@ def scan(version, docs, ban_literal=True, ban_claim=True):
             for pat, why in pats:
                 m = pat.search(line)
                 if m:
-                    hits.append("%s:%d  「%s」——%s" % (label, i, m.group(0), why))
+                    hits.append(
+                        "%s:%d  「%s」——%s" % (label, i, m.group(0), why)
+                    )
     return hits
 
 
 def report(hits, say, ok_line):
     if hits:
-        say("版本口径漂了（应用内前端不许抄版本号；官网抄的那一份必须等于 owner；两边都不许声称已无新版）：")
+        say(
+            "版本口径漂了（应用内前端不许抄版本号；官网抄的那一份必须等于 owner；两边都不许声称已无新版）："
+        )
         for h in hits[:20]:
             say("  " + h)
         if len(hits) > 20:
@@ -135,7 +145,10 @@ def update_source_wired(root, docs):
     """
     fe = any(UPDATE_CALL in line for _, lines in docs for line in lines)
     try:
-        with open(os.path.join(root, "internal", "webui", "handlers.go"), encoding="utf-8") as f:
+        with open(
+            os.path.join(root, "internal", "webui", "handlers.go"),
+            encoding="utf-8",
+        ) as f:
             be = UPDATE_ROUTE in f.read()
     except OSError:
         be = False
@@ -161,7 +174,9 @@ def release_date(root):
         return None
     dates = sorted(m.group(1) for m in (SUMS_RE.match(n) for n in names) if m)
     if not dates:
-        print("%s/ 下没有 SHA256SUMS-<date>.txt：判据失效，请先修本脚本。" % PACK)
+        print(
+            "%s/ 下没有 SHA256SUMS-<date>.txt：判据失效，请先修本脚本。" % PACK
+        )
         return None
     d = dates[-1]
     return "%s-%s-%s" % (d[:4], d[4:6], d[6:])
@@ -178,22 +193,32 @@ def site_hits(page_text, scan_texts, version, latest_date):
     """
     hits = []
     for marker, want, why in (
-        ("dl-version", "v" + version, "版本徽标要等于 owner（internal/buildinfo）"),
+        (
+            "dl-version",
+            "v" + version,
+            "版本徽标要等于 owner（internal/buildinfo）",
+        ),
         ("dl-date", latest_date, "发布日期要等于 dist/ 下最新那份校验和的日期"),
     ):
         got = marked(page_text, marker)
         if got is None:
-            print("%s 里找不到 id=\"%s\"：判据失效（访客看不出这是哪个版本、哪天发的），"
-                  "先修页面或本脚本。" % (WEBSITE_PAGE.replace("\\", "/"), marker))
+            print(
+                '%s 里找不到 id="%s"：判据失效（访客看不出这是哪个版本、哪天发的），'
+                "先修页面或本脚本。" % (WEBSITE_PAGE.replace("\\", "/"), marker)
+            )
             return None
         if got != want:
-            hits.append("%s  id=\"%s\" 写着「%s」，应为「%s」——%s"
-                        % (WEBSITE_PAGE.replace("\\", "/"), marker, got, want, why))
+            hits.append(
+                '%s  id="%s" 写着「%s」，应为「%s」——%s'
+                % (WEBSITE_PAGE.replace("\\", "/"), marker, got, want, why)
+            )
     lit = version_re(version)
     n = sum(len(lit.findall(line)) for _, lines in scan_texts for line in lines)
     if n > 1:
-        hits.append("官网里 v%s 出现 %d 次，只许出现在 id=\"dl-version\" 那一处"
-                    "——多一处就多一份会漂移的副本" % (version, n))
+        hits.append(
+            '官网里 v%s 出现 %d 次，只许出现在 id="dl-version" 那一处'
+            "——多一处就多一份会漂移的副本" % (version, n)
+        )
     hits.extend(scan(version, scan_texts, ban_literal=False))
     return hits
 
@@ -223,14 +248,29 @@ def website_docs(root):
 def self_test(version) -> int:
     """坏文本必须拦住、长得像的干扰文本不许误报。"""
     bad_cases = [
-        ("HTML 占位写死版本号", ['<span id="me-version">v' + version + "</span>"]),
-        ("JS 兜底写死版本号", ["const ver = info.version || '" + version + "';"]),
-        ("文案声称已是本地运行的版本", ["await alertModal('当前版本，已是本地运行的版本。');"]),
+        (
+            "HTML 占位写死版本号",
+            ['<span id="me-version">v' + version + "</span>"],
+        ),
+        (
+            "JS 兜底写死版本号",
+            ["const ver = info.version || '" + version + "';"],
+        ),
+        (
+            "文案声称已是本地运行的版本",
+            ["await alertModal('当前版本，已是本地运行的版本。');"],
+        ),
     ]
     decoys = [
-        ("本机地址不是版本号", ['api("GET", "http://127.0.0.1:8795/api/info")']),
+        (
+            "本机地址不是版本号",
+            ['api("GET", "http://127.0.0.1:8795/api/info")'],
+        ),
         ("SVG 点分坐标不是版本号", ['<path d="M1.87.34 L15.62.68"/>']),
-        ("别的版本号不归本判据管", ['<span class="badge--version">v9.9.9</span>']),
+        (
+            "别的版本号不归本判据管",
+            ['<span class="badge--version">v9.9.9</span>'],
+        ),
     ]
     rc = 0
     for name, lines in bad_cases:
@@ -249,23 +289,42 @@ def self_test(version) -> int:
             print("  不误报：%s" % name)
 
     day = "2026-01-02"
-    good_page = ('<p class="dl-meta"><span class="dl-ver" id="dl-version">v' + version + "</span>"
-                 '<time id="dl-date" datetime="' + day + '">' + day + "</time></p>")
+    good_page = (
+        '<p class="dl-meta"><span class="dl-ver" id="dl-version">v'
+        + version
+        + "</span>"
+        '<time id="dl-date" datetime="' + day + '">' + day + "</time></p>"
+    )
     site_cases = [
         ("官网徽标与 owner 一致（不许误报）", good_page, False),
         ("官网徽标停在旧号", good_page.replace("v" + version, "v0.0.1"), True),
-        ("官网发布日期没跟着最新那次打包",
-         good_page.replace(day + "</time>", "2000-01-01</time>"), True),
-        ("官网把版本号抄了两处", good_page + "<p>本版 v" + version + " 修了三处。</p>", True),
+        (
+            "官网发布日期没跟着最新那次打包",
+            good_page.replace(day + "</time>", "2000-01-01</time>"),
+            True,
+        ),
+        (
+            "官网把版本号抄了两处",
+            good_page + "<p>本版 v" + version + " 修了三处。</p>",
+            True,
+        ),
         ("官网声称已是最新", good_page + "<p>已是最新，无需更新。</p>", True),
         ("官网少了版本徽标（判据失效应报红，不是报通过）", "<p>下载</p>", True),
     ]
     for name, page, want_bad in site_cases:
-        hits = site_hits(page, [(WEBSITE_PAGE, page.splitlines())], version, day)
+        hits = site_hits(
+            page, [(WEBSITE_PAGE, page.splitlines())], version, day
+        )
         bad = hits is None or bool(hits)
         if bad != want_bad:
-            print("官网负例判错了：%s —— 期望%s，实际%s"
-                  % (name, "报红" if want_bad else "通过", "报红" if bad else "通过"))
+            print(
+                "官网负例判错了：%s —— 期望%s，实际%s"
+                % (
+                    name,
+                    "报红" if want_bad else "通过",
+                    "报红" if bad else "通过",
+                )
+            )
             rc = 1
         else:
             print("  %s：%s" % ("拦住" if want_bad else "不误报", name))
@@ -295,13 +354,23 @@ def main() -> int:
                     return 1
 
     if not docs:
-        print("一个前端文件都没扫到（%s）：检查本身失效，请先修本脚本。" % STATIC.replace("\\", "/"))
+        print(
+            "一个前端文件都没扫到（%s）：检查本身失效，请先修本脚本。"
+            % STATIC.replace("\\", "/")
+        )
         return 1
 
     wired = update_source_wired(root, docs)
-    rc = report(scan(version, docs, ban_claim=not wired), print,
-                "  版本口径干净：%d 个前端文件，无 %r 字面量；更新源已接上（%s）"
-                % (len(docs), version, UPDATE_CALL if wired else "未接上，禁止更新结论式文案"))
+    rc = report(
+        scan(version, docs, ban_claim=not wired),
+        print,
+        "  版本口径干净：%d 个前端文件，无 %r 字面量；更新源已接上（%s）"
+        % (
+            len(docs),
+            version,
+            UPDATE_CALL if wired else "未接上，禁止更新结论式文案",
+        ),
+    )
 
     site_docs = website_docs(root)
     latest = release_date(root)
@@ -317,9 +386,15 @@ def main() -> int:
         if site is None:
             rc = 1
         else:
-            rc = report(site, print,
-                        "  官网口径跟着 owner：%d 个静态文件，徽标 v%s、发布日期 %s"
-                        % (len(site_docs), version, latest)) or rc
+            rc = (
+                report(
+                    site,
+                    print,
+                    "  官网口径跟着 owner：%d 个静态文件，徽标 v%s、发布日期 %s"
+                    % (len(site_docs), version, latest),
+                )
+                or rc
+            )
 
     if rc != 0 or not selftest:
         return rc

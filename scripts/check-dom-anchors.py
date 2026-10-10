@@ -49,6 +49,7 @@
 用法：python scripts/check-dom-anchors.py [--self-test] [仓库根目录]
 退出码：0 = 三处都接上（`--self-test` 时：每份负例都被拦住）；1 = 否则。
 """
+
 import io
 import os
 import re
@@ -72,7 +73,8 @@ ARIA_TO = ("aria-controls", "aria-labelledby", "aria-describedby", "for")
 # "必须带 #" 的规则，于是 getElementById('cp-update-btn') 这种合法接线被判成"没人接"。
 REF_RE = re.compile(
     r"""(?:\$\(\s*|querySelector\(\s*)['"]#([A-Za-z0-9_\-]+)['"]"""
-    r"""|getElementById\(\s*['"]([A-Za-z0-9_\-]+)['"]""")
+    r"""|getElementById\(\s*['"]([A-Za-z0-9_\-]+)['"]"""
+)
 
 ID_ATTR_RE = re.compile(r'id="([A-Za-z0-9_\-]+)"')
 ID_ASSIGN_RE = re.compile(r"""\.id\s*=\s*['"]([A-Za-z0-9_\-]+)['"]""")
@@ -89,8 +91,10 @@ def strip_comments(text):
     恰恰是**函数写好了、注释也写了、就是没人走它**。
     """
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return "\n".join("" if re.match(r"^\s*(//|\*|/\*)", ln) else ln
-                     for ln in text.split("\n"))
+    return "\n".join(
+        "" if re.match(r"^\s*(//|\*|/\*)", ln) else ln
+        for ln in text.split("\n")
+    )
 
 
 def dead_functions(js_text):
@@ -100,8 +104,12 @@ def dead_functions(js_text):
     拼接——那条路太窄，宁可少判也不维护一份"哪些名字可以死着"的名单。
     """
     code = strip_comments(js_text)
-    return sorted(name for name in FUNC_RE.findall(code)
-                  if len(re.findall(r"(?<![\w.$#])%s(?![\w$])" % re.escape(name), code)) < 2)
+    return sorted(
+        name
+        for name in FUNC_RE.findall(code)
+        if len(re.findall(r"(?<![\w.$#])%s(?![\w$])" % re.escape(name), code))
+        < 2
+    )
 
 
 def read(path):
@@ -113,7 +121,7 @@ def refs_of(js_text):
     """JS 里的 DOM 锚点引用。拼接出来的（`'#view-' + name`）不算：它没有指名某个锚点。"""
     out = set()
     for m in REF_RE.finditer(js_text):
-        tail = js_text[m.end():m.end() + 8].lstrip()
+        tail = js_text[m.end() : m.end() + 8].lstrip()
         if tail.startswith("+"):
             continue
         out.add(m.group(1) or m.group(2))
@@ -122,14 +130,21 @@ def refs_of(js_text):
 
 def judge(js_text, html_text, label_js, label_html, say):
     """判定一份 (app.js, index.html) 文本。返回退出码。"""
-    defined = (set(ID_ATTR_RE.findall(html_text)) | set(ID_ATTR_RE.findall(js_text))
-               | set(ID_ASSIGN_RE.findall(js_text)) | set(ID_PROP_RE.findall(js_text)))
+    defined = (
+        set(ID_ATTR_RE.findall(html_text))
+        | set(ID_ATTR_RE.findall(js_text))
+        | set(ID_ASSIGN_RE.findall(js_text))
+        | set(ID_PROP_RE.findall(js_text))
+    )
     refs = refs_of(js_text)
 
     rc = 0
     missing = sorted(r for r in refs if r not in defined)
     if missing:
-        say("%s 里引用了 index.html 与本文件模板都没有的 DOM 锚点（取到 null，那一格会永远停在写死的占位上）：" % label_js)
+        say(
+            "%s 里引用了 index.html 与本文件模板都没有的 DOM 锚点（取到 null，那一格会永远停在写死的占位上）："
+            % label_js
+        )
         for m in missing[:20]:
             say("  %s: #%s" % (label_js, m))
         if len(missing) > 20:
@@ -140,28 +155,40 @@ def judge(js_text, html_text, label_js, label_html, say):
     for attr in ARIA_TO:
         for value in re.findall(r'%s="([^"]*)"' % attr, html_text):
             aria_targets.update(value.split())
-    side_ids = sorted(i for i in set(ID_ATTR_RE.findall(html_text)) if i.startswith(SIDE_PREFIX))
+    side_ids = sorted(
+        i
+        for i in set(ID_ATTR_RE.findall(html_text))
+        if i.startswith(SIDE_PREFIX)
+    )
     if not side_ids:
-        say("index.html 里找不到任何 %s 锚点：现场栏被删了还是改了前缀？判据失效，请先修本脚本。"
-            % "/".join(SIDE_PREFIX))
+        say(
+            "index.html 里找不到任何 %s 锚点：现场栏被删了还是改了前缀？判据失效，请先修本脚本。"
+            % "/".join(SIDE_PREFIX)
+        )
         return 1
         # 「有人接」有两种合法写法：$('#id') 里的 '#id'，与 getElementById('id') 的裸 id。
+
     # 早先只查字面 "#id"，于是 getElementById 这种接线被误判成"没人接"。
     def wired(name):
-        return (("#" + name) in js_text
-                or ("getElementById('" + name + "')") in js_text
-                or ('getElementById("' + name + '")') in js_text)
+        return (
+            ("#" + name) in js_text
+            or ("getElementById('" + name + "')") in js_text
+            or ('getElementById("' + name + '")') in js_text
+        )
+
     orphans = [i for i in side_ids if not wired(i) and i not in aria_targets]
     if orphans:
         say("这些锚点没有任何生产者（界面画出来了，那一格永远是占位）：")
         for o in orphans:
-            say("  %s: id=\"%s\"" % (label_html, o))
+            say('  %s: id="%s"' % (label_html, o))
         rc = 1
 
     dead = dead_functions(js_text)
     if dead:
-        say("这些函数定义了却没有任何调用方（写好了、注释也写了，就是没人走它——"
-            "于是那一块界面永远不出现，而仓里全是绿）：")
+        say(
+            "这些函数定义了却没有任何调用方（写好了、注释也写了，就是没人走它——"
+            "于是那一块界面永远不出现，而仓里全是绿）："
+        )
         for name in dead[:20]:
             say("  %s: function %s()" % (label_js, name))
         if len(dead) > 20:
@@ -169,36 +196,71 @@ def judge(js_text, html_text, label_js, label_html, say):
         rc = 1
 
     if rc == 0:
-        say("  %d 处 JS 锚点引用全部有定义；现场栏、输入区、预览面板、台账与候补目标 %d 个锚点全部有人接；%d 个函数全部有人调用"
-            % (len(refs), len(side_ids), len(FUNC_RE.findall(strip_comments(js_text)))))
+        say(
+            "  %d 处 JS 锚点引用全部有定义；现场栏、输入区、预览面板、台账与候补目标 %d 个锚点全部有人接；%d 个函数全部有人调用"
+            % (
+                len(refs),
+                len(side_ids),
+                len(FUNC_RE.findall(strip_comments(js_text))),
+            )
+        )
     return rc
 
 
 def self_test(js_text, html_text) -> int:
     """拿真文本现造七份坏文本，断言判据会把它们拦住。"""
-    if not any(i.startswith(SIDE_PREFIX) for i in ID_ATTR_RE.findall(html_text)):
+    if not any(
+        i.startswith(SIDE_PREFIX) for i in ID_ATTR_RE.findall(html_text)
+    ):
         print("self-test：真文本里没有罩住的锚点前缀，负例无从构造")
         return 1
     cases = [
-        ("JS 引用了不存在的锚点", js_text + "\nconst probe = $('#rail-anchor-that-is-gone');\n", html_text),
+        (
+            "JS 引用了不存在的锚点",
+            js_text + "\nconst probe = $('#rail-anchor-that-is-gone');\n",
+            html_text,
+        ),
         # 孤儿锚点一律**附加**到 HTML 末尾，不按源码字面量 replace：
         # 判据只按 id="…" 认锚点（ID_ATTR_RE），附加即可生效；而 replace 的字面量
         # 会在 index.html 被重新排版（长标签折行）后静默失配——2026-10-11 跑
         # Google Style 的 prettier 时，`<div class="cp-model-list" id="cp-model-list"`
         # 与 `<div class="bp-quick" id="bp-quick"` 因为多了 role/aria-label 被折行，
         # 两条负例当场构造不出来（判据报"没被拦住"）。附加写法与版式无关。
-        ("面板格子没人接", js_text, html_text + '\n<dl class="readout"><dd id="ro-orphan">0</dd></dl>\n'),
-        ("输入区格子没人接", js_text, html_text + '\n<div id="cp-orphan">0</div>\n'),
-        ("预览面板按钮没人接", js_text, html_text + '\n<button id="bp-orphan" type="button">孤儿</button>\n'),
+        (
+            "面板格子没人接",
+            js_text,
+            html_text
+            + '\n<dl class="readout"><dd id="ro-orphan">0</dd></dl>\n',
+        ),
+        (
+            "输入区格子没人接",
+            js_text,
+            html_text + '\n<div id="cp-orphan">0</div>\n',
+        ),
+        (
+            "预览面板按钮没人接",
+            js_text,
+            html_text
+            + '\n<button id="bp-orphan" type="button">孤儿</button>\n',
+        ),
         # 台账的表体与范围文案都是 JS 填的：HTML 先画出空壳、app.js 没接，
         # 这一屏就永远是那个「—」——而它恰恰是用户判断"我有没有被交代清楚"的那一屏。
         ("台账格子没人接", js_text, html_text + '\n<p id="cx-orphan">—</p>\n'),
         # 候补目标整块的显隐、卡片、尾句都是 JS 算的：HTML 先画壳而 app.js 没接，
         # 用户看到的就是几张按不动的卡片——那两个按钮是把主动性交回给人的唯一出口。
-        ("候补目标格子没人接", js_text, html_text + '\n<p id="cu-orphan">—</p>\n'),
+        (
+            "候补目标格子没人接",
+            js_text,
+            html_text + '\n<p id="cu-orphan">—</p>\n',
+        ),
         # 只加一个函数定义、外面一句调用都不给。真出过这一类：`renderChanges` 写好了、
         # 注释也写了，卡片上那个槽位却永远是空的——因为没人调它。
-        ("函数没有任何调用方", js_text + "\nfunction renderAnchorThatNobodyCalls(t) { return t; }\n", html_text),
+        (
+            "函数没有任何调用方",
+            js_text
+            + "\nfunction renderAnchorThatNobodyCalls(t) { return t; }\n",
+            html_text,
+        ),
     ]
     bad = 0
     for name, js, html in cases:
@@ -222,13 +284,20 @@ def main() -> int:
     root = argv[0] if argv else "."
     try:
         # 静态目录下所有 JS 拼成一份：拆文件之后，锚点引用与接线都是跨文件的
-        names = sorted(n for n in os.listdir(os.path.join(root, JS_DIR)) if n.endswith(".js"))
+        names = sorted(
+            n
+            for n in os.listdir(os.path.join(root, JS_DIR))
+            if n.endswith(".js")
+        )
         js_text = "\n".join(read(os.path.join(root, JS_DIR, n)) for n in names)
         html_text = read(os.path.join(root, INDEX_HTML))
     except OSError as e:
         print("读不到前端源文件：%s" % e)
         return 1
-    label_js = "%s/*.js（%d 份）" % (JS_DIR.replace("\\", "/") + "/", len(names))
+    label_js = "%s/*.js（%d 份）" % (
+        JS_DIR.replace("\\", "/") + "/",
+        len(names),
+    )
     label_html = INDEX_HTML.replace("\\", "/")
     rc = judge(js_text, html_text, label_js, label_html, print)
     if rc != 0 or not selftest:

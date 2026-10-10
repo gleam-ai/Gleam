@@ -13,8 +13,8 @@
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,19 +33,26 @@ MUTATIONS = [
     {
         "name": "webui：删掉任务归档调用（跑完只留内存表）",
         "file": "internal/webui/handlers.go",
-        "edits": [(
-            """		if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
+        "edits": [
+            (
+                """		if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
 			fmt.Fprintf(os.Stderr, "[gleam] 界面任务未存档：%v\\n", err)
 		}
-""", "")],
+""",
+                "",
+            )
+        ],
         "targets": [t("./internal/webui", "TestGoalSubmit_ArchivesForReplay")],
     },
     {
         "name": "webui：归档写成空壳（调了，但没把这一次的结果写进去）",
         "file": "internal/webui/handlers.go",
-        "edits": [(
-            "agent.SaveTaskResult(s.Agent.Cfg.DataDir, result)",
-            "agent.SaveTaskResult(s.Agent.Cfg.DataDir, &types.GoalResult{TaskID: result.TaskID, Status: types.GoalSuccess})")],
+        "edits": [
+            (
+                "agent.SaveTaskResult(s.Agent.Cfg.DataDir, result)",
+                "agent.SaveTaskResult(s.Agent.Cfg.DataDir, &types.GoalResult{TaskID: result.TaskID, Status: types.GoalSuccess})",
+            )
+        ],
         "targets": [t("./internal/webui", "TestGoalSubmit_ArchivesForReplay")],
     },
     # 注：**"归档先于终态广播"这一条刻意不做负例控制。** 把顺序改回"先广播后落盘"，
@@ -54,26 +61,32 @@ MUTATIONS = [
     # 所以这条只以注释的形式留在 handlers.go 里，别在批次表里放一条永远存活的变异，
     # 那只会让下一个跑批的人以为捕获率出了错。
     {
-
         "name": "定时任务：删掉 fire 路径的归档",
         "file": "cmd/gleam/main.go",
-        "edits": [(
-            """	if err := agent.SaveTaskResult(rt.cfg.DataDir, res); err != nil {
+        "edits": [
+            (
+                """	if err := agent.SaveTaskResult(rt.cfg.DataDir, res); err != nil {
 		fmt.Fprintf(os.Stderr, "[schedule] 任务未存档：%v\\n", err)
 	}
-""", "")],
+""",
+                "",
+            )
+        ],
         "targets": [t("./cmd/gleam", "TestFireScheduledJob_Notifies")],
     },
     {
         "name": "定时任务：让通知策略重新管住事件推送（送达=弹窗的老口径）",
         "file": "cmd/gleam/main.go",
-        "edits": [(
-            """	if sink != nil {
+        "edits": [
+            (
+                """	if sink != nil {
 		sink.OnTaskDone(ev)
 	}""",
-            """	if sink != nil && j.ShouldNotify(ev.Succeeded()) {
+                """	if sink != nil && j.ShouldNotify(ev.Succeeded()) {
 		sink.OnTaskDone(ev)
-	}""")],
+	}""",
+            )
+        ],
         "targets": [t("./cmd/gleam", "TestNotifyScheduledDone_Wiring")],
     },
     {
@@ -83,17 +96,20 @@ MUTATIONS = [
         # 用三种"不弹窗"的组合钉住——`notify: never` 说的是别打扰，不是别记下来。
         "name": "定时任务：让通知策略管住归档（never 的任务等于从没跑过）",
         "file": "cmd/gleam/main.go",
-        "edits": [(
-            """	if err := agent.SaveTaskResult(rt.cfg.DataDir, res); err != nil {
+        "edits": [
+            (
+                """	if err := agent.SaveTaskResult(rt.cfg.DataDir, res); err != nil {
 		fmt.Fprintf(os.Stderr, "[schedule] 任务未存档：%v\\n", err)
 	}
 """,
-            """	if j.ShouldNotify(res.Status == types.GoalSuccess) {
+                """	if j.ShouldNotify(res.Status == types.GoalSuccess) {
 		if err := agent.SaveTaskResult(rt.cfg.DataDir, res); err != nil {
 			fmt.Fprintf(os.Stderr, "[schedule] 任务未存档：%v\\n", err)
 		}
 	}
-""")],
+""",
+            )
+        ],
         "targets": [
             t("./cmd/gleam", "TestFireScheduledJob_Notifies"),
             t("./cmd/gleam", "TestFireScheduledJob_ArchiveIgnoresNotifyPolicy"),
@@ -102,9 +118,12 @@ MUTATIONS = [
     {
         "name": "列表回到只读内存表（重启后「全部 0」，档案其实在盘上）",
         "file": "internal/webui/handlers.go",
-        "edits": [(
-            "	archived, skipped, err := agent.ListTaskResults(s.Agent.Cfg.DataDir, listArchiveLimit)",
-            "	archived, skipped, err := []*types.GoalResult(nil), 0, error(nil)")],
+        "edits": [
+            (
+                "	archived, skipped, err := agent.ListTaskResults(s.Agent.Cfg.DataDir, listArchiveLimit)",
+                "	archived, skipped, err := []*types.GoalResult(nil), 0, error(nil)",
+            )
+        ],
         "targets": [t("./internal/webui", "TestGoalList_IncludesArchived")],
     },
     {
@@ -117,9 +136,12 @@ MUTATIONS = [
     {
         "name": "SafeTaskName：允许点和斜杠（净化式放行）",
         "file": "internal/agent/runlog.go",
-        "edits": [(
-            "		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':",
-            "		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.', r == '/':")],
+        "edits": [
+            (
+                "		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':",
+                "		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.', r == '/':",
+            )
+        ],
         "targets": [
             t("./internal/agent", "TestTaskArchivePath_RejectsUnsafe"),
             t("./internal/webui", "TestGoalGet_RejectsPathTraversal"),
@@ -129,7 +151,12 @@ MUTATIONS = [
     {
         "name": "KeyScope：退回按整条 URL 归一（改路径就等于换主机）",
         "file": "internal/llm/providers.go",
-        "edits": [("	return strings.ToLower(u.Host)", "	return strings.ToLower(s)")],
+        "edits": [
+            (
+                "	return strings.ToLower(u.Host)",
+                "	return strings.ToLower(s)",
+            )
+        ],
         "targets": [
             t("./internal/llm", "TestKeyScope"),
             t("./internal/agent", "TestBindLLMKey_FormAndSwitch"),
@@ -138,9 +165,12 @@ MUTATIONS = [
     {
         "name": "LLMKeyFor：不看密钥所属主机（旧 key 直接发给新厂商）",
         "file": "internal/agent/llmkey.go",
-        "edits": [(
-            "	case cfg != nil && cfg.LLM.APIKey != \"\" && cfg.LLM.APIKeyScope == scope:",
-            "	case cfg != nil && cfg.LLM.APIKey != \"\":")],
+        "edits": [
+            (
+                '	case cfg != nil && cfg.LLM.APIKey != "" && cfg.LLM.APIKeyScope == scope:',
+                '	case cfg != nil && cfg.LLM.APIKey != "":',
+            )
+        ],
         "targets": [
             # 一条一个 -run：`'A|B'` 里的竖线在 Windows 上会被 cmd 当管道（骨架预检直接拒绝）。
             t("./internal/agent", "TestLLMKey_InjectedKeyBoundAtStartup"),
@@ -153,11 +183,24 @@ MUTATIONS = [
     {
         "name": "记忆落盘：原子写退回 os.WriteFile（崩溃留半截 JSON）",
         "file": "internal/harness/memory/store.go",
-        "edits": [("_ = atomicfile.Write(path, data, 0o644)", "_ = os.WriteFile(path, data, 0o644)")],
-        "targets": [("check-atomic-write", "python scripts/check-atomic-write.py .")],
+        "edits": [
+            (
+                "_ = atomicfile.Write(path, data, 0o644)",
+                "_ = os.WriteFile(path, data, 0o644)",
+            )
+        ],
+        "targets": [
+            ("check-atomic-write", "python scripts/check-atomic-write.py .")
+        ],
     },
 ]
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 B：密钥主机绑定与归档接线的负例控制", MUTATIONS,
-                       timeout=240, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 B：密钥主机绑定与归档接线的负例控制",
+            MUTATIONS,
+            timeout=240,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

@@ -34,37 +34,58 @@ MUTATIONS = [
     {
         "name": "清单删掉一行（成长与角色整组不见）",
         "file": "README.md",
-        "edits": [(
-            "`GET /api/growth` · `GET /api/growth/recent` · `GET /api/roles`"
-            " | 成长统计（等级、事件计数）/ 最近事件流 / 可用角色列表 |\n", "")],
+        "edits": [
+            (
+                "`GET /api/growth` · `GET /api/growth/recent` · `GET /api/roles`"
+                " | 成长统计（等级、事件计数）/ 最近事件流 / 可用角色列表 |\n",
+                "",
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "清单多写一条代码里没有的端点",
         "file": "README.md",
-        "edits": [("`GET /api/events` | SSE 事件流",
-                   "`GET /api/phantom-route` · `GET /api/events` | SSE 事件流")],
+        "edits": [
+            (
+                "`GET /api/events` | SSE 事件流",
+                "`GET /api/phantom-route` · `GET /api/events` | SSE 事件流",
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "技能那行退回通配写法 `/api/skills*`（历史上就是这么漏掉的）",
         "file": "README.md",
-        "edits": [(
-            "`GET /api/skills` · `POST /api/skills` · `POST /api/skills/{name}/run`"
-            " · `POST /api/skills/{name}/enabled` · `DELETE /api/skills/{name}`",
-            "`GET/POST /api/skills*`")],
+        "edits": [
+            (
+                "`GET /api/skills` · `POST /api/skills` · `POST /api/skills/{name}/run`"
+                " · `POST /api/skills/{name}/enabled` · `DELETE /api/skills/{name}`",
+                "`GET/POST /api/skills*`",
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "路由换了目录，解析不到——必须报「检查本身失效」而不是通过",
         "file": "scripts/check-api-docs.py",
-        "edits": [('WEBUI = os.path.join("internal", "webui")',
-                   'WEBUI = os.path.join("internal", "llm")')],
+        "edits": [
+            (
+                'WEBUI = os.path.join("internal", "webui")',
+                'WEBUI = os.path.join("internal", "llm")',
+            )
+        ],
         "targets": [CHECK],
     },
 ]
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 C：接口清单闸门的负例控制", MUTATIONS,
-                       timeout=90, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 C：接口清单闸门的负例控制",
+            MUTATIONS,
+            timeout=90,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

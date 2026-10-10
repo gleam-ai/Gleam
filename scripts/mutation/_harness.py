@@ -145,7 +145,9 @@ class Harness:
                 # 锚点必须唯一。匹配到 0 处说明代码变了（脚本过期）；
                 # 匹配到多处说明这次改的可能是别的地方——两种都必须先修脚本，
                 # 而不是"随便挑一处改"。
-                print(f"    [预检失败] 锚点在 {rel} 中出现 {n} 次（必须恰好 1 次）：{old[:60]!r}")
+                print(
+                    f"    [预检失败] 锚点在 {rel} 中出现 {n} 次（必须恰好 1 次）：{old[:60]!r}"
+                )
                 self.restore_all()
                 return False
             text = text.replace(old, new)
@@ -167,20 +169,31 @@ class Harness:
         for attempt in range(1, MAX_ENV_RETRIES + 1):
             try:
                 p = subprocess.run(
-                    cmd, shell=True, cwd=self.root, timeout=timeout,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    cmd,
+                    shell=True,
+                    cwd=self.root,
+                    timeout=timeout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
                 )
                 out = p.stdout.decode("utf-8", "replace")
                 if p.returncode == 0:
                     return True, out
-                if any(m in out for m in ENV_MARKERS) and attempt < MAX_ENV_RETRIES:
-                    print(f"    [环境错误，重试 {attempt}/{MAX_ENV_RETRIES - 1}] {cmd}")
+                if (
+                    any(m in out for m in ENV_MARKERS)
+                    and attempt < MAX_ENV_RETRIES
+                ):
+                    print(
+                        f"    [环境错误，重试 {attempt}/{MAX_ENV_RETRIES - 1}] {cmd}"
+                    )
                     continue
                 return False, out
             except subprocess.TimeoutExpired as e:
                 out = (e.stdout or b"").decode("utf-8", "replace")
                 # 超时按"捕获"算：变异若把代码变成死等，超时正是它该有的症状。
-                if attempt < MAX_ENV_RETRIES and any(m in out for m in ENV_MARKERS):
+                if attempt < MAX_ENV_RETRIES and any(
+                    m in out for m in ENV_MARKERS
+                ):
                     continue
                 return False, out + "\n[超时]"
         return False, ""
@@ -220,17 +233,25 @@ def preflight(h: Harness, mutations: list[dict]) -> list[str]:
     for mut in mutations:
         for _, cmd in mut["targets"]:
             if "|" in cmd:
-                problems.append(f"{mut['name']}：目标命令含 `|`（cmd.exe 会当管道，命令不会跑起来）：{cmd}")
+                problems.append(
+                    f"{mut['name']}：目标命令含 `|`（cmd.exe 会当管道，命令不会跑起来）：{cmd}"
+                )
         text = h.read(mut["file"]).decode("utf-8")
         for old, _ in mut["edits"]:
             n = text.count(old)
             if n != 1:
-                problems.append(f"{mut['name']}：{mut['file']} 中锚点出现 {n} 次（应 1 次）")
+                problems.append(
+                    f"{mut['name']}：{mut['file']} 中锚点出现 {n} 次（应 1 次）"
+                )
     return problems
 
 
-def run_batch(title: str, mutations: list[dict], timeout: int = 240, spec: str = ""):
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+def run_batch(
+    title: str, mutations: list[dict], timeout: int = 240, spec: str = ""
+):
+    root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
     h = Harness(root)
 
     print(f"===== {title} =====")
@@ -253,7 +274,9 @@ def run_batch(title: str, mutations: list[dict], timeout: int = 240, spec: str =
             print(f"  - {p}")
         print("\n先还原源码（或更新脚本里的锚点），再重跑。")
         return 2
-    print(f"预检通过：{len(mutations)} 个变异的锚点各出现一次，仓库处于干净状态。")
+    print(
+        f"预检通过：{len(mutations)} 个变异的锚点各出现一次，仓库处于干净状态。"
+    )
 
     mutations = select(mutations, spec)
     if spec:
@@ -281,7 +304,9 @@ def run_batch(title: str, mutations: list[dict], timeout: int = 240, spec: str =
                     # 不能编译的变异什么也证明不了：它"被捕获"的理由是语法错误，
                     # 而不是断言真的挡住了行为。必须当成无效变异单独列出来，
                     # 否则它会悄悄把捕获率抬上去。
-                    print("    无效 ✗（变异没能编译——它证明不了任何事，请修正改法）")
+                    print(
+                        "    无效 ✗（变异没能编译——它证明不了任何事，请修正改法）"
+                    )
                     for l in tail:
                         print(f"      | {l[:150]}")
                     invalid.append(mut["name"])
@@ -291,7 +316,9 @@ def run_batch(title: str, mutations: list[dict], timeout: int = 240, spec: str =
                         print(f"      | {l[:150]}")
                     caught.append(mut["name"])
             else:
-                print("    **存活 ✗** —— 所有目标命令都通过了，这个变异没有被任何断言挡住")
+                print(
+                    "    **存活 ✗** —— 所有目标命令都通过了，这个变异没有被任何断言挡住"
+                )
                 survived.append(mut["name"])
         finally:
             if not h.residue(mut):

@@ -38,7 +38,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import _utf8  # noqa: F401  # 本脚本自己也在印中文判定行
 from _harness import run_batch  # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 
 
 def owner_facts() -> tuple[str, str]:
@@ -56,7 +58,9 @@ def owner_facts() -> tuple[str, str]:
     spec.loader.exec_module(mod)
     version, date = mod.app_version(ROOT), mod.release_date(ROOT)
     if not version or not date:
-        raise SystemExit("读不到版本号或发布日期：批次 H 的判据已失效，先修 owner")
+        raise SystemExit(
+            "读不到版本号或发布日期：批次 H 的判据已失效，先修 owner"
+        )
     return version, date
 
 
@@ -74,43 +78,77 @@ MUTATIONS = [
     {
         "name": "JS 对 /api/info 的取值退回字面量兜底",
         "file": "internal/webui/static/app.js",
-        "edits": [("$('#me-version').textContent = info.version ? 'v' + info.version : '未知';",
-                   "$('#me-version').textContent = 'v' + (info.version || '" + VERSION + "');")],
+        "edits": [
+            (
+                "$('#me-version').textContent = info.version ? 'v' + info.version : '未知';",
+                "$('#me-version').textContent = 'v' + (info.version || '"
+                + VERSION
+                + "');",
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "扫描目录被改走，一个前端文件都扫不到——必须报「检查本身失效」而不是通过",
         "file": "scripts/check-version-owner.py",
-        "edits": [('STATIC = os.path.join("internal", "webui", "static")',
-                   'STATIC = os.path.join("internal", "llm")')],
+        "edits": [
+            (
+                'STATIC = os.path.join("internal", "webui", "static")',
+                'STATIC = os.path.join("internal", "llm")',
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "官网版本徽标停在旧号（下载页对外报一个不是这次的版本）",
         "file": "website/index.html",
-        "edits": [('<span class="dl-ver" id="dl-version">v' + VERSION + "</span>",
-                   '<span class="dl-ver" id="dl-version">v0.0.1</span>')],
+        "edits": [
+            (
+                '<span class="dl-ver" id="dl-version">v' + VERSION + "</span>",
+                '<span class="dl-ver" id="dl-version">v0.0.1</span>',
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "官网发布日期停在旧的那天（新包打出来了，页面还写着上次的日期）",
         "file": "website/index.html",
-        "edits": [('<time id="dl-date" datetime="' + RELEASE_DATE + '">' + RELEASE_DATE + "</time>",
-                   '<time id="dl-date" datetime="2000-01-01">2000-01-01</time>')],
+        "edits": [
+            (
+                '<time id="dl-date" datetime="'
+                + RELEASE_DATE
+                + '">'
+                + RELEASE_DATE
+                + "</time>",
+                '<time id="dl-date" datetime="2000-01-01">2000-01-01</time>',
+            )
+        ],
         "targets": [CHECK],
     },
     {
         "name": "/api/info 不再引用 owner：前端摘了字面量，出口一断三处读数一起变旧",
         "file": "internal/webui/handlers.go",
         # 连 import 一起删：只删那一行会留下"imported and not used"，编译失败的"捕获"是假的。
-        "edits": [('\t"gleam/internal/buildinfo"\n', ""),
-                  ('\t\t"version": buildinfo.Version,\n', "")],
-        "targets": [("webui-info",
-                     "go test ./internal/webui -run TestInfo -count=1 -timeout 120s")],
+        "edits": [
+            ('\t"gleam/internal/buildinfo"\n', ""),
+            ('\t\t"version": buildinfo.Version,\n', ""),
+        ],
+        "targets": [
+            (
+                "webui-info",
+                "go test ./internal/webui -run TestInfo -count=1 -timeout 120s",
+            )
+        ],
     },
 ]
 
 
 if __name__ == "__main__":
-    sys.exit(run_batch("批次 H：版本口径的负例控制", MUTATIONS,
-                       timeout=300, spec=sys.argv[1] if len(sys.argv) > 1 else ""))
+    sys.exit(
+        run_batch(
+            "批次 H：版本口径的负例控制",
+            MUTATIONS,
+            timeout=300,
+            spec=sys.argv[1] if len(sys.argv) > 1 else "",
+        )
+    )

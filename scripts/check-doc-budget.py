@@ -37,7 +37,17 @@ DOCS_INDEX = 2640
 DOCS_ROW = 60
 README_PREAMBLE = 994
 
-SKIP_DIRS = {".git", ".workbuddy-ai", ".qoder-cn", ".cursor", ".claude", ".agents", "bin", "node_modules", "__pycache__"}
+SKIP_DIRS = {
+    ".git",
+    ".workbuddy-ai",
+    ".qoder-cn",
+    ".cursor",
+    ".claude",
+    ".agents",
+    "bin",
+    "node_modules",
+    "__pycache__",
+}
 SKIP_FILE_SUFFIX = (".mutbak",)
 
 ROW_RE = re.compile(r"^\|")
@@ -81,7 +91,9 @@ def check_doc(path, text, out):
         out.append((path, len(text), DOCS_INDEX, "docs·索引型"))
         for row in rows:
             if len(row) > DOCS_ROW:
-                out.append(("%s → 超长行" % path, len(row), DOCS_ROW, "docs·单行"))
+                out.append(
+                    ("%s → 超长行" % path, len(row), DOCS_ROW, "docs·单行")
+                )
     else:
         out.append((path, len(text), DOCS_PROSE, "docs·叙述型"))
 
@@ -119,7 +131,9 @@ def main():
     if over:
         print("")
         print("  %d 处超预算。预算管的是啰嗦，不是事实数量：" % over)
-        print("  先看能不能把解释挪到它的 home（设计文档 §4.6.x），别先删事实。")
+        print(
+            "  先看能不能把解释挪到它的 home（设计文档 §4.6.x），别先删事实。"
+        )
     else:
         print("  全部在预算内。")
     return 0
