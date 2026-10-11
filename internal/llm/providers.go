@@ -54,7 +54,8 @@ var Providers = []ProviderPreset{
 	{
 		ID: "deepseek", Name: "DeepSeek 深度求索",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，暂无编程套餐）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat, Model: "deepseek-chat"},
+			{Kind: PlanToken, Label: "按量 Token（快速版，OpenAI 兼容）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat, Model: "deepseek-flash"},
+			{Kind: PlanCoding, Label: "编程模式（旗舰版，复杂任务）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat, Model: "deepseek-v4-pro"},
 		},
 	},
 	{
