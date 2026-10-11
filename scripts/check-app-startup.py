@@ -15,58 +15,83 @@
 **怎么改才通过**：新代码加在启动段**之前**。确实要在启动前跑的副作用，
 写进 `init()` 里，别在文件尾巴上挂一条裸语句。
 
+**第二条判据：顶层前向引用**。启动段在最后只保证「启动序列」不撞死区；
+文件**中部**的顶层语句照样能在声明之前读一个 `const`——真实事故：`app.js`
+第 632 行的顶层语句读 `VoiceInput`，而它的 `const` 声明在第 8649 行，TDZ
+`ReferenceError` 让脚本从那一行起中断，其后全部监听与 `init()` 都不再执行。
+这条判据扫描列 0 的顶层语句，发现它引用了**行号更大**的顶层 `const`/`let`
+就判红。函数体内的引用都带缩进，天然排除；`function` 声明会提升，不在此列。
+
 **自我失效的防线**：找不到启动段标记就失败——宁可红着，也不给"已通过"的错觉。
 
-**负例控制自带**：`--self-test` 现造两份坏文本（尾巴上挂一条顶层语句 / 标记丢了），
-断言本脚本会把它们判红。判据不跑负例就不知道自己是不是在永远点头。
+**负例控制自带**：`--self-test` 现造三份坏文本（尾巴上挂一条顶层语句 / 标记丢了 /
+顶层前向引用），断言本脚本会把它们判红。判据不跑负例就不知道自己是不是在永远点头。
 
 用法：python scripts/check-app-startup.py [--self-test] [仓库根目录]
-退出码：0 = 启动段是最后一段（`--self-test` 时：两份负例都被拦住）；1 = 否则。
+退出码：0 = 启动段是最后一段且无顶层前向引用（`--self-test` 时：三份负例都被拦住）；1 = 否则。
 """
 
 import io
 import os
+import re
 import sys
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 APP_JS = os.path.join("internal", "webui", "static", "app.js")
-MARKER = "/* ---------- 启动（必须是本文件的最后一段"
 STARTUP_HEAD = "(async function init()"
 STARTUP_TAIL = "})();"
 
-# 允许出现在启动段之后的行：注释、空行、字符串字面量续行（无）。
 COMMENT = ("//", "/*", "*")
+
+TOP_DECL = re.compile(r"^(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=")
 
 
 def is_top_level_code(line: str) -> bool:
     s = line.strip()
     if not s or s.startswith(COMMENT):
         return False
-    # 顶层代码：第 0 列就有内容（IIFE 内部的语句都带缩进）
     return line[0] not in (" ", "\t", "}", ")")
+
+
+def forward_refs(lines):
+    """找出「顶层语句引用了行号更大的顶层 const/let」——TDZ ReferenceError 的机械判据。
+
+    返回 [(引用行 0 基, 声明行 0 基, 名字, 引用行文本), ...]，一行只报第一个命中的名字。
+    """
+    decls = {}
+    tops = []
+    for i, line in enumerate(lines):
+        if not is_top_level_code(line):
+            continue
+        tops.append((i, line))
+        m = TOP_DECL.match(line)
+        if m and m.group(1) not in decls:
+            name = m.group(1)
+            decls[name] = (i, re.compile(r"\b%s\b" % re.escape(name)))
+    bad = []
+    for i, line in tops:
+        for name, (d, pat) in decls.items():
+            if d > i and pat.search(line):
+                bad.append((i, d, name, line.strip()))
+                break
+    return bad
 
 
 def judge(lines, label, say):
     """判定一份文本。返回退出码；说明经 `say(文本)` 送出（self-test 不进最终输出）。"""
-    start = None
-    for i, line in enumerate(lines):
-        if line.startswith(MARKER):
-            if start is not None:
-                say("%s：启动段标记出现多次，判据不知道哪一段才是启动" % label)
-                return 1
-            start = i
-    if start is None:
+    heads = [i for i, line in enumerate(lines) if line.startswith(STARTUP_HEAD)]
+    if not heads:
         say(
-            "%s 里找不到启动段标记 %r：判据失效，请先修本脚本。"
-            % (label, MARKER)
+            "%s 里找不到启动段入口 %s：判据失效，请先修本脚本。"
+            % (label, STARTUP_HEAD)
         )
         return 1
-    if not any(l.startswith(STARTUP_HEAD) for l in lines[start : start + 3]):
-        say("%s：启动段标记后面跟的不是 %s，判据失效。" % (label, STARTUP_HEAD))
+    if len(heads) > 1:
+        say("%s：启动段入口出现多次，判据不知道哪一段才是启动" % label)
         return 1
+    start = heads[0]
 
-    # 启动段的结束：标记之后第一条 `})();`
     end = None
     for j in range(start + 1, len(lines)):
         if lines[j].startswith(STARTUP_TAIL):
@@ -92,8 +117,23 @@ def judge(lines, label, say):
             say("  …另有 %d 处" % (len(bad) - 20))
         say("  把这些移到启动段之前（或挪进 init() 里）。")
         return 1
+
+    fwd = forward_refs(lines)
+    if fwd:
+        say(
+            "顶层语句在声明之前引用了 const/let（暂时性死区，脚本会从该行起中断）："
+        )
+        for i, d, name, text in fwd[:20]:
+            say(
+                "  %s:%d  %s  ← %s 在第 %d 行才声明"
+                % (label, i + 1, text[:60], name, d + 1)
+            )
+        if len(fwd) > 20:
+            say("  …另有 %d 处" % (len(fwd) - 20))
+        say("  把引用移到声明之后（或挪进函数体 / init() 里）。")
+        return 1
     say(
-        "  启动段是 %s 最后一段（第 %d–%d 行），其后无顶层语句"
+        "  启动段是 %s 最后一段（第 %d–%d 行），其后无顶层语句、无顶层前向引用"
         % (label, start + 1, end + 1)
     )
     return 0
@@ -102,12 +142,12 @@ def judge(lines, label, say):
 def self_test(good_lines) -> int:
     """拿真文件现造两份坏文本，断言判据会把它们拦住。"""
     marker = next(
-        (i for i, l in enumerate(good_lines) if l.startswith(MARKER)), None
+        (i for i, l in enumerate(good_lines) if l.startswith(STARTUP_HEAD)),
+        None,
     )
     if marker is None:
-        print("self-test：真文件里找不到启动段标记，负例无从构造")
+        print("self-test：真文件里找不到启动段入口，负例无从构造")
         return 1
-    # 必须是**启动段之后**的第一个收尾：文件里 `})();` 到处有，取错位置等于截掉了标记本身。
     idx = next(
         (
             j
@@ -126,11 +166,15 @@ def self_test(good_lines) -> int:
             + ["", 'const lateThing = document.getElementById("x");'],
         ),
         (
-            "启动段标记丢了",
-            [
-                l.replace(MARKER, "/* ---------- 启动 ---------- */")
-                for l in good_lines
-            ],
+            "启动段入口被删了",
+            [l for i, l in enumerate(good_lines) if i != marker],
+        ),
+        (
+            "顶层语句引用了行号更大的 const（TDZ）",
+            ["const fwdRefUser = fwdRefTarget || null;"]
+            + good_lines[:marker]
+            + ["const fwdRefTarget = 1;"]
+            + good_lines[marker:],
         ),
     ]
     bad = 0

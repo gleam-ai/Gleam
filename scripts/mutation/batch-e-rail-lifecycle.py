@@ -32,7 +32,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: F401  # 本脚本自己也在印中文判定行：Windows 默认按 cp936 写 stdout，`✓` 会直接抛异常
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 GO_TEST = "go test {pkg} -run {run} -count=1 -timeout 120s"
@@ -44,15 +44,12 @@ def t(pkg, run, label=None):
 
 
 MUTATIONS = [
-    # ---------- 审批的寿命 ----------
     {
         "name": "取消时不摘审批（任务永远停在审批闸门上）",
         "file": "internal/webui/handlers.go",
         "edits": [
             (
                 """	_ = s.Agent.CancelTask(id)
-	// 取消之后必须叫醒停在审批上的那一轮：ctx 已经取消，但引擎的整计划闸门等的是
-	// 审批通道，不是 ctx。"取消返回 200、任务还在 running"就是这么来的。
 	s.dropTaskApprovals(id, "任务已取消")
 """,
                 "	_ = s.Agent.CancelTask(id)\n",
@@ -64,15 +61,12 @@ MUTATIONS = [
         ],
     },
     {
-        # 这一条是上一位的孪生：删掉登记、不送裁决，`/api/approvals` 立刻就说真话了，
-        # 于是第 1 条变异看起来"已修复"。只有"任务还等在门后"这半会红。
         "name": "摘除只删登记、不送裁决（引擎那行还阻塞着）",
         "file": "internal/webui/webui.go",
         "edits": [
             (
                 """	for _, w := range stale {
 		resp := types.ApprovalResponse{Approved: false, Note: note}
-		// 有缓冲，取不到也只可能是已被裁决：那种情况下不该再改它的答案。
 		select {
 		case w.ch <- resp:
 		default:
@@ -104,12 +98,14 @@ MUTATIONS = [
         ],
         "targets": [t(WEBUI, "TestCancel_PlanFirstGate")],
     },
-    # ---------- 现场栏的读数（F11） ----------
     {
         "name": "/api/info 不带 memory（现场栏那一格永远显示 0）",
         "file": "internal/webui/handlers.go",
         "edits": [
-            ('		"memory": s.Agent.MemoryCount(),', '		"memory": 0,')
+            (
+                '		"memory":  s.Agent.MemoryCount(),',
+                '		"memory": 0,',
+            )
         ],
         "targets": [t(WEBUI, "TestInfo_CarriesMemoryCount")],
     },
@@ -120,7 +116,6 @@ MUTATIONS = [
         "targets": [t(WEBUI, "TestInfo_CarriesMemoryCount")],
     },
 ]
-
 
 if __name__ == "__main__":
     sys.exit(

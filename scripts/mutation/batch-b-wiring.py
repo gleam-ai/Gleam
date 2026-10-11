@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: F401  # 本脚本自己也在印中文判定行：Windows 默认按 cp936 写 stdout，`✓` 会直接抛异常
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 GO_TEST = "go test {pkg} -run {run} -count=1 -timeout 120s"
@@ -29,7 +29,6 @@ def t(pkg, run, label=None):
 
 
 MUTATIONS = [
-    # ---------- 归档接线（F7） ----------
     {
         "name": "webui：删掉任务归档调用（跑完只留内存表）",
         "file": "internal/webui/handlers.go",
@@ -55,11 +54,6 @@ MUTATIONS = [
         ],
         "targets": [t("./internal/webui", "TestGoalSubmit_ArchivesForReplay")],
     },
-    # 注：**"归档先于终态广播"这一条刻意不做负例控制。** 把顺序改回"先广播后落盘"，
-    # 没有任何断言会响（实测存活）——它挡的是"广播之后进程被杀"，而这在一个进程内
-    # 测不出来：能测到的都只是"有没有归档"，那是上面第 1、2 条变异的事。
-    # 所以这条只以注释的形式留在 handlers.go 里，别在批次表里放一条永远存活的变异，
-    # 那只会让下一个跑批的人以为捕获率出了错。
     {
         "name": "定时任务：删掉 fire 路径的归档",
         "file": "cmd/gleam/main.go",
@@ -90,10 +84,6 @@ MUTATIONS = [
         "targets": [t("./cmd/gleam", "TestNotifyScheduledDone_Wiring")],
     },
     {
-        # 归档这一半以前**没有**断言挡住：`TestFireScheduledJob_Notifies` 用的是
-        # 「失败 + on_failure」，那次本来就要弹窗，所以把归档挪进策略分支它照样绿
-        # （已实测：变异下 exit=0）。现在由 `TestFireScheduledJob_ArchiveIgnoresNotifyPolicy`
-        # 用三种"不弹窗"的组合钉住——`notify: never` 说的是别打扰，不是别记下来。
         "name": "定时任务：让通知策略管住归档（never 的任务等于从没跑过）",
         "file": "cmd/gleam/main.go",
         "edits": [
@@ -132,7 +122,6 @@ MUTATIONS = [
         "edits": [("	result.Mode = mode\n", "")],
         "targets": [t("./internal/webui", "TestGoalSubmit_ArchivesRunMode")],
     },
-    # ---------- 任务名规则（F-2 读盘回落的攻击面） ----------
     {
         "name": "SafeTaskName：允许点和斜杠（净化式放行）",
         "file": "internal/agent/runlog.go",
@@ -147,7 +136,6 @@ MUTATIONS = [
             t("./internal/webui", "TestGoalGet_RejectsPathTraversal"),
         ],
     },
-    # ---------- 密钥按主机绑定（F4） ----------
     {
         "name": "KeyScope：退回按整条 URL 归一（改路径就等于换主机）",
         "file": "internal/llm/providers.go",
@@ -172,14 +160,12 @@ MUTATIONS = [
             )
         ],
         "targets": [
-            # 一条一个 -run：`'A|B'` 里的竖线在 Windows 上会被 cmd 当管道（骨架预检直接拒绝）。
             t("./internal/agent", "TestLLMKey_InjectedKeyBoundAtStartup"),
             t("./internal/agent", "TestBindLLMKey_FormAndSwitch"),
             t("./internal/agent", "TestLLMKeyFor_ExplicitWins"),
             t("./internal/webui", "TestGoalSubmit_WarningDistinguishesKeyHost"),
         ],
     },
-    # ---------- 原子写（F5）：判据是文本约定，直接拿闸门脚本当目标 ----------
     {
         "name": "记忆落盘：原子写退回 os.WriteFile（崩溃留半截 JSON）",
         "file": "internal/harness/memory/store.go",

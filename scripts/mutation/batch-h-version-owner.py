@@ -35,7 +35,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: F401  # 本脚本自己也在印中文判定行
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 ROOT = os.path.dirname(
@@ -128,7 +128,6 @@ MUTATIONS = [
     {
         "name": "/api/info 不再引用 owner：前端摘了字面量，出口一断三处读数一起变旧",
         "file": "internal/webui/handlers.go",
-        # 连 import 一起删：只删那一行会留下"imported and not used"，编译失败的"捕获"是假的。
         "edits": [
             ('\t"gleam/internal/buildinfo"\n', ""),
             ('\t\t"version": buildinfo.Version,\n', ""),
@@ -141,7 +140,6 @@ MUTATIONS = [
         ],
     },
 ]
-
 
 if __name__ == "__main__":
     sys.exit(

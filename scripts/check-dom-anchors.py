@@ -55,22 +55,15 @@ import os
 import re
 import sys
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 APP_JS = os.path.join("internal", "webui", "static", "app.js")
-# 壳层 JS 已按域拆文件（geo.js、settings2-*.js、chrome.js…）：锚点引用、接线、
-# 函数调用三件事都**跨文件**成立，只看 app.js 会把拆出去的那部分误判成"没人接"。
 JS_DIR = os.path.join("internal", "webui", "static")
 INDEX_HTML = os.path.join("internal", "webui", "static", "index.html")
 
-# 反向判据罩住的锚点前缀：rail-* 现场栏结构、ro-* 读数格子、cp-* 输入区就地控件、
-# bp-* 浏览器预览面板（批次 F13）、cx-* 连接与出网台账（批次 F16）、cu-* 候补目标（批次 F17）
 SIDE_PREFIX = ("rail-", "ro-", "cp-", "bp-", "cx-", "cu-")
-# HTML 里指向 id 的无障碍属性（这些算"有人接"，只是接的人不是 JS）
 ARIA_TO = ("aria-controls", "aria-labelledby", "aria-describedby", "for")
 
-# getElementById 收的是裸 id（不带 #），$()/querySelector 才带。原来三者共用一条
-# "必须带 #" 的规则，于是 getElementById('cp-update-btn') 这种合法接线被判成"没人接"。
 REF_RE = re.compile(
     r"""(?:\$\(\s*|querySelector\(\s*)['"]#([A-Za-z0-9_\-]+)['"]"""
     r"""|getElementById\(\s*['"]([A-Za-z0-9_\-]+)['"]"""
@@ -78,8 +71,6 @@ REF_RE = re.compile(
 
 ID_ATTR_RE = re.compile(r'id="([A-Za-z0-9_\-]+)"')
 ID_ASSIGN_RE = re.compile(r"""\.id\s*=\s*['"]([A-Za-z0-9_\-]+)['"]""")
-# 设置页用 h(tag, { id: 'x' }) 这种属性对象建 DOM：只认 id="…" 会把这类定义
-# 判成"没人定义"，于是引用它的地方被误报（2026-10-10 扩到全量 JS 后才暴露）。
 ID_PROP_RE = re.compile(r"""\bid\s*:\s*['"]([A-Za-z0-9_\-]+)['"]""")
 FUNC_RE = re.compile(r"^\s*(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(", re.M)
 
@@ -166,9 +157,7 @@ def judge(js_text, html_text, label_js, label_html, say):
             % "/".join(SIDE_PREFIX)
         )
         return 1
-        # 「有人接」有两种合法写法：$('#id') 里的 '#id'，与 getElementById('id') 的裸 id。
 
-    # 早先只查字面 "#id"，于是 getElementById 这种接线被误判成"没人接"。
     def wired(name):
         return (
             ("#" + name) in js_text
@@ -220,12 +209,6 @@ def self_test(js_text, html_text) -> int:
             js_text + "\nconst probe = $('#rail-anchor-that-is-gone');\n",
             html_text,
         ),
-        # 孤儿锚点一律**附加**到 HTML 末尾，不按源码字面量 replace：
-        # 判据只按 id="…" 认锚点（ID_ATTR_RE），附加即可生效；而 replace 的字面量
-        # 会在 index.html 被重新排版（长标签折行）后静默失配——2026-10-11 跑
-        # Google Style 的 prettier 时，`<div class="cp-model-list" id="cp-model-list"`
-        # 与 `<div class="bp-quick" id="bp-quick"` 因为多了 role/aria-label 被折行，
-        # 两条负例当场构造不出来（判据报"没被拦住"）。附加写法与版式无关。
         (
             "面板格子没人接",
             js_text,
@@ -243,18 +226,12 @@ def self_test(js_text, html_text) -> int:
             html_text
             + '\n<button id="bp-orphan" type="button">孤儿</button>\n',
         ),
-        # 台账的表体与范围文案都是 JS 填的：HTML 先画出空壳、app.js 没接，
-        # 这一屏就永远是那个「—」——而它恰恰是用户判断"我有没有被交代清楚"的那一屏。
         ("台账格子没人接", js_text, html_text + '\n<p id="cx-orphan">—</p>\n'),
-        # 候补目标整块的显隐、卡片、尾句都是 JS 算的：HTML 先画壳而 app.js 没接，
-        # 用户看到的就是几张按不动的卡片——那两个按钮是把主动性交回给人的唯一出口。
         (
             "候补目标格子没人接",
             js_text,
             html_text + '\n<p id="cu-orphan">—</p>\n',
         ),
-        # 只加一个函数定义、外面一句调用都不给。真出过这一类：`renderChanges` 写好了、
-        # 注释也写了，卡片上那个槽位却永远是空的——因为没人调它。
         (
             "函数没有任何调用方",
             js_text
@@ -283,7 +260,6 @@ def main() -> int:
     selftest = "--self-test" in sys.argv[1:]
     root = argv[0] if argv else "."
     try:
-        # 静态目录下所有 JS 拼成一份：拆文件之后，锚点引用与接线都是跨文件的
         names = sorted(
             n
             for n in os.listdir(os.path.join(root, JS_DIR))
