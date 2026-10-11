@@ -74,7 +74,7 @@ func buildBinary(t *testing.T) string {
 		}
 		buildCtx, cancel := context.WithTimeout(context.Background(), buildTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(buildCtx, goTool, "build", "-p", "2", "-o", buildPath, "gleam/cmd/gleam")
+		cmd := exec.CommandContext(buildCtx, goTool, "build", "-p", "2", "-ldflags=-s -w", "-o", buildPath, "gleam/cmd/gleam")
 		cmd.Dir = projectRoot(t)
 		cmd.Env = append(os.Environ(), "GOMAXPROCS=2")
 		if cacheDir != "" {
