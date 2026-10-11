@@ -37,10 +37,16 @@ func TestKeyScope(t *testing.T) {
 
 // ResolveTarget 是三处调用（启动装配 / 设置保存 / 连接自测）共用的归一化，
 // 这里钉住它的兜底链：预设协议覆盖已配协议，非法协议回落 openai_chat。
+//
+// **默认模型已被刻意移除**（7683701：让用户去拉真实列表，而不是依赖可能过时的默认名），
+// 所以没填 model 时留空才是正确结果——这条断言跟着契约一起改，不是放宽。
 func TestResolveTarget(t *testing.T) {
 	base, model, protocol := ResolveTarget("zhipu", PlanCoding, "", "", "")
-	if protocol != ProtocolOpenAIChat || model == "" || base == "" {
+	if protocol != ProtocolOpenAIChat || base == "" {
 		t.Fatalf("preset = %s %s %s", base, model, protocol)
+	}
+	if model != "" {
+		t.Errorf("没填模型时应留空（预设不再带默认模型），得到 %q", model)
 	}
 	if _, _, p := ResolveTarget("", "", "https://x/v1", "m", "胡来的协议"); p != ProtocolOpenAIChat {
 		t.Errorf("非法协议应回落，得到 %s", p)
@@ -55,8 +61,12 @@ func TestResolvePreset_ZhipuCoding(t *testing.T) {
 	if base != "https://open.bigmodel.cn/api/coding/paas/v4" {
 		t.Errorf("coding 入口 = %s", base)
 	}
-	if protocol != ProtocolOpenAIChat || model == "" {
-		t.Errorf("protocol=%s model=%s", protocol, model)
+	if protocol != ProtocolOpenAIChat {
+		t.Errorf("protocol=%s", protocol)
+	}
+	// 同上：预设不再带默认模型，留空是预期结果
+	if model != "" {
+		t.Errorf("没填模型时应留空（预设不再带默认模型），得到 %q", model)
 	}
 	// 显式填写优先于预设
 	base2, model2, _ := ResolvePreset("zhipu", PlanToken, "https://custom.example/v4", "my-model")
