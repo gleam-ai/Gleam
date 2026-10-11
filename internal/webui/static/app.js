@@ -8631,7 +8631,6 @@ const Updater = (() => {
   loadGoals();
   loadConvoList();
   loadWorkspace();
-  loadGoStatus();
   loadRoles();
   loadContext(); // 输入区的水位条：首屏就得有数，否则那一格永远停在「—」
   loadCues(); // 候补目标同理：它只在有话说时露出来，首屏不拉就没人知道它存在
