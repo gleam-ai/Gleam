@@ -51,18 +51,23 @@ import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会�
 PROVIDERS_FILE = os.path.join("internal", "llm", "providers.go")
 I18N_FILE = os.path.join("internal", "webui", "static", "i18n.js")
 
+
 # 与 Go 侧运行时判据（connections_test.go 的 hasCJK）同一组区段：全角标点也算 CJK——
 # 「（）：」落在这些区段里，英文词条必须连标点一起换成 ASCII，否则照样漏。
 def has_cjk(s):
     return any(
-        0x3000 <= c <= 0x303F or 0x4E00 <= c <= 0x9FFF or
-        0xF900 <= c <= 0xFAFF or 0xFF00 <= c <= 0xFFEF
+        0x3000 <= c <= 0x303F
+        or 0x4E00 <= c <= 0x9FFF
+        or 0xF900 <= c <= 0xFAFF
+        or 0xFF00 <= c <= 0xFFEF
         for c in map(ord, s)
     )
 
 
 # `Name: "…"` / `Label: "…"`：字段名 + 冒号 + 一个 Go 字符串字面量（或不是字面量）。
-FIELD_RE = re.compile(r'\b(Name|Label)\s*:\s*(?:"((?:[^"\\]|\\.)*)"|([^"\s][^,\n]*))')
+FIELD_RE = re.compile(
+    r'\b(Name|Label)\s*:\s*(?:"((?:[^"\\]|\\.)*)"|([^"\s][^,\n]*))'
+)
 
 
 def catalog_strings(src):
@@ -86,14 +91,16 @@ def i18n_keys(src):
     键有两种写法：带引号（键里含标点/空格时 prettier 会加引号）与裸标识符。
     词条按键行首两格缩进识别——值折行时缩进是四格，天然分得开。
     """
-    m = re.search(r'const I18N_EN\s*=\s*\{', src)
+    m = re.search(r"const I18N_EN\s*=\s*\{", src)
     if not m:
         return None
-    body = src[m.end():src.find("\n};", m.end())]
+    body = src[m.end() : src.find("\n};", m.end())]
     keys = set()
     for line in body.splitlines():
-        km = re.match(r'^  (?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|([^\'"\s].*?)):\s*(?:$|[/\s]|\S)',
-                      line)
+        km = re.match(
+            r'^  (?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|([^\'"\s].*?)):\s*(?:$|[/\s]|\S)',
+            line,
+        )
         if km:
             key = next(g for g in km.groups() if g is not None)
             keys.add(key)
@@ -108,12 +115,14 @@ def check(root):
         src = _gocomment.strip(f.read())
     literals, non_literals = catalog_strings(src)
     if not literals and not non_literals:
-        problems.append("providers.go 里一个 Name:/Label: 都扫不到：字段改名了？判据失效。")
+        problems.append(
+            "providers.go 里一个 Name:/Label: 都扫不到：字段改名了？判据失效。"
+        )
         return problems
 
     for line_no, field, expr in non_literals:
         problems.append(
-            'providers.go:%d  %s 不是字符串字面量（%s）：查表按整句匹配，'
+            "providers.go:%d  %s 不是字符串字面量（%s）：查表按整句匹配，"
             "变量值无从对起——显示名必须写死。" % (line_no, field, expr)
         )
 
@@ -121,7 +130,9 @@ def check(root):
     with io.open(ipath, "r", encoding="utf-8") as f:
         keys = i18n_keys(f.read())
     if not keys:
-        problems.append("i18n.js 里解析不到 I18N_EN 或一个键都提取不到：字典结构变了？判据失效。")
+        problems.append(
+            "i18n.js 里解析不到 I18N_EN 或一个键都提取不到：字典结构变了？判据失效。"
+        )
         return problems
 
     for lit in literals:
@@ -137,6 +148,7 @@ def check(root):
 
 # ---------- 负例控制：判据自己也要被证明会红 ----------
 
+
 def self_test():
     ok = True
 
@@ -151,7 +163,7 @@ def self_test():
     ok &= expect(bool(ps), "词条缺失会被判红", ps)
 
     # 坏例 2：显示名传变量。
-    bad_var = 'Name: providerName,'
+    bad_var = "Name: providerName,"
     ps = run(bad_var, good_i18n)
     ok &= expect(bool(ps), "传变量会被判红", ps)
 
@@ -208,7 +220,9 @@ def main():
     if problems:
         for p in problems:
             print(p)
-        print("i18n 覆盖判据：红。见 scripts/check-i18n-catalog.py 头部的「怎么改才通过」。")
+        print(
+            "i18n 覆盖判据：红。见 scripts/check-i18n-catalog.py 头部的「怎么改才通过」。"
+        )
         return 1
     if not do_self:
         print("i18n 覆盖判据：绿——厂商目录的每一句显示文案，字典里都有英文。")
