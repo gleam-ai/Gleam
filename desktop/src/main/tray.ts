@@ -12,6 +12,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   Menu,
   Tray,
   ipcMain,
@@ -47,6 +48,10 @@ const TEXT = {
     open: '打开 Gleam',
     settings: '设置',
     quit: '退出 Gleam',
+    quitTitle: '确认退出',
+    quitMessage: '确定要退出 Gleam 吗？',
+    quitConfirm: '退出',
+    quitCancel: '取消',
   },
   en: {
     recent: 'Recent',
@@ -55,6 +60,10 @@ const TEXT = {
     open: 'Open Gleam',
     settings: 'Settings',
     quit: 'Quit Gleam',
+    quitTitle: 'Confirm Quit',
+    quitMessage: 'Are you sure you want to quit Gleam?',
+    quitConfirm: 'Quit',
+    quitCancel: 'Cancel',
   },
 } as const;
 
@@ -139,6 +148,30 @@ function label(title: string, fallback: string): string {
   return t.length > TITLE_MAX ? `${t.slice(0, TITLE_MAX - 1)}…` : t;
 }
 
+/** 退出前弹确认框：托盘菜单的"退出"是最容易误点的入口，确认一下不亏。 */
+async function confirmQuit(): Promise<void> {
+  const t = TEXT[lang];
+  const w = target();
+  const result = w
+    ? await dialog.showMessageBox(w, {
+        type: 'question',
+        title: t.quitTitle,
+        message: t.quitMessage,
+        buttons: [t.quitCancel, t.quitConfirm],
+        defaultId: 0,
+        cancelId: 0,
+      })
+    : await dialog.showMessageBox({
+        type: 'question',
+        title: t.quitTitle,
+        message: t.quitMessage,
+        buttons: [t.quitCancel, t.quitConfirm],
+        defaultId: 0,
+        cancelId: 0,
+      });
+  if (result.response === 1) app.quit();
+}
+
 /** 菜单当前长什么样，一行说完。dev 下打日志用：这样不看托盘也能核对结构与文案。 */
 export function describeTrayMenu(): string {
   const t = TEXT[lang];
@@ -148,9 +181,11 @@ export function describeTrayMenu(): string {
   const rest = recents.length - RECENT_TOP;
   const recent =
     recents.length === 0
-      ? `${t.recent}(灰)`
+      ? '(无最近会话)'
       : `${t.recent}[${head.join(' / ')}${rest > 0 ? ` + ${t.more}(${Math.min(rest, RECENT_MORE)})` : ''}]`;
-  return [recent, t.newChat, t.open, t.settings, t.quit].join(' | ');
+  const parts = recents.length === 0 ? [] : [recent];
+  parts.push(t.newChat, t.open, t.settings, t.quit);
+  return parts.join(' | ');
 }
 
 function buildMenu(): Menu {
@@ -161,10 +196,7 @@ function buildMenu(): Menu {
   });
 
   const items: MenuItemConstructorOptions[] = [];
-  if (recents.length === 0) {
-    // 一条都没有时给个灰项占位：菜单结构不随数据跳来跳去，也让"还没有会话"看得见。
-    items.push({ label: t.recent, enabled: false });
-  } else {
+  if (recents.length > 0) {
     const sub = recents.slice(0, RECENT_TOP).map(convoItem);
     const rest = recents.slice(RECENT_TOP, RECENT_TOP + RECENT_MORE);
     if (rest.length)
@@ -173,10 +205,10 @@ function buildMenu(): Menu {
         { label: t.more, submenu: rest.map(convoItem) },
       );
     items.push({ label: t.recent, submenu: sub });
+    items.push({ type: 'separator' });
   }
 
   items.push(
-    { type: 'separator' },
     {
       label: t.newChat,
       click: () => dispatchTrayAction({ action: 'new-chat' }),
@@ -187,7 +219,7 @@ function buildMenu(): Menu {
       click: () => dispatchTrayAction({ action: 'settings' }),
     },
     { type: 'separator' },
-    { label: t.quit, click: () => app.quit() }, // 不设 quitting：让 before-quit 照常去停后端
+    { label: t.quit, click: () => void confirmQuit() },
   );
   return Menu.buildFromTemplate(items);
 }
