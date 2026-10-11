@@ -7351,7 +7351,9 @@ const Onboarding = (function () {
     box.querySelectorAll('.onboarding-mode').forEach((btn) => {
       btn.classList.toggle('selected', btn.dataset.mode === selectedMode);
       btn.addEventListener('click', () => {
-        box.querySelectorAll('.onboarding-mode').forEach((b) => b.classList.remove('selected'));
+        box
+          .querySelectorAll('.onboarding-mode')
+          .forEach((b) => b.classList.remove('selected'));
         btn.classList.add('selected');
         selectedMode = btn.dataset.mode;
       });
