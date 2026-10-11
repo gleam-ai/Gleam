@@ -1519,6 +1519,9 @@ const I18N_EN = {
   '过滤模型…': 'Filter models…',
   '手动输入模型 ID': 'Enter a model ID manually',
   '或手动输入…': 'Or enter one manually…',
+  请选择模型: 'Select a model',
+  手动输入: 'Enter manually',
+  没有匹配的模型: 'No matching models',
   '没有可用的模型列表，请手动填写模型 ID':
     'No model list available — enter a model ID manually',
   已并入本次拉取到的模型: 'Merged with the models fetched just now',

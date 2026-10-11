@@ -577,7 +577,6 @@
     // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；
     // 内置目录只作离线兜底；手填始终可用。三条来源都在界面上标出来。
     const MODEL_SEARCH_THRESHOLD = 30; // 超过就出过滤框：OpenRouter 这类能拉到几百个
-    const MANUAL = '__manual__'; // 下拉里「或手动输入…」这一项的值
     const catKey = (host) => 'gleam.modelcat.' + host;
 
     function catGet(host) {
@@ -609,13 +608,18 @@
       return hours < 24 ? hours + ' 小时前' : Math.round(hours / 24) + ' 天前';
     }
 
+    // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；内置目录只作离线兜底；
+    // 手填始终可用。
+    //
+    // 用与「供应商」**同一个 .s2-picker 弹层**，不用原生 <select>：原生控件做不出
+    // 「选中项打勾」，也没法在列表里塞过滤框，两种控件摆在同一张表单上手感会不一致。
     function modelField() {
-      const pl = curPlan();
       let fetched = []; // 本次打开期间拉到的
       let manual = false;
+      let query = '';
+      let optsBox = null;
 
-      const wrap = h('div', {});
-      const listBox = h('div', {});
+      const wrap = h('div', { class: 's2-picker' });
       const srcNote = h('div', { class: 's2-field-hint' });
       const custom = h('input', {
         class: 'input s2-dlg-input',
@@ -625,6 +629,24 @@
         spellcheck: 'false',
         hidden: true,
       });
+      const trigger = h(
+        'button',
+        {
+          type: 'button',
+          class: 's2-picker-btn',
+          'aria-haspopup': 'listbox',
+          'aria-expanded': 'false',
+          id: 's2-dlg-model',
+        },
+        h('span', { class: 's2-picker-name' }),
+        h('span', { class: 's2-picker-chev', html: ico('chevron', 14) }),
+      );
+      const list = h('div', {
+        class: 's2-picker-list',
+        role: 'listbox',
+        hidden: true,
+        'aria-label': '模型',
+      });
 
       const host = () =>
         hostOf(isCustom() ? st.base : (curPlan() || {}).base_url || '');
@@ -632,6 +654,9 @@
       const builtin = () => {
         const p = curProv();
         return !isCustom() && p && Array.isArray(p.models) ? p.models : [];
+      };
+      const setName = (text) => {
+        trigger.querySelector('.s2-picker-name').textContent = text;
       };
 
       // 三条来源合并去重，越靠前越「新」：本次拉取 > 缓存 > 内置兜底。
@@ -648,83 +673,171 @@
         const c = cached();
         if (c) c.ids.forEach(push);
         builtin().forEach(push);
-        // 当前值不在列表里（默认模型文档未列时常有）也要显示出来，否则字段会空
+        // 当前值不在列表里（自建网关、或清单没收录）也要显示出来，否则字段会空
         if (st.modelName && !seen.has(st.modelName)) out.unshift(st.modelName);
         return out;
       }
 
-      function paintModel() {
-        const ids = sources();
-        listBox.replaceChildren();
-        custom.hidden = !manual;
-
-        if (!ids.length) {
-          // 三条来源都空（自建网关、没 key、没缓存）：退回纯手填，不给一个空下拉
-          manual = true;
-          custom.hidden = false;
-          listBox.append(custom);
-          srcNote.textContent = '没有可用的模型列表，请手动填写模型 ID';
-          return;
-        }
-        const c = cached();
-        srcNote.textContent = fetched.length
-          ? '已并入本次拉取到的模型'
-          : c
-            ? `内置兜底 + 上次拉取（${ago(c.at)}）`
-            : '内置兜底（点「拉取可用模型」可拿到该厂商的完整列表）';
-
-        const filter = h('input', {
-          class: 'input s2-dlg-input',
-          id: 's2-dlg-model-filter',
-          placeholder: '过滤模型…',
-          autocomplete: 'off',
-          spellcheck: 'false',
-        });
-        const sel = h('select', {
-          class: 's2-select s2-select--block',
-          id: 's2-dlg-model',
-        });
-        const fill = (q) => {
-          const needle = (q || '').trim().toLowerCase();
-          sel.replaceChildren();
-          ids
-            .filter((id) => !needle || id.toLowerCase().includes(needle))
-            .forEach((id) => sel.append(h('option', { value: id, text: id })));
-          sel.append(h('option', { value: MANUAL, text: '或手动输入…' }));
-          if (ids.includes(st.modelName)) sel.value = st.modelName;
-        };
-        fill('');
-        if (ids.length > MODEL_SEARCH_THRESHOLD) listBox.append(filter);
-        listBox.append(sel, custom);
-
-        filter.addEventListener('input', () => {
-          fill(filter.value);
-          touch();
-        });
-        sel.addEventListener('change', () => {
-          if (sel.value === MANUAL) {
-            manual = true;
-            custom.hidden = false;
-            custom.focus();
-            return;
-          }
-          manual = false;
-          custom.hidden = true;
-          st.modelName = sel.value;
-          touch();
-          result.hidden = true;
-          validate();
-        });
-        custom.addEventListener('input', () => {
-          st.modelName = custom.value;
-          touch();
-          result.hidden = true;
-          validate();
-        });
-        custom.value = st.modelName || '';
+      function modelOpt(id) {
+        const picked = !manual && id === st.modelName;
+        return h(
+          'button',
+          {
+            type: 'button',
+            role: 'option',
+            class: 's2-picker-opt',
+            'aria-selected': String(picked),
+            onclick: () => {
+              manual = false;
+              st.modelName = id;
+              touch();
+              result.hidden = true;
+              validate();
+              close();
+              paintModel();
+              trigger.focus();
+            },
+          },
+          h('span', { text: id }),
+          picked
+            ? h('span', { class: 's2-picker-check', html: ico('check', 14) })
+            : null,
+        );
       }
 
-      if (!st.modelName && pl) st.modelName = pl.model;
+      function manualOpt() {
+        return h(
+          'button',
+          {
+            type: 'button',
+            role: 'option',
+            class: 's2-picker-opt',
+            'aria-selected': String(manual),
+            onclick: () => {
+              manual = true;
+              custom.hidden = false;
+              custom.focus();
+              close();
+              paintModel();
+            },
+          },
+          h('span', { text: '或手动输入…' }),
+          manual
+            ? h('span', { class: 's2-picker-check', html: ico('check', 14) })
+            : null,
+        );
+      }
+
+      // 只重画选项：过滤时若整层重建，输入框每敲一个字就失焦。
+      function fillOptions() {
+        if (!optsBox) return;
+        const needle = query.trim().toLowerCase();
+        const shown = sources().filter(
+          (id) => !needle || id.toLowerCase().includes(needle),
+        );
+        optsBox.replaceChildren();
+        if (!shown.length) {
+          optsBox.append(
+            h('div', { class: 's2-picker-group', text: '没有匹配的模型' }),
+          );
+        }
+        shown.forEach((id) => optsBox.append(modelOpt(id)));
+        optsBox.append(
+          h('div', { class: 's2-picker-group', text: '自定义' }),
+          manualOpt(),
+        );
+      }
+
+      function close() {
+        list.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+
+      function paintModel() {
+        const ids = sources();
+        custom.hidden = !manual;
+        list.replaceChildren();
+        optsBox = null;
+
+        if (manual || !ids.length) {
+          // 三条来源都空（自建网关、没 key、没缓存）：不给一个空弹层，直接退到纯手填
+          if (!ids.length) manual = true;
+          custom.hidden = false;
+          setName(
+            manual && !st.modelName ? '手动输入' : st.modelName || '请选择模型',
+          );
+        } else {
+          setName(st.modelName || '请选择模型');
+        }
+        const c = cached();
+        srcNote.textContent = !ids.length
+          ? '没有可用的模型列表，请手动填写模型 ID'
+          : fetched.length
+            ? '已并入本次拉取到的模型'
+            : c
+              ? `内置兜底 + 上次拉取（${ago(c.at)}）`
+              : '内置兜底（点「拉取可用模型」可拿到该厂商的完整列表）';
+        if (!ids.length) {
+          close();
+          return;
+        }
+
+        if (ids.length > MODEL_SEARCH_THRESHOLD) {
+          const filter = h('input', {
+            class: 'input s2-dlg-input',
+            id: 's2-dlg-model-filter',
+            placeholder: '过滤模型…',
+            autocomplete: 'off',
+            spellcheck: 'false',
+          });
+          filter.value = query;
+          filter.addEventListener('input', () => {
+            query = filter.value;
+            fillOptions();
+          });
+          // 别和弹层的方向键抢：在过滤框里按上下键应是移动光标
+          filter.addEventListener('keydown', (e) => e.stopPropagation());
+          list.append(filter);
+        }
+        optsBox = h('div', {});
+        list.append(optsBox);
+        fillOptions();
+      }
+
+      trigger.addEventListener('click', () => {
+        list.hidden = !list.hidden;
+        trigger.setAttribute('aria-expanded', String(!list.hidden));
+        if (!list.hidden) {
+          const pick =
+            list.querySelector('[aria-selected="true"]') ||
+            list.querySelector('.s2-picker-opt');
+          if (pick) pick.focus();
+        }
+      });
+      list.addEventListener('keydown', (e) => {
+        const opts = [...list.querySelectorAll('.s2-picker-opt')];
+        const i = opts.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          (opts[i + 1] || opts[0]).focus();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          (opts[i - 1] || opts[opts.length - 1]).focus();
+        } else if (e.key === 'Escape') {
+          e.stopPropagation();
+          close();
+          trigger.focus();
+        }
+      });
+      custom.addEventListener('input', () => {
+        st.modelName = custom.value;
+        touch();
+        result.hidden = true;
+        validate();
+      });
+
+      // 启动装配时不再从预设取默认模型——那批默认值已被刻意移除；
+      // 没填就是没填，界面显示「请选择模型」，由用户去选或去拉。
       paintModel();
 
       const fetchBtn = h(
@@ -746,6 +859,7 @@
           if (r.ok && Array.isArray(r.models) && r.models.length) {
             fetched = r.models.map((m) => m.id);
             catPut(host(), fetched); // 存下来：下次打开不用重新填 key
+            query = '';
             paintModel();
             showResult(
               'ok',
@@ -755,7 +869,7 @@
             showResult(
               'fail',
               (TEST_HINTS[r.kind] || '拉取失败') +
-                '：这个入口可能不提供模型列表，从下拉里选或手填即可',
+                '：这个入口可能不提供模型列表，从列表里选或手填即可',
             );
           }
         } catch (err) {
@@ -763,7 +877,7 @@
         }
         fetchBtn.disabled = false;
       });
-      wrap.append(listBox, srcNote);
+      wrap.append(trigger, list, custom, srcNote);
       return field('模型 ID', wrap, fetchBtn);
     }
     function fastToggle() {
