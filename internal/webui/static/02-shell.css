@@ -157,6 +157,42 @@
   color: var(--color-fg-muted);
 }
 
+.onboarding-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+}
+.onboarding-mode {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--ink-rgb) / 0.1);
+  background: rgba(var(--ink-rgb) / 0.02);
+  color: var(--color-fg);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.onboarding-mode:hover {
+  background: rgba(var(--ink-rgb) / 0.06);
+}
+.onboarding-mode.selected {
+  border-color: rgba(var(--accent-rgb, 52, 211, 153), 0.6);
+  background: rgba(var(--accent-rgb, 52, 211, 153), 0.08);
+}
+.onboarding-mode strong {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.onboarding-mode span {
+  font-size: 0.82rem;
+  color: var(--color-fg-muted);
+  line-height: 1.4;
+}
+
 .onboarding-form {
   text-align: left;
 }

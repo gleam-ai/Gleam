@@ -7287,11 +7287,12 @@ const Onboarding = (function () {
   let providers = [];
   let selectedProvider = null;
   let selectedPlan = null;
+  let selectedMode = 'auto';
 
   function show(step) {
     const overlay = $('#onboarding-overlay');
     overlay.hidden = false;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const page = $(`#ob-page-${i}`);
       page.hidden = i !== step;
       const dot = overlay.querySelector(`.onboarding-dot[data-step="${i}"]`);
@@ -7306,6 +7307,9 @@ const Onboarding = (function () {
           `${p.name} 的 API Key，填好后测试连通性。`;
       $('#ob-api-key').value = '';
       $('#ob-test-result').hidden = true;
+    }
+    if (step === 3) {
+      renderModes();
     }
   }
 
@@ -7333,6 +7337,19 @@ const Onboarding = (function () {
         $('#ob-next-1').disabled = false;
       });
       box.appendChild(card);
+    });
+  }
+
+  function renderModes() {
+    const box = $('#ob-modes');
+    if (!box) return;
+    box.querySelectorAll('.onboarding-mode').forEach((btn) => {
+      btn.classList.toggle('selected', btn.dataset.mode === selectedMode);
+      btn.addEventListener('click', () => {
+        box.querySelectorAll('.onboarding-mode').forEach((b) => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedMode = btn.dataset.mode;
+      });
     });
   }
 
@@ -7390,6 +7407,7 @@ const Onboarding = (function () {
         provider_id: selectedProvider,
         plan: selectedPlan || 'token',
         api_key: key,
+        mode: selectedMode || 'auto',
       });
       if (r.test_result && r.test_result.ok) {
         toast('配置成功，开始使用吧', 'success');
@@ -7424,10 +7442,12 @@ const Onboarding = (function () {
         if (selectedProvider) show(2);
       };
       $('#ob-back-2').onclick = () => show(1);
+      $('#ob-next-2').onclick = () => show(3);
+      $('#ob-back-3').onclick = () => show(2);
       $('#ob-test-btn').onclick = () => testConnection();
       $('#ob-finish').onclick = () => finish();
       $('#ob-api-key').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') finish();
+        if (e.key === 'Enter') show(3);
       });
     } catch {
       /* 引导加载失败不阻塞主界面 */

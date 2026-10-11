@@ -1365,13 +1365,14 @@ func (s *Server) handleOnboardingGet(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// handleOnboardingSave 引导流程保存：选厂商 → 填 Key → 保存并测试连接。
+// handleOnboardingSave 引导流程保存：选厂商 → 填 Key → 选安全模式 → 保存并测试连接。
 // 成功后标记引导完成，前端不再弹出引导页。
 func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProviderID string `json:"provider_id"`
 		Plan       string `json:"plan"`
 		APIKey     string `json:"api_key"`
+		Mode       string `json:"mode"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, "参数解析失败")
@@ -1380,6 +1381,7 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 	body.ProviderID = strings.TrimSpace(body.ProviderID)
 	body.Plan = strings.TrimSpace(body.Plan)
 	body.APIKey = strings.TrimSpace(body.APIKey)
+	body.Mode = strings.TrimSpace(body.Mode)
 	if body.ProviderID == "" {
 		writeErr(w, 400, "请选择一个模型厂商")
 		return
@@ -1387,6 +1389,10 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 	if body.APIKey == "" {
 		writeErr(w, 400, "请填写 API Key")
 		return
+	}
+	// 安全模式默认 auto
+	if body.Mode == "" {
+		body.Mode = "auto"
 	}
 
 	patch := map[string]any{
@@ -1399,6 +1405,7 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 			"base_url": "",
 			"model":    "",
 		},
+		"mode": body.Mode,
 	}
 	view, err := s.Agent.ApplySettings(patch)
 	if err != nil {
