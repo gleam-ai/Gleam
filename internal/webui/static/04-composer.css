@@ -194,6 +194,26 @@ html[data-theme] .composer .composer-meta-btn[aria-expanded="true"] {
 .composer .cp-caret {
   opacity: 0.75;
 }
+/* 语音输入按钮 */
+#cp-voice {
+  padding: 0 6px;
+}
+#cp-voice .cp-voice-icon {
+  width: 16px;
+  height: 16px;
+  transition: color var(--dur-fast) ease;
+}
+#cp-voice.is-recording {
+  color: var(--color-destructive);
+  background: color-mix(in srgb, var(--color-destructive) 12%, transparent);
+}
+#cp-voice.is-recording .cp-voice-icon {
+  animation: voice-pulse 1.5s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 html[data-theme] .composer .send-btn {
   width: 28px;
   height: 28px;

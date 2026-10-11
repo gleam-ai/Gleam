@@ -629,6 +629,14 @@ setTimeout(() => {
 }, 0);
 $('#goal-submit').addEventListener('click', submitGoal);
 
+/* 语音输入按钮 */
+const voiceBtn = $('#cp-voice');
+if (voiceBtn && VoiceInput.supported) {
+  voiceBtn.addEventListener('click', () => VoiceInput.toggle());
+} else if (voiceBtn) {
+  voiceBtn.hidden = true; // 浏览器不支持就藏起来
+}
+
 /* 输入框右键菜单：跟着鼠标出现（系统原生菜单的手感）。 */
 const goalCtxMenu = $('#goal-ctx-menu');
 function showGoalCtxMenu(x, y) {
@@ -8637,6 +8645,94 @@ const Updater = (() => {
   }
 
   return { init };
+})();
+
+/* ---------- 语音输入：Web Speech API ---------- */
+const VoiceInput = (() => {
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return { supported: false };
+
+  let recognition = null;
+  let isRecording = false;
+  let finalTranscript = '';
+  const btn = () => $('#cp-voice');
+  const input = () => $('.composer-input');
+
+  function toggle() {
+    if (isRecording) stop();
+    else start();
+  }
+
+  function start() {
+    const b = btn();
+    const inp = input();
+    if (!b || !inp) return;
+
+    recognition = new SpeechRecognition();
+    recognition.lang = document.documentElement.lang || 'zh-CN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      isRecording = true;
+      finalTranscript = inp.value;
+      b.classList.add('is-recording');
+      b.title = '点击停止录音';
+    };
+
+    recognition.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalTranscript += t;
+        else interim += t;
+      }
+      inp.value = finalTranscript + interim;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    recognition.onerror = (e) => {
+      console.warn('[voice] error:', e.error);
+      stop();
+      if (e.error === 'not-allowed') {
+        toast('麦克风权限被拒绝，请在浏览器设置中允许', 'error', 4000);
+      }
+    };
+
+    recognition.onend = () => {
+      if (isRecording) {
+        // 浏览器可能自动停止，如果还在录音状态就重启
+        try {
+          recognition.start();
+        } catch {
+          stop();
+        }
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (err) {
+      console.warn('[voice] start failed:', err);
+      stop();
+    }
+  }
+
+  function stop() {
+    isRecording = false;
+    const b = btn();
+    if (b) {
+      b.classList.remove('is-recording');
+      b.title = '语音输入（点击开始/停止）';
+    }
+    if (recognition) {
+      recognition.stop();
+      recognition = null;
+    }
+  }
+
+  return { supported: true, toggle };
 })();
 
 /* ---------- 启动（必须是本文件的最后一段，判据见 scripts/check-app-startup.py） ---------- */
