@@ -69,14 +69,17 @@
     if (!PROVS) PROVS = (await api('GET', '/api/providers')).providers || [];
     return PROVS;
   }
-  const glyph = (name, cls = '') =>
-    h('span', {
+  // 首字母取的是**显示语言下**的名字：直接拿中文名去取，英文界面里会留下「智」「月」
+  // 这种落单的汉字。i18nText 是 i18n.js 的全局查表函数，没命中就退回原名。
+  const glyph = (name, cls = '') => {
+    const src = i18nText(String(name || '')) || String(name || '?');
+    const ch = [...src.replace(/^[^\p{L}\p{N}]+/u, '')][0] || '?';
+    return h('span', {
       class: 's2-glyph ' + cls,
       'aria-hidden': 'true',
-      text: (
-        [...String(name || '?').replace(/^[^\p{L}\p{N}]+/u, '')][0] || '?'
-      ).toUpperCase(),
+      text: ch.toUpperCase(),
     });
+  };
   const hostOf = (u) => {
     try {
       return new URL(u).host;
@@ -246,13 +249,23 @@
             'div',
             { class: 's2-model-text' },
             h('strong', {}, m.model || '（未填模型）', ...badges),
-            h('small', {
-              text: `${m.name} · ${d.name}${d.sub ? ' · ' + d.sub : ''}`,
-            }),
-            h('small', {
-              class: m.api_key_set ? 's2-ok' : 's2-warn',
-              text: `${hostOf(m.base_url)} · ${keyState}`,
-            }),
+            // 厂商名与套餐标签由后端目录带出，各成一个文本节点：拼成一整句之后
+            // 节点查不到词条，英文界面里就会剩下一截中文。
+            h(
+              'small',
+              {},
+              m.name,
+              ' · ',
+              d.name,
+              ...(d.sub ? [' · ', d.sub] : []),
+            ),
+            h(
+              'small',
+              { class: m.api_key_set ? 's2-ok' : 's2-warn' },
+              hostOf(m.base_url),
+              ' · ',
+              keyState,
+            ),
           ),
           actions,
         );
