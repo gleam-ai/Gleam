@@ -1,13 +1,5 @@
-/* Gleam Web UI — 前端逻辑（无构建、无依赖）
- * 架构：EventSource 接收实时事件 + fetch 调用 REST API。
- * 遵循 ui-ux-pro-max：实时遥测标注、操作全程有反馈、无障碍（aria-live / focus 管理）。 */
 'use strict';
 
-/* ---------- 本机 API 口令 ----------
- * 服务端每次启动生成一个口令，注入首页的 <meta name="gleam-token">（见 internal/webui/guard.go）。
- * 所有同源 /api/ 请求都要带上它：fetch 走请求头；EventSource 与 <img> 设不了请求头，走查询参数
- * （服务端只对 GET 认查询参数）。这里包一层全局 fetch / EventSource，而不是逐个调用点去改：
- * 漏掉一处就是一个静默 401，而新加的调用点不会记得这件事。 */
 const GLEAM_TOKEN =
   (document.querySelector('meta[name="gleam-token"]') || {}).content || '';
 const isOwnAPI = (u) => {
@@ -50,7 +42,6 @@ const withToken = (u) => {
   }
 })();
 
-/* ---------- 图标（内联 SVG，禁止 emoji 当图标） ---------- */
 const ICONS = {
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>',
   check:
@@ -100,7 +91,6 @@ const esc = (s) =>
       ],
   );
 
-/* ---------- 基础 API ---------- */
 async function api(method, url, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
@@ -108,24 +98,20 @@ async function api(method, url, body) {
   try {
     resp = await fetch(url, opts);
   } catch {
-    // 浏览器给的是 "Failed to fetch" 这类英文原文：换成用户看得懂的一句，原因只可能是本机服务没在答话
     throw new Error('连不上本机的 Gleam 服务，请确认它仍在运行');
   }
   let data = null;
   try {
     data = await resp.json();
-  } catch {
-    /* 空响应 */
-  }
+  } catch {}
   if (!resp.ok) {
     const e = new Error((data && data.error) || `HTTP ${resp.status}`);
-    e.status = resp.status; // 409 这类「不是错了，是要用户做选择」的响应要靠状态码分支
+    e.status = resp.status;
     throw e;
   }
   return data;
 }
 
-/* ---------- 列表加载失败：替换骨架屏，给原因和重试，而不是让骨架一直闪 ---------- */
 function loadError(wrap, err, retry) {
   if (!wrap) return;
   wrap.innerHTML = '';
@@ -140,12 +126,11 @@ function loadError(wrap, err, retry) {
   wrap.appendChild(box);
 }
 
-/* ---------- Toast ---------- */
 function toast(text, kind = 'info', ms = 4500) {
   const region = $('#toast-region');
   const t = el('div', `toast toast--${kind}`, text);
   t.title = '点击关闭';
-  t.addEventListener('click', () => t.remove()); // 长文案/报错允许手动关掉，不必等超时
+  t.addEventListener('click', () => t.remove());
   region.appendChild(t);
   while (region.children.length > 4) region.firstChild.remove();
   setTimeout(() => {
@@ -154,9 +139,6 @@ function toast(text, kind = 'info', ms = 4500) {
   }, ms);
 }
 
-/* ---------- 模态（焦点圈 + Esc + 焦点归还） ---------- */
-// Esc/点遮罩/✕ 关闭必须等价于「取消」：注册了 onCancel 的确认框若被这样关掉，
-// Promise 也要落地，否则 await 它的流程永远挂起（2026-09-24 交互走查）。
 const Modal = (() => {
   let lastFocus = null;
   let cancelHook = null;
@@ -173,7 +155,6 @@ const Modal = (() => {
       .addEventListener('click', () => close(false));
     buildContent(box);
     overlay.hidden = false;
-    // 初始焦点跳过关闭钮：确认框要落在取消/确定上，别让用户回车即关
     const first = [
       ...box.querySelectorAll('input, textarea, button, select'),
     ].find((e) => !e.classList.contains('modal-close'));
@@ -188,7 +169,6 @@ const Modal = (() => {
     cancelHook = null;
     if (!byButton && c) c();
   }
-  // settle：按钮路径关闭，视为用户已做出选择，不触发取消钩子
   function settle(fn) {
     cancelHook = null;
     close(true);
@@ -218,13 +198,8 @@ const Modal = (() => {
   return { open, close: () => close(false), settle };
 })();
 
-/* ---------- 输入框弹层协调 ----------
- * 以前每个弹层各管各的：点加号开一个，再点曲别针又开一个，两个会叠在一起；
- * 位置也各自按卡片的左/右边写死，按钮换行后弹层就和按钮错位。
- * 这里收成一处：任何弹层打开前先关掉别的，并且一律贴在触发按钮的正上方。
- */
 const Popovers = (() => {
-  const reg = new Map(); // id -> 收起函数
+  const reg = new Map();
   function register(id, close) {
     reg.set(id, close);
   }
@@ -238,16 +213,10 @@ const Popovers = (() => {
   }
   return { register, closeOthers, closeAll };
 })();
-// 弹层是固定定位的：窗口一改尺寸，它们和按钮的对应关系就旧了，直接收起最省事
 window.addEventListener('resize', () => Popovers.closeAll());
 
-// 把弹层摆到按钮正上方：底边离按钮顶边 gap，左缘与按钮对齐，并夹在视口内；上方放不下就翻到下方。
-//
-// 用**绝对定位 + 参照块坐标**而不是固定定位：外壳里带 transform / backdrop-filter 的祖先会变成
-// 固定定位的包含块，那时 `top` 就不再是「距视口」，算出来的位置会整体偏掉。绝对定位只认最近的
-// 定位祖先（弹层各自的 offsetParent），把视口边界换算进这套坐标即可，两种祖先都算得对。
 function anchorPopover(pop, btn, gap = 8) {
-  pop.hidden = false; // 先显示才量得到尺寸
+  pop.hidden = false;
   pop.style.position = 'absolute';
   pop.style.right = 'auto';
   pop.style.bottom = 'auto';
@@ -261,7 +230,7 @@ function anchorPopover(pop, btn, gap = 8) {
     Math.min(b.left - cbr.left, window.innerWidth - w - 4 - cbr.left),
   );
   let top = b.top - gap - h - cbr.top;
-  if (b.top - h - gap < 4) top = b.bottom + gap - cbr.top; // 上方放不下 → 翻到下方
+  if (b.top - h - gap < 4) top = b.bottom + gap - cbr.top;
   top = Math.max(
     4 - cbr.top,
     Math.min(top, window.innerHeight - h - 4 - cbr.top),
@@ -270,7 +239,6 @@ function anchorPopover(pop, btn, gap = 8) {
   pop.style.top = Math.round(top) + 'px';
 }
 
-// 应用内确认框（替代原生 confirm，避免弹出系统浏览器标题/地址）。
 function confirmModal(
   message,
   title = '请确认',
@@ -303,7 +271,6 @@ function confirmModal(
   });
 }
 
-// 应用内提示框（替代原生 alert）。
 function alertModal(message, title = '提示') {
   return new Promise((resolve) => {
     Modal.open(
@@ -323,7 +290,6 @@ function alertModal(message, title = '提示') {
   });
 }
 
-// 应用内输入框（替代原生 prompt）。
 function promptModal(label, oldValue = '', title = '请输入') {
   return new Promise((resolve) => {
     Modal.open(
@@ -357,7 +323,6 @@ function promptModal(label, oldValue = '', title = '请输入') {
   });
 }
 
-/* ---------- 导航 ---------- */
 const VIEW_LOADERS = {
   goals: loadGoals,
   skills: () => loadSkills(),
@@ -388,7 +353,6 @@ function showView(name) {
   const view = $('#view-' + name);
   if (view) view.classList.add('active');
   (VIEW_LOADERS[name] || (() => {}))();
-  // 选中折叠区里的项时，在「更多」上给一个激活小点
   const inMore = document.querySelector(
     `#nav-more-body .nav-item[data-view="${name}"]`,
   );
@@ -402,9 +366,6 @@ document.querySelectorAll('.nav-item[data-view]').forEach((btn) => {
   });
 });
 
-// 图标轨道（≤1100px）把文字 span 整个隐掉了：display:none 的文本不参与可访问名计算，
-// 于是 12 个导航按钮在读屏里全成了无名按钮，鼠标悬停也没有任何提示。
-// 名字仍只写在 HTML 的 span 里，这里派生一次，避免两处各维护一份说法。
 document.querySelectorAll('.nav-item').forEach((btn) => {
   if (btn.hasAttribute('aria-label')) return;
   const label = btn.querySelector(':scope > span:not(.nav-badge)');
@@ -414,7 +375,6 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.title = text;
 });
 
-// 「更多」折叠
 function setMoreOpen(open) {
   const body = $('#nav-more-body');
   const toggle = $('#nav-more-toggle');
@@ -426,7 +386,6 @@ $('#nav-more-toggle').addEventListener('click', (e) => {
   e.stopPropagation();
   setMoreOpen($('#nav-more-body').hidden);
 });
-// 与 + 菜单一致的收起契约：点击外部或 Esc 即收起
 document.addEventListener('click', (e) => {
   if (!$('#nav-more-body').hidden && !e.target.closest('#nav-more'))
     setMoreOpen(false);
@@ -435,7 +394,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#nav-more-body').hidden) setMoreOpen(false);
 });
 
-// 快捷任务卡：把模板作为可编辑草稿交给同一个提交流程。
 document.querySelectorAll('.quick-card').forEach((card) => {
   card.addEventListener('click', () => {
     goalInput.value = card.dataset.prompt || '';
@@ -449,7 +407,6 @@ document.querySelectorAll('.quick-card').forEach((card) => {
   });
 });
 
-/* ---------- 连接状态（无左下角常驻显示，仅断线时轻提示） ---------- */
 let connIsUp = true;
 function setConn(state) {
   if (state === 'up') {
@@ -460,10 +417,9 @@ function setConn(state) {
   }
 }
 
-/* ---------- 目标模式 ---------- */
-const tasks = new Map(); // task_id -> { info, card }
-let currentMode = 'auto'; // 安全模式：auto（完全访问）| plan_first（请我批准）
-let currentTask = 'work'; // 任务模式：chat | work | code
+const tasks = new Map();
+let currentMode = 'auto';
+let currentTask = 'work';
 let currentRole = 'general';
 
 const PERM_FRIENDLY = {
@@ -472,9 +428,7 @@ const PERM_FRIENDLY = {
   interactive: '请我批准',
   full_access: '完全访问',
 };
-let currentPermLabel = 'auto'; // 前端展示用的权限标签：plan_first | auto | full_access
-// 任务档位的人读名：与 #task-seg 的三个按钮一致。卡片徽标以前直接印枚举值，
-// 刷新后从"完全访问 · 编程"变成 auto/plan_first，同一件事两种说法。
+let currentPermLabel = 'auto';
 const TASK_LABEL = { chat: '对话', work: '工作', code: '编程' };
 
 function setPerm(mode, label) {
@@ -505,14 +459,10 @@ $('#task-seg').addEventListener('click', (e) => {
   document
     .querySelectorAll('#task-seg button')
     .forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
-  // 对话模式与工作区无关：隐藏工作区芯片以聚焦（执行方式那颗按钮会自己显示成「仅对话」）
   $('#ws-chip').hidden = currentTask === 'chat';
   goalInput.placeholder = composerPlaceholder();
 });
 
-// 输入框占位：会话里统一写「继续当前会话…」，首页按任务档位给例子
-// 「这台机器现在跑不了」：没配模型，或者配了模型但没填密钥。由 paintModelChip 维护，
-// 输入框的占位文案跟着它走——摆一个能用的样子出来，比说清楚更糟。
 let llmUnusable = false;
 
 function composerPlaceholder() {
@@ -530,7 +480,6 @@ function composerPlaceholder() {
 const goalInput = $('#goal-input');
 goalInput.addEventListener('keydown', (e) => {
   if (e.isComposing || e.keyCode === 229) return;
-  // L4：0 结果时 Esc 也要能关弹层（导航键仍需有候选项）
   if (!mentionPop.hidden && e.key === 'Escape') {
     onMentionKey(e);
     return;
@@ -546,8 +495,6 @@ goalInput.addEventListener('keydown', (e) => {
     onMentionKey(e);
     return;
   }
-  // 发送键由「设置 → 快捷键 → 发送消息」决定：Enter（默认）或 Ctrl+Enter。
-  // Ctrl+Enter 模式下，单按 Enter 交还给 textarea 换行。
   if (e.key !== 'Enter' || e.shiftKey) return;
   const ctrlMode =
     typeof Keymap !== 'undefined' && Keymap.sendMode() === 'ctrlEnter';
@@ -555,16 +502,10 @@ goalInput.addEventListener('keydown', (e) => {
   e.preventDefault();
   submitGoal();
 });
-// 输入框自适应高度
-// 手动拖出来的输入区高度：0 = 跟随内容。设了之后它是下限，内容更长时继续长。
-// 初值必须延到脚本末尾再读：UIPrefs 定义在文件后半，这里直接读会撞 TDZ。
-// 文本框是 flex 项（flex: 1 1 0%），height 压不过 flex 布局——要改高度得同时摘掉 flex。
 let composerH = 0;
 function applyComposerH() {
   if (composerH > 0) {
     goalInput.style.flex = 'none';
-    // 样式表里那条 max-height: 200px 是给「跟随内容」用的，手动拖的时候得撤掉，
-    // 否则拖到 200 就不动了，看着像坏了
     goalInput.style.maxHeight = 'none';
     goalInput.style.height = composerH + 'px';
     goalInput.style.overflowY = 'auto';
@@ -576,13 +517,12 @@ function applyComposerH() {
   }
 }
 function autoResize() {
-  if (composerH > 0) return; // 手动定过高度就交给用户，不再跟内容走
+  if (composerH > 0) return;
   goalInput.style.height = 'auto';
   goalInput.style.height = Math.min(goalInput.scrollHeight, 200) + 'px';
 }
 goalInput.addEventListener('input', autoResize);
 
-// 输入框上沿那枚把手：按住上下拖改高度，双击回到跟随内容
 (() => {
   const grip = $('#composer-grip');
   if (!grip) return;
@@ -607,9 +547,7 @@ goalInput.addEventListener('input', autoResize);
     grip.classList.remove('is-dragging');
     try {
       grip.releasePointerCapture(e.pointerId);
-    } catch {
-      /* 已经释放 */
-    }
+    } catch {}
     UIPrefs.set({ composerH });
   };
   grip.addEventListener('pointerup', endDrag);
@@ -629,22 +567,20 @@ setTimeout(() => {
 }, 0);
 $('#goal-submit').addEventListener('click', submitGoal);
 
-/* 语音输入按钮 */
 const voiceBtn = $('#cp-voice');
-if (voiceBtn && VoiceInput.supported) {
+if (voiceBtn) {
   voiceBtn.addEventListener('click', () => VoiceInput.toggle());
-} else if (voiceBtn) {
-  voiceBtn.hidden = true; // 浏览器不支持就藏起来
+  setTimeout(() => {
+    voiceBtn.hidden = !VoiceInput.supported;
+  }, 0);
 }
 
-/* 输入框右键菜单：跟着鼠标出现（系统原生菜单的手感）。 */
 const goalCtxMenu = $('#goal-ctx-menu');
 function showGoalCtxMenu(x, y) {
   if (!goalCtxMenu) return;
-  goalCtxMenu.hidden = false; // 先显示才能量到真实尺寸
+  goalCtxMenu.hidden = false;
   const w = goalCtxMenu.offsetWidth,
     h = goalCtxMenu.offsetHeight;
-  // 贴到窗口边缘时往回缩一档，别让菜单被边缘裁掉
   const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
   const top = Math.max(8, Math.min(y, window.innerHeight - h - 8));
   goalCtxMenu.style.left = left + 'px';
@@ -673,16 +609,12 @@ if (goalCtxMenu) {
     } else {
       try {
         document.execCommand(action);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
     hideGoalCtxMenu();
   });
 }
 
-// 聊天区滚动到底部：只在用户本来就贴在底部时自动滚——
-// 上滑翻历史时，进度/流式事件不该把人拽回底部（滚动劫持）。
 let chatStickBottom = true;
 (function bindChatStick() {
   const sc = $('#chat-scroll');
@@ -703,7 +635,6 @@ function scrollToBottom(smooth = true) {
 
 let PROVIDER = 'glm';
 let API_KEY_SET = false;
-// 提交去重：按钮 disabled 挡不住 textarea 的 Enter——连按两次会起两个任务。
 let goalSubmitting = false;
 
 async function submitGoal() {
@@ -714,12 +645,11 @@ async function submitGoal() {
     goalInput.focus();
     return;
   }
-  chatStickBottom = true; // 用户自己提交时始终跟到底部
+  chatStickBottom = true;
   const btn = $('#goal-submit');
   goalSubmitting = true;
   btn.disabled = true;
   try {
-    // 预检：真实模型但未配置 Key → 应用内弹窗引导，而不是提交后 401
     if (PROVIDER !== 'mock' && !API_KEY_SET) {
       const go = await confirmModal(
         '还没有填写模型 API Key，现在不填的话 AI 无法回复。要现在去填写吗？（密钥只保存在本机，下次免填）',
@@ -760,7 +690,6 @@ async function submitGoal() {
     autoResize();
     clearRefs();
     if (viewingConvo) {
-      // 会话视图：渲染为对话气泡（工作/编程任务的执行详情可事后展开）
       appendLiveConvoTurn(displayGoal, task_id, currentTask);
     } else {
       const info = {
@@ -783,14 +712,13 @@ async function submitGoal() {
   }
 }
 
-/* ---------- 加号菜单 ---------- */
 const plusBtn = $('#plus-btn');
 const plusMenu = $('#plus-menu');
 
 function togglePlus(open) {
   const show = open ?? plusMenu.hidden;
   if (show) {
-    Popovers.closeOthers('plus'); // 先收别的，再开这个
+    Popovers.closeOthers('plus');
     anchorPopover(plusMenu, plusBtn);
   } else {
     plusMenu.hidden = true;
@@ -838,8 +766,7 @@ function insertAtCursor(text) {
   ta.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-/* ---------- 引用芯片 ---------- */
-const refs = []; // { id, kind, label, refText }
+const refs = [];
 const refsBox = $('#composer-refs');
 
 const REF_KIND_CN = {
@@ -885,10 +812,6 @@ function clearRefs() {
   renderRefs();
 }
 
-/* ---------- 站点模式：输入框里的「站点」芯片 ----------
- * 它不是后端意义上的引用（引用类型白名单里没有站点），而是一句写进目标的产出约定：
- * 网页放在当前工作区 sites/ 下、入口 index.html。「站点」页扫的正是这个约定，
- * 所以芯片和页面是同一条闭环，而不是一个只在界面上亮一下的标签。 */
 let siteMode = false;
 const SITE_SUFFIX =
   '\n\n（站点：产出放在当前工作区 sites/ 下的一个新文件夹里，用简短的英文文件夹名，入口是 index.html；HTML 和 CSS 写在同一个文件里，不依赖外部资源，用浏览器直接打开就能看。）';
@@ -909,12 +832,10 @@ function siteChip() {
 function setSiteMode(on) {
   const was = siteMode;
   siteMode = !!on;
-  // 对话档只聊天、不动文件；要做网页至少得是「通用」档
   if (siteMode && currentTask === 'chat')
     document.querySelector('#task-seg button[data-task="work"]')?.click();
   paintSiteSub();
   renderRefs();
-  // 站点模板只在站点模式下出现；切换时即时显隐
   const tpl = document.querySelector('#goals-empty .site-tpl');
   if (tpl) {
     if (siteMode) {
@@ -973,7 +894,6 @@ async function openPluginPicker() {
           ...(mcp.mcp || []).map((s) => ({
             kind: 'plugin',
             name: s.name,
-            // 三态要说清：停用的服务器连工具都没有，引用它只会让模型找不到能力
             sub: `${!s.enabled ? '已停用' : s.connected ? '已连接' : '未连接'} · ${s.tools || 0} 个工具`,
           })),
         ];
@@ -1000,7 +920,6 @@ async function openPluginPicker() {
   });
 }
 
-/* 文件选择器：复用工作区浏览，选择文件而非目录 */
 function openFilePicker() {
   Modal.open('选择要引用的文件', (box) => {
     const wrap = el('div');
@@ -1042,7 +961,6 @@ function openFilePicker() {
           name: 'file.list',
           args: { path: cwd },
         });
-        // file.list 返回 { path, count, entries: [...] }，entries 才是数组
         const entries = (res.output?.entries || []).filter(
           (e) => !e.name.startsWith('.'),
         );
@@ -2417,7 +2335,6 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // 空行：结束当前段落/引用/列表/表格
     if (!trimmed) {
       flushPara();
       flushList();
@@ -2426,7 +2343,6 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // 表格行（简单检测：以 | 开头或包含 |）
     if (trimmed.includes('|') && !trimmed.startsWith('!')) {
       flushPara();
       flushList();
@@ -2437,7 +2353,6 @@ function renderMarkdown(src) {
       flushTable();
     }
 
-    // 标题
     const hMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (hMatch) {
       flushPara();
@@ -2448,7 +2363,6 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // 水平线
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
       flushPara();
       flushList();
@@ -2457,7 +2371,6 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // 引用
     if (trimmed.startsWith('>')) {
       flushPara();
       flushList();
@@ -2468,7 +2381,6 @@ function renderMarkdown(src) {
       flushQuote();
     }
 
-    // 无序列表
     const ulMatch = trimmed.match(/^[-*+]\s+(.+)$/);
     if (ulMatch) {
       flushPara();
@@ -2482,7 +2394,6 @@ function renderMarkdown(src) {
       htmlParts.push(`<li>${inlineMd(ulMatch[1])}</li>`);
       continue;
     }
-    // 有序列表
     const olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
     if (olMatch) {
       flushPara();
@@ -2500,7 +2411,6 @@ function renderMarkdown(src) {
       flushList();
     }
 
-    // 普通段落
     paraBuf.push(trimmed);
   }
   flushPara();
@@ -2515,38 +2425,29 @@ function renderMarkdown(src) {
   return htmlParts.join('');
 }
 
-// splitTableRow 分割表格行（去掉首尾 | 后按 | 切分）。
 function splitTableRow(row) {
   const trimmed = row.trim().replace(/^\|/, '').replace(/\|$/, '');
   return trimmed.split('|').map((c) => c.trim());
 }
 
-// inlineMd 处理行内 Markdown：代码、加粗、斜体、删除线、链接。
-// 先转义 HTML，再按 Markdown 语法还原。
 function inlineMd(text) {
   if (!text) return '';
   let s = escHtml(text);
-  // 行内代码 `code`
   s = s.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
-  // 图片 ![alt](url)
   s = s.replace(
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
     (_, alt, url, title) =>
       `<img src="${escAttr(safeHref(url))}" alt="${escAttr(alt)}"${title ? ` title="${escAttr(title)}"` : ''} loading="lazy">`,
   );
-  // 链接 [text](url)
   s = s.replace(
     /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
     (_, txt, url, title) =>
       `<a href="${escAttr(safeHref(url))}" target="_blank" rel="noopener noreferrer"${title ? ` title="${escAttr(title)}"` : ''}>${txt}</a>`,
   );
-  // 加粗 **text** / __text__
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-  // 斜体 *text* / _text_（避免误伤 ** 已处理后的内容）
   s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
   s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
-  // 删除线 ~~text~~
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   return s;
 }
@@ -2563,8 +2464,6 @@ function escAttr(s) {
   return escHtml(s).replace(/`/g, '&#96;');
 }
 
-// safeHref 只放行无副作用的链接协议。模型输出的 Markdown 直接进 href，
-// javascript: / data: 会让一次回答变成任意代码执行；带协议的未知方案一律降级成 '#'。
 function safeHref(url) {
   const u = String(url).trim();
   if (/^(?:https?:|mailto:|#|\/)/i.test(u)) return u;
@@ -2585,10 +2484,7 @@ function renderSkillSuggestion(t, data) {
   t.slots.skill.replaceChildren(c);
 }
 
-/* ---------- 启动：拉取历史任务 ---------- */
 async function loadGoals() {
-  // 「目标」是工作台的入口视图：从会话视图点回来时必须先拆掉对话态，
-  // 否则命令面板和快捷卡还藏着的feed里留着上一段对话的气泡。
   if (viewingConvo) {
     setThreadMode(false);
     currentConvo = null;
@@ -2608,14 +2504,9 @@ async function loadGoals() {
         { home: true },
       );
     }
-  } catch {
-    /* 首次为空 */
-  }
+  } catch {}
 }
 
-/* ---------- SSE ---------- */
-// sseData 一条坏帧不该杀掉整个监听器：onerror 之外没有重试，
-// 半途抛出的 JSON.parse 会让这张任务卡永久停在"运行中"。
 function sseData(e) {
   try {
     return JSON.parse(e.data);
@@ -2637,10 +2528,8 @@ function connectSSE() {
   es.addEventListener('progress', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
-    // 现场栏先看一眼：它要在会话视图里也照常滚，所以放在会话分支之前
     LiveRail.observe(d);
     if (viewingConvo && convoLive.has(d.task_id)) {
-      // 会话视图：对话模式 LLM 增量直接进气泡；其它进度仅保留思考态
       if (d.phase === 'chat' && d.kind === 'llm' && d.message)
         convoStream(d.task_id, d.message);
       return;
@@ -2652,7 +2541,6 @@ function connectSSE() {
     const ap = sseData(e);
     if (!ap) return;
     LiveRail.approval(ap);
-    // 工具页直调（无任务归属）的审批：渲染独立审批卡，否则用户无处裁决、只能等超时自动拒绝
     if (!ap.task_id) {
       renderStandaloneApproval(ap);
       return;
@@ -2673,11 +2561,7 @@ function connectSSE() {
     const r = sseData(e);
     if (!r) return;
     LiveRail.result(r);
-    // 候补目标跟着终态重算：后端刻意把「落盘」排在「广播」前面，此刻归档一定已经在盘上。
-    // 不接这一条，用户刚修好的那个反复失败还会挂在卡上，直到他刷新页面。
     loadCues().catch(() => {});
-    // 目标视图里已有这张卡（如定时任务触发）时必须先定格它——
-    // 否则会话态下 completed 被对话分支接走，卡片会永远停在"运行中"
     if (tasks.has(r.task_id)) applyResult(r.task_id, r);
     if (viewingConvo) {
       convoComplete(r.task_id, r);
@@ -2699,14 +2583,10 @@ function connectSSE() {
         r.status === 'failed' ? 'error' : 'info',
       );
   });
-  // task_done 是后台任务（定时/变化触发）唯一的实时出口：它们不经过 /api/goals 提交，
-  // 不接这个事件，一个每天跑、天天失败的任务可以静默失败到用户自己发现。
   es.addEventListener('task_done', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
     const ok = d.result && d.result.status === 'success';
-    // title =「定时任务「X」+状态」，line =「状态：目标 · 完成度」——直接拼会把状态词说两遍。
-    // 状态词就是 title 去掉 origin 后剩下的那截，用它把 line 的前缀剪掉。
     const state = d.title && d.origin ? d.title.slice(d.origin.length) : '';
     const body =
       state && d.line && d.line.startsWith(state + '：')
@@ -2719,15 +2599,14 @@ function connectSSE() {
     );
     loadSchedules().catch(() => {});
     loadCues().catch(() => {});
-    if (!viewingConvo) loadGoals().catch(() => {}); // 会话视图里别把用户踢回工作台
+    if (!viewingConvo) loadGoals().catch(() => {});
   });
   es.addEventListener('suggestion', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
-    if (viewingConvo && !tasks.has(d.task_id)) return; // 会话视图暂不内联主动提议（目标视图已有卡片的仍要更新）
+    if (viewingConvo && !tasks.has(d.task_id)) return;
     await ensureTask(d.task_id);
     applyEvent(d.task_id, 'suggestion', d);
-    // 创作产出自动分析完成后，静默刷新 GEO 板块（留档历史 + 统计）
     if (typeof d.text === 'string' && d.text.startsWith('GEO 优化建议')) {
       loadGEO().catch(() => {});
     }
@@ -2735,14 +2614,12 @@ function connectSSE() {
   es.addEventListener('suggest_skill', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
-    if (viewingConvo && !tasks.has(d.task_id)) return; // 同上：不抢会话视图，但已存在的卡片要更新
+    if (viewingConvo && !tasks.has(d.task_id)) return;
     await ensureTask(d.task_id);
     applyEvent(d.task_id, 'suggest_skill', d);
   });
 }
 
-/* ---------- 设置 ---------- */
-// 分段选择器通用逻辑：单选并同步 aria-pressed
 function bindSegmented(sel) {
   const root = $(sel);
   root.addEventListener('click', (e) => {
@@ -2771,7 +2648,6 @@ function numValue(id) {
   const v = parseInt($('#' + id).value, 10);
   return Number.isFinite(v) ? v : undefined;
 }
-// 0 是合法取值（确定性输出），|| undefined 会把它当成空值丢掉，等于永远存不进 0
 function floatValue(id) {
   const v = parseFloat($('#' + id).value);
   return Number.isFinite(v) ? v : undefined;
@@ -2791,7 +2667,6 @@ async function loadSettings() {
   }
 }
 
-/* ---------- 安全门控留痕 ---------- */
 const AUDIT_LABEL = {
   denied: '已拦截',
   approved: '已放行',
@@ -2837,11 +2712,6 @@ async function loadAudit() {
   }
 }
 
-/* ---------- 连接与出网台账 ---------- */
-// 五个问句就是这张表的口径，顺序固定：先问通到哪，再问谁能触发，最后问想关掉动哪里。
-// 每个字段都由后端算好（连 kindText 这种显示口径也在后端），这里只做呈现——
-// 前端一旦开始自己拼（自己判是不是回环、自己把 out 翻成"出网"），同一件事就有两个 owner，
-// 而漂移的方向永远是"界面看起来一切正常"。
 const CX_FIELD_LABEL = [
   ['target', '通到哪'],
   ['trigger', '谁能触发'],
@@ -2850,8 +2720,6 @@ const CX_FIELD_LABEL = [
   ['off', '想关掉动哪里'],
 ];
 
-// 连接台账与候补目标的句子由 Go 后端按界面语言拼好（connections.go / cues.go），
-// 前端不翻句子，只把当前语言递过去。切换语言时 applyLang 广播 langchange，那侧重取。
 const langQS = () =>
   document.documentElement.getAttribute('lang') === 'en' ? '?lang=en' : '';
 
@@ -2884,7 +2752,6 @@ function connectionRow(r) {
   const badges = [
     `<span class="cx-badge cx-badge--${esc(r.kind)}">${esc(r.kindText)}</span>`,
   ];
-  // 未留痕必须自己戴牌子：这一格沉默，用户读到的就是"这张表说一切有据可查"。
   if (r.untraced)
     badges.push('<span class="cx-badge cx-badge--untraced">查不到痕迹</span>');
   const stats = r.stats ? `<p class="cx-stats">${esc(r.stats)}</p>` : '';
@@ -2902,15 +2769,7 @@ function connectionRow(r) {
   </div>`;
 }
 
-/* ---------- 候补目标 ---------- */
-// 这一屏是「主动性」在界面上的唯一落点。口径全在后端（线索、阈值、文案、配额），
-// 这里只做呈现和两个动作。为什么动作只有两个：
-// **采纳不等于执行**——填进输入区之后，这句话要不要说、怎么说，仍然是用户在回车键上
-// 做的决定。前端要是顺手把 goal 直接提交，「只提议不执行」就只剩 Go 注释里成立了。
-//
-// 同理，这里不判"该提什么"、不算严重度、不译枚举：signal_text / reason_text 由后端带过来，
-// 界面自己 map 一次就是第二个 owner，漂移方向跟连接台账那条一样。
-let cueGoals = new Map(); // id -> 填进输入区的那句话（长文本不放 data-*，那是给人看的属性）
+let cueGoals = new Map();
 
 async function loadCues() {
   const deck = $('#cu-deck');
@@ -2918,7 +2777,6 @@ async function loadCues() {
   try {
     renderCues(await api('GET', '/api/cues' + langQS()));
   } catch (err) {
-    // 读不动就明说，并清掉上一轮的卡片：那些卡可能早已被处置，留着就是拿旧账当现状。
     cueGoals = new Map();
     deck.hidden = false;
     $('#cu-scope').textContent = `候补目标读不出来：${err.message}`;
@@ -2933,9 +2791,6 @@ function renderCues(led) {
   const deck = $('#cu-deck');
   const rows = led.rows || [];
   const sup = led.suppressed || [];
-  // 什么时候露出这一块：有卡要提、有已按下的要能撤销、有历史可交代（空态也是交代），
-  // 或后端有话要说（归档读不动、处置记录没写下去）。三者都没有就整块收起——
-  // 一个永远空着的「建议」面板比没有更吵，而且它会在用户每次升级后被当成坏了的东西。
   const silent = !rows.length && !sup.length && !led.scanned && !led.note;
   deck.hidden = silent;
   if (silent) return;
@@ -2989,8 +2844,6 @@ function cueRestoredRow(s) {
   </div>`;
 }
 
-// 采纳：填输入区，不提交。这里复用快捷卡的同一条路（同一个输入区、同一个 autoResize 与 focus），
-// 于是"采纳"和"我自己打了一句"在后续流程里没有任何区别——都还要那一次回车。
 function adoptCue(id) {
   const goal = cueGoals.get(id) || '';
   if (!goal) {
@@ -3004,7 +2857,6 @@ function adoptCue(id) {
   toast('已填进输入区。还没有开始跑——按回车才会提交', 'info', 6000);
   api('POST', `/api/cues/${encodeURIComponent(id)}/adopt`, {})
     .catch((err) => {
-      // 记不上状态不等于这次采纳失败：话已经在输入区了。要说的是"它还会再来"。
       toast(
         `这句话已填好，但没能记下「已采纳」：${err.message}`,
         'warning',
@@ -3054,17 +2906,11 @@ $('#cu-restore-toggle').addEventListener('click', () => {
 
 $('#cu-refresh').addEventListener('click', () => loadCues().catch(() => {}));
 
-// 语言切换后重取两块由后端组句子的面板；静态文案由 applyLang 自己翻，不在这里管。
 window.addEventListener('langchange', () => {
   loadConnections().catch(() => {});
   loadCues().catch(() => {});
 });
 
-/* ---------- 上下文窗口：预设下拉 + 自定义 ----------
- * 预设覆盖常见档（128K / 200K / 400K / 1M），另留「自动」交给内置表认（见 llm.ContextWindowFor）。
- * 认不出来的旧值（手填过 32000 这类）**原样保留成"自定义"**：一个下拉里没有这个值时，
- * 静默把它显示成第一项、保存时又写回去，就等于替用户改了他填过的数。
- * 这也是「占用百分比的分母」——分母错了，界面上那个百分比就是假的。 */
 const CTX_WINDOW_PRESETS = ['0', '128000', '200000', '400000', '1000000'];
 function syncCtxWindowCustom() {
   const sel = $('#set-context-window'),
@@ -3138,11 +2984,9 @@ function fillSettingsFields(s) {
   }
 }
 
-/* ---------- 厂商预设（官方接入入口 × 套餐） ---------- */
 let PROVIDERS = [];
 let providersBound = false;
 async function loadProviders() {
-  // L11：/api/providers 要 0.5–1.5s，先放占位，避免下拉框出现「空列表」真空期
   const sel = $('#set-provider');
   sel.innerHTML = '<option value="" disabled>厂商列表加载中…</option>';
   try {
@@ -3156,7 +3000,6 @@ async function loadProviders() {
     PROVIDERS.map(
       (p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`,
     ).join('');
-  // 事件只绑一次：加载失败时 PROVIDERS 为空，若以长度作标志会重复累积监听器
   if (!providersBound) {
     providersBound = true;
     sel.addEventListener('change', fillPlans);
@@ -3182,7 +3025,6 @@ function fillPlans() {
   applyPreset();
 }
 
-// applyPreset 套餐切换即回填官方入口/默认模型/协议（用户仍可手改）
 function applyPreset() {
   const p = PROVIDERS.find((x) => x.id === $('#set-provider').value);
   if (!p) return;
@@ -3194,7 +3036,6 @@ function applyPreset() {
     $('#set-protocol').value = pl.protocol;
   }
 }
-/* ---------- 设置页 tab 切换 ---------- */
 function switchSettingsTab(stab) {
   const tab = document.querySelector(`.settings-tab[data-stab="${stab}"]`);
   if (tab) tab.click();
@@ -3216,7 +3057,6 @@ document.querySelectorAll('.settings-tab').forEach((tab) => {
   });
 });
 
-// 设置搜索：按分区名与分区内的字段文字过滤左侧导航
 $('#settings-search').addEventListener('input', (e) => {
   const q = e.target.value.trim().toLowerCase();
   let any = false;
@@ -3254,7 +3094,6 @@ $('#settings-search').addEventListener('input', (e) => {
   }
 });
 
-// 设置页顶部概况：只读 /api/growth 里已有的统计
 async function loadSettingsProfile() {
   $('#sp-name').textContent = $('#me-name').textContent || '我的';
   $('#sp-sub').textContent = $('#me-sub').textContent || '本地模式';
@@ -3267,19 +3106,14 @@ async function loadSettingsProfile() {
     $('#sp-week').textContent = stats.week_tokens
       ? formatTokens(stats.week_tokens)
       : '—';
-  } catch {
-    /* 统计拿不到就留「—」 */
-  }
+  } catch {}
 }
 
-/* ---------- 分模块保存 ---------- */
 function syncRuntimeState(s) {
   if (!s) return;
   if (s.llm) {
     PROVIDER = s.llm.provider || 'glm';
     API_KEY_SET = !!s.llm.api_key_set;
-    // 密钥按接入主机绑定：换厂商后原来那把不会发出去，所以这里必须说清
-    // "当前能用"与"存着的是哪一家"是两件事，否则用户只看到一个假的"未设置"。
     const host = s.llm.api_key_host || '';
     const curHost = s.llm.api_key_host_cur || '';
     const keyInput = $('#set-api-key');
@@ -3299,7 +3133,6 @@ function syncRuntimeState(s) {
   ComposerMeta.model(s);
 }
 
-/* ---------- 模型连通性测试与密钥清除 ---------- */
 const LLM_TEST_HINTS = {
   auth: '鉴权失败（401/403）：检查 API Key 是否正确或已过期',
   not_found: '找不到地址或模型（404）：核对 API 端点与模型名',
@@ -3349,8 +3182,6 @@ async function testLLM() {
   }
 }
 
-// 拉取模型列表：按表单当前值请求（不必先保存），结果填进 datalist 供点选。
-// 拉不到不阻塞——模型框仍可手输，列表只是加速器。
 async function fetchModels() {
   const btn = $('#set-fetch-models');
   const out = $('#llm-test-result');
@@ -3404,7 +3235,6 @@ async function fetchModels() {
   }
 }
 
-// 两步确认：第一下只武装按钮，4 秒内再点才真正清除（误点成本 = 重新输 key）
 let clearKeyArmedAt = 0;
 let clearKeyTimer = null;
 async function clearAPIKey() {
@@ -3442,7 +3272,6 @@ async function clearAPIKey() {
   );
 }
 
-// inputLabel 取控件的中文名（label[for]），报错时说得清是哪一项。
 function inputLabel(id) {
   const l = document.querySelector(`label[for="${id}"]`);
   return l ? l.textContent.trim() : id;
@@ -3451,8 +3280,6 @@ function inputLabel(id) {
 async function saveModule(btnId, patch, opts = {}) {
   const btn = $('#' + btnId);
   if (!btn) return;
-  // 数字框被清空时 numValue 返回 undefined，这个键在 JSON 里**整个消失**：后端只收到
-  // 其余字段、回 200，于是提示"已保存并生效"，用户以为改了其实没改。宁可拦住。
   const blank = (opts.numeric || []).filter((id) => {
     const e = $('#' + id);
     return e && !e.value.trim();
@@ -3465,15 +3292,12 @@ async function saveModule(btnId, patch, opts = {}) {
   btn.disabled = true;
   try {
     await api('POST', '/api/settings', patch);
-    // L13：5 个分区同款按钮，toast 要说出刚保存的是哪一块
     toast(`${opts.label || '设置'}已保存并生效`, 'success');
     try {
       const s = await api('GET', '/api/settings');
       if (s.llm) fillSettingsFields(s);
       syncRuntimeState(s);
-    } catch {
-      /* 后台刷新失败不影响保存提示 */
-    }
+    } catch {}
     if (opts.onSuccess) opts.onSuccess();
     if (opts.reloadContext) loadContext();
   } catch (err) {
@@ -3588,8 +3412,6 @@ async function saveLLM() {
     );
     return;
   }
-  // 选了「自定义」却没填数值：拦住。否则这个键在 JSON 里整个消失，后端只收到其余字段、
-  // 回 200，提示"已保存"，而窗口大小根本没变（同 saveModule 里 numeric 空值那道判断的理由）。
   if (
     $('#set-context-window') &&
     $('#set-context-window').value === 'custom' &&
@@ -3613,7 +3435,6 @@ async function saveLLM() {
       temperature: floatValue('set-temperature'),
       max_tokens: numValue('set-max-tokens'),
       timeout_seconds: numValue('set-llm-timeout'),
-      // 0 = 不填，交给后端按内置表认（认不出用兜底值）。别把 0 当成"窗口是 0"。
       context_window: ctxWindowValue(),
     },
   };
@@ -3649,10 +3470,7 @@ if ($('#set-fetch-models'))
 if ($('#set-clear-key'))
   $('#set-clear-key').addEventListener('click', clearAPIKey);
 
-/* ---------- 上下文（会话自动压缩状态） ---------- */
 function renderContext(ctx) {
-  // 输入区的水位条读的是这同一次取数：一次拉、两处画。各拉各的就会出现
-  // 设置页说 40%、输入区说 25% 的两个面板。
   ComposerMeta.context(ctx);
   const stats = $('#context-stats');
   if (!ctx.enabled) {
@@ -3675,9 +3493,7 @@ function renderContext(ctx) {
 async function loadContext() {
   try {
     renderContext(await api('GET', '/api/context'));
-  } catch {
-    /* 静默 */
-  }
+  } catch {}
 }
 
 $('#context-compress').addEventListener('click', async () => {
@@ -3715,21 +3531,6 @@ $('#context-clear').addEventListener('click', async () => {
   }
 });
 
-/* ---------- 输入区就地控件：模型切换 + 上下文水位（批次 F12） ----------
- *
- * 这两个数字在设置页和现场栏本来就有，但**看得到、改不动**：切一次模型要点
- * 设置 → 模型 → 改下拉 → 保存四步；上下文满了没有任何地方提醒。这里把它们
- * 抬到发消息的那一行。
- *
- * 三条界线，避免变成"第二套事实"：
- *   - 弹层只**选**，不**编辑**。自定义模型名、base_url、协议仍然只在设置页；
- *   - 百分比不在这里算。`/api/context` 的 `fill_pct` 由 memory.fillPct 负责，
- *     这里只把它写成宽度和文字（一处事实一处算法）；
- *   - 当前模型名与现场栏同源（`/api/info` 的 model），两边各自画同一个值。
- *
- * 元素缺失时整个模块不起手（而不是画一个永远不动的按钮）：
- * scripts/check-dom-anchors.py 的反向判据罩着 `cp-` 前缀。
- */
 const ComposerMeta = (() => {
   const modelBtn = $('#cp-model');
   const ctxBtn = $('#cp-context');
@@ -3749,13 +3550,11 @@ const ComposerMeta = (() => {
   const ctxRead = $('#cp-context-read');
   const compressBtn = $('#cp-context-compress');
 
-  // 多模型列表（/api/models）+ 运行时状态。modelsList 是用户配置的所有模型，
-  // liveModel 是当前真正在跑的模型 ID（/api/info），llmCfg 保留向后兼容（mock 检测等）。
-  let modelsList = []; // GET /api/models 返回的 ModelEntry[]
-  let llmCfg = null; // /api/settings 的 llm 段（mock 检测、旧字段兼容）
-  let fetched = []; // 最近一次「拉取厂商模型」的结果
-  let liveModel = ''; // /api/info 的 model：当前**真的在跑**的模型
-  let lastCtx = null; // 最近一次 /api/context，供弹层重开时立刻画
+  let modelsList = [];
+  let llmCfg = null;
+  let fetched = [];
+  let liveModel = '';
+  let lastCtx = null;
 
   const TIER_CN = {
     economy: '经济',
@@ -3765,7 +3564,6 @@ const ComposerMeta = (() => {
   };
   const PLAN_CN = { token: '按量', coding: '编程套餐', agent: '智能体套餐' };
 
-  /* ---------- 弹层开合：同一时刻只开一个 ---------- */
   function setOpen(which) {
     [
       [modelBtn, modelPop, 'model'],
@@ -3773,7 +3571,7 @@ const ComposerMeta = (() => {
     ].forEach(([btn, pop, id]) => {
       const show = btn === which;
       if (show) {
-        Popovers.closeOthers(id); // 连同输入框里的其它弹层一起收
+        Popovers.closeOthers(id);
         anchorPopover(pop, btn);
       } else {
         pop.hidden = true;
@@ -3797,7 +3595,6 @@ const ComposerMeta = (() => {
     closeAll();
     if (show) {
       setOpen(modelBtn);
-      // 打开时拉最新模型列表，画完再贴一次定位
       loadModels().then(() => {
         paintModelList();
         anchorPopover(modelPop, modelBtn);
@@ -3818,9 +3615,6 @@ const ComposerMeta = (() => {
     }
   });
 
-  /* ---------- 模型 ---------- */
-
-  // 从 /api/models 拉取完整列表，首次调用后缓存。
   async function loadModels() {
     try {
       const r = await api('GET', '/api/models');
@@ -3831,7 +3625,6 @@ const ComposerMeta = (() => {
     return modelsList;
   }
 
-  // 当前激活的模型条目：优先 liveModel（真正在跑的），其次标记为默认的条目。
   function activeEntry() {
     const id = liveModel || '';
     if (id) {
@@ -3935,7 +3728,6 @@ const ComposerMeta = (() => {
       const active = r && r.active;
       if (active) {
         liveModel = active.model || id;
-        // 同步更新 llmCfg 的关键字段，让 PROVIDER / API_KEY_SET 等全局量跟上
         if (llmCfg) {
           llmCfg.provider = active.provider_id || llmCfg.provider;
           llmCfg.model = active.model || llmCfg.model;
@@ -3958,7 +3750,6 @@ const ComposerMeta = (() => {
     const old = modelFetchBtn.textContent;
     modelFetchBtn.textContent = '拉取中…';
     try {
-      // 空体 = 用**已保存**的配置去拉：这里没有表单可读，也不该假装读得到。
       const r = await api('POST', '/api/llm/models', {});
       if (r.ok && Array.isArray(r.models)) {
         fetched = r.models.map((m) => m.id).filter(Boolean);
@@ -3988,13 +3779,8 @@ const ComposerMeta = (() => {
     switchSettingsTab('llm');
   });
 
-  /* ---------- 上下文水位 ---------- */
-
-  // 窗口大小按 k 说人话：128000 → 128k。读数里没人愿意数后面的零。
   const kTok = (n) => (n >= 1000 ? Math.round(n / 1000) + 'k' : String(n || 0));
 
-  // 分母是怎么来的，界面必须标出来：同一个百分比，"按你手填的数算的"和"按兜底值算的"
-  // 不是一个可信度。这句话由后端给（window_note），前端只在没有时兜一句。
   const windowSourceLabel = {
     manual: '你手填的',
     table: '内置表',
@@ -4003,7 +3789,6 @@ const ComposerMeta = (() => {
 
   function paintMeter(ctx) {
     if (!ctx || typeof ctx.window_pct !== 'number') {
-      // 字段缺失就是接线断了。宁可空着，也不在前端拿别的东西自己除一个凑数。
       pctEl.textContent = '—';
       ctxBtn.dataset.ready = 'false';
       meterFill.style.width = '0%';
@@ -4012,7 +3797,6 @@ const ComposerMeta = (() => {
       ctxBtn.title = '上下文窗口读数不可用';
       return;
     }
-    // 读的是**模型窗口占用**：最近一次请求的输入 token ÷ 模型的上下文窗口。
     const pct = ctx.window_pct;
     ctxBtn.dataset.ready = 'true';
     meterFill.style.width = pct + '%';
@@ -4044,14 +3828,12 @@ const ComposerMeta = (() => {
       bar.dataset.level = pct >= 90 ? 'high' : pct >= 60 ? 'warn' : 'fresh';
     }
     const src = windowSourceLabel[ctx.window_source] || '来源未知';
-    // 两套口径一起说：轮数回答"对话攒了多少"，窗口回答"下一轮还能塞多少"。
     ctxRead.textContent = ctx.enabled
       ? `占用 ${pct}% · 模型窗口 ${kTok(ctx.window_tokens)}（${src}，${ctx.window_note || ''}）` +
         ` · 最近一次请求 ${ctx.prompt_tokens} tokens${ctx.prompt_estimated ? '（估算）' : ''}` +
         ` · 下一轮带 ${ctx.carry_turns} 轮最近对话` +
         ` · 短期窗口 ${ctx.short_turns}/${ctx.short_cap} 轮，待压缩 ${ctx.overflow} 轮${saved}`
       : `自动压缩已关闭：短期窗口 ${ctx.short_turns}/${ctx.short_cap} 轮，窗口外的对话不会被摘要接住，水位越线时也不会自动收紧`;
-    // 阈值由后端给（compress_end_pct / compress_mid_pct），前端不另写一份数字。
     const note = $('#cp-context-note');
     if (note && typeof ctx.compress_end_pct === 'number') {
       note.textContent =
@@ -4086,26 +3868,21 @@ const ComposerMeta = (() => {
   });
 
   return {
-    // model(s)：/api/settings 到了就刷新（保存后也走这里）。
     model: (s) => {
       if (s && s.llm) llmCfg = s.llm;
-      // 设置变了，模型列表可能也变了——静默刷新，等列表到了再画
       loadModels().then(() => {
         paintModelChip();
         if (!modelPop.hidden) paintModelList();
       });
     },
-    // context(ctx)：/api/context 到了就刷新（水位条的唯一画者）。
     context: (ctx) => {
       lastCtx = ctx;
       paintMeter(ctx);
       if (!ctxPop.hidden) paintContextPanel(ctx);
     },
-    // live(id)：/api/info 到了就刷新——现场栏和这里读同一个值。
     live: (id) => {
       if (!id) return;
       liveModel = id;
-      // 如果模型列表还没加载，先拉一次再画
       if (modelsList.length === 0) {
         loadModels().then(() => {
           paintModelChip();
@@ -4119,13 +3896,10 @@ const ComposerMeta = (() => {
   };
 })();
 
-/* ---------- 心跳：页面打开期间每 5 秒上报存活（桌面端 app 模式据此判断窗口是否关闭） ---------- */
 setInterval(() => {
   fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
 }, 5000);
 
-/* ---------- Go 工具链检测 ---------- */
-// 来源口径归前端一处：后端给的是机器码（PATH / gleam-managed …），直接印出来像日志。
 const GO_SOURCE_LABEL = {
   PATH: '系统 PATH',
   'common-path': '常见安装目录',
@@ -4215,7 +3989,6 @@ async function installGoGuided() {
           toast('Go 已就绪：' + (res.version || ''), 'success', 6000);
           Modal.close();
         } else if (res.message) {
-          // 自动下载失败：先把后端给的原因原样说出来，再给手动那条路。
           wrap.innerHTML =
             '<div class="callout callout--warn" style="margin: 0 0 var(--space-3);">' +
             ICONS.alert +
@@ -4233,7 +4006,6 @@ async function installGoGuided() {
             '</a></li>' +
             '<li>装好后在下方填路径点「检测」</li>' +
             '</ol>';
-          // Re-add path input
           const pathDiv = el('div', 'field');
           pathDiv.innerHTML =
             '<label class="field-label" for="go-path-input2">Go 安装路径</label>' +
@@ -4286,40 +4058,30 @@ $('#go-path-input')?.addEventListener('keydown', (e) => {
   }
 });
 
-/* ---------- 工作区（任务文件夹） ---------- */
 function wsShort(path) {
   if (!path) return '不指定工作区';
-  // Windows 用反斜杠、Unix 用正斜杠：两种分隔符都要认，否则整条绝对路径会原样怼到界面上
   const parts = String(path)
     .replace(/[\\/]+$/, '')
     .split(/[\\/]/);
   return parts[parts.length - 1] || path;
 }
 
-// 当前连接的 SSH 主机别名。引擎仍在这台电脑上执行，它只是「这次任务对着哪台机器」的界面标记：
-// 选了 SSH 就不再显示本地文件夹，免得两个来源同时亮着，说不清文件操作到底落在哪边。
 let activeSSH = '';
 try {
   activeSSH = localStorage.getItem('gleam.workspace.ssh') || '';
-} catch {
-  /* 隐私模式 */
-}
+} catch {}
 function setActiveSSH(host) {
   activeSSH = host || '';
   try {
     localStorage.setItem('gleam.workspace.ssh', activeSSH);
-  } catch {
-    /* 隐私模式 */
-  }
+  } catch {}
 }
 
 async function loadWorkspace() {
   try {
     const ws = await api('GET', '/api/workspace');
     renderWorkspace(ws);
-  } catch {
-    /* 静默 */
-  }
+  } catch {}
 }
 
 let lastWsView = { workspace: '', recents: [], git_branch: '' };
@@ -4348,12 +4110,11 @@ function renderWorkspace(ws) {
   const branchWrap = $('#composer-ws-branch');
   const branchText = $('#composer-ws-branch-text');
   if (branchWrap && branchText) {
-    branchWrap.hidden = !branch || !!activeSSH; // SSH 标记优先，不再显示本地分支
+    branchWrap.hidden = !branch || !!activeSSH;
     branchText.textContent = branch;
   }
 }
 
-// 选择工作区：把新路径交给引擎，清掉 SSH 标记，再让界面重建。
 async function chooseWorkspace(path) {
   try {
     const ws = await api('POST', '/api/workspace', { path });
@@ -4365,7 +4126,6 @@ async function chooseWorkspace(path) {
   }
 }
 
-// 不指定工作区：引擎不再绑定根目录，最近列表保留。
 async function clearWorkspace() {
   try {
     const ws = await api('POST', '/api/workspace/clear');
@@ -4377,7 +4137,6 @@ async function clearWorkspace() {
   }
 }
 
-/* ---------- 工作区下拉菜单：点左下角那颗按钮弹出来 ---------- */
 function closeWorkspaceMenu() {
   const m = document.getElementById('ws-menu');
   if (m) m.remove();
@@ -4405,14 +4164,12 @@ async function openWorkspaceMenu() {
   if (document.getElementById('ws-menu')) {
     closeWorkspaceMenu();
     return;
-  } // 再点一次收起
+  }
 
   let ws = { workspace: '', recents: [], git_branch: '' };
   try {
     ws = await api('GET', '/api/workspace');
-  } catch {
-    /* 离线时仍给出新建 / SSH 入口 */
-  }
+  } catch {}
 
   const menu = el('div', 'ws-menu');
   menu.id = 'ws-menu';
@@ -4484,7 +4241,7 @@ async function openWorkspaceMenu() {
   document.body.appendChild(menu);
   btn.setAttribute('aria-expanded', 'true');
   Popovers.closeOthers('ws');
-  anchorPopover(menu, btn, 6); // 贴在按钮正上方
+  anchorPopover(menu, btn, 6);
 
   document.addEventListener('mousedown', onWsMenuOutside, true);
   document.addEventListener('keydown', onWsMenuKey, true);
@@ -4501,7 +4258,6 @@ const WS_ICON = {
     '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.6"/><rect x="3" y="13" width="18" height="7" rx="1.6"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
 };
 
-// 新建工作区：桌面壳里走系统文件夹选择器；普通浏览器里没有系统选择器，退回内置浏览。
 async function pickSystemFolder() {
   const d = window.gleamDesktop;
   if (d && typeof d.showOpenDialog === 'function') {
@@ -4517,12 +4273,11 @@ async function pickSystemFolder() {
     }
     const picked = Array.isArray(paths) ? paths[0] : paths;
     if (picked) chooseWorkspace(picked);
-    return; // 用户取消：什么都不做
+    return;
   }
   openWorkspaceBrowse();
 }
 
-/* ---------- 连接 SSH：独立窗口，合并本机 ssh_config 与设置里记下的主机 ---------- */
 async function openSSHDialog() {
   const saved = new Set(UIPrefs.get().sshHosts || []);
   let local = [];
@@ -4531,11 +4286,8 @@ async function openSSHDialog() {
     const r = await api('GET', '/api/ssh/hosts');
     local = r.hosts || [];
     cfgPath = r.path || '';
-  } catch {
-    /* 读不到配置文件不是失败：设置里记下的主机照样能选 */
-  }
+  } catch {}
 
-  // 本机检测到的主机排在前面，设置里记下的补在后头，去重
   const hosts = [];
   local.forEach((h) => {
     if (!hosts.includes(h)) hosts.push(h);
@@ -4577,7 +4329,7 @@ async function openSSHDialog() {
         row.addEventListener('click', () => {
           setActiveSSH(h);
           Modal.close();
-          renderWorkspace(lastWsView); // 保留本地工作区信息，只是让 SSH 标记盖过它
+          renderWorkspace(lastWsView);
           toast(`已连接 SSH：${h}`, 'success');
         });
         list.appendChild(row);
@@ -4608,8 +4360,6 @@ async function openSSHDialog() {
   });
 }
 
-/* ---------- 新建工作区：源文件夹 / 名称 / 图标 / 颜色 / 索引 ---------- */
-// 图标与色板的备选清单（纯前端装饰，挑中的组合按路径记在本机）
 const WS_ICON_MARKUP = [
   '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
   '<path d="M4 8h13v8a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/>',
@@ -4651,8 +4401,6 @@ const WS_COLORS = [
   '#4f9e6b',
 ];
 
-// 图标 / 颜色 / 索引 / 自定义名称按工作区路径记在本机（localStorage）：引擎只认路径，
-// 这几项是界面上的标识，不该为了它们去动引擎的配置模型。
 function wsMetaStore() {
   try {
     return (
@@ -4670,9 +4418,7 @@ function saveWsMeta(path, patch) {
     const all = wsMetaStore();
     all[path] = Object.assign({}, all[path], patch);
     localStorage.setItem('gleam.workspace.meta', JSON.stringify(all));
-  } catch {
-    /* 隐私模式：记不住也不影响功能 */
-  }
+  } catch {}
 }
 
 function openNewWorkspaceDialog() {
@@ -4728,7 +4474,6 @@ function openNewWorkspaceDialog() {
     const nameInput = $('#wsnew-name');
     const idxBtn = $('#wsnew-index');
 
-    // 图标
     const iconsBox = $('#wsnew-icons');
     WS_ICON_MARKUP.forEach((mk, i) => {
       const b = el('button', 'wsnew-icon');
@@ -4751,7 +4496,6 @@ function openNewWorkspaceDialog() {
       );
     }
 
-    // 颜色
     const colorBox = $('#wsnew-colors');
     WS_COLORS.forEach((c, i) => {
       const b = el('button', 'wsnew-color');
@@ -4782,7 +4526,6 @@ function openNewWorkspaceDialog() {
       toast('工作区索引还没上线：这里只先记住你的开关意向。', 'info');
     });
 
-    // 源文件夹：空态是个虚线框，选中后变成带名字与「可读写」标记的一条
     function paintSrc() {
       if (!picked) {
         addBtn.hidden = true;
@@ -4830,7 +4573,7 @@ function openNewWorkspaceDialog() {
         return;
       }
       const p = Array.isArray(paths) ? paths[0] : paths;
-      if (!p) return; // 用户取消
+      if (!p) return;
       picked = p;
       if (!touchedName) nameInput.value = wsShort(p);
       const meta = wsMetaOf(p);
@@ -4858,8 +4601,6 @@ function openNewWorkspaceDialog() {
         name: wsName,
       });
       Modal.settle(() => {});
-      // 建「工作区」＝建一个空间：不建空间它就不会出现在左侧「工作区」树里。
-      // SpaceCreate 会先按 path 校验并切换工作文件夹，等价于原来的 chooseWorkspace。
       try {
         const view = await api('POST', '/api/spaces', {
           name: wsName,
@@ -4883,15 +4624,13 @@ function openNewWorkspaceDialog() {
 
 $('#composer-ws').addEventListener('click', () => openWorkspaceMenu());
 $('#ws-chip').addEventListener('click', () => openWorkspaceMenu());
-// 仍然给「需要选工作区」的老入口（顶栏文件夹按钮、终端「选择工作区」）留一个名字
 function openWorkspaceDialog() {
   openWorkspaceMenu();
 }
 
-/* ================= 多会话（左侧常驻列表） ================= */
-let currentConvo = null; // 当前激活会话 {id,title,...}
-let viewingConvo = false; // 主区是否处于“会话对话”视图（否则是目标工作台）
-const convoLive = new Map(); // task_id -> { assistantEl, buf } 进行中气泡
+let currentConvo = null;
+let viewingConvo = false;
+const convoLive = new Map();
 
 const CONVO_ICONS = {
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
@@ -4909,7 +4648,6 @@ async function ensureConvo() {
   return c;
 }
 
-/* ================= 微光空间 + 会话分组 ================= */
 const spaceState = { activeId: 'default', spaces: [], workspace: '' };
 const SPACE_EXPAND_KEY = 'gleam.space.expanded';
 
@@ -4921,8 +4659,6 @@ const SPACE_ICONS = {
   add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
 };
 
-// 返回 null 表示「用户从没存过偏好」，与「存过、但是空集」区分开：
-// 前者默认展开激活空间，后者要尊重用户把它们全折叠掉的选择。
 function loadExpandedSpaces() {
   try {
     const raw = localStorage.getItem(SPACE_EXPAND_KEY);
@@ -4986,7 +4722,6 @@ async function loadConvoList(activeId) {
   spaceState.spaces.forEach((sp) => {
     const list = bySpace.get(sp.id) || [];
     const isActive = sp.id === spaceState.activeId;
-    // 激活空间默认展开；用户折叠过的偏好也尊重（激活空间仍展开）
     const open = expanded.has(sp.id);
     root.appendChild(
       spaceGroupEl(sp, list, { open, active: isActive, currentConvoId }),
@@ -5057,7 +4792,6 @@ function spaceGroupEl(sp, list, opts) {
     body.appendChild(el('div', 'space-group-empty', '暂无对话'));
   }
 
-  // 点击空间标题：展开/折叠，并切换为当前激活空间（联动绑定的文件夹）
   head.addEventListener('click', () => toggleSpace(sp.id, group));
 
   group.appendChild(head);
@@ -5077,7 +4811,6 @@ async function toggleSpace(spaceId, groupEl) {
   }
   saveExpandedSpaces(expanded);
 
-  // 切换激活空间（后端会联动切换绑定的工作文件夹）
   if (spaceId !== spaceState.activeId) {
     try {
       const view = await api(
@@ -5194,13 +4927,9 @@ function setThreadMode(on) {
   $('#goal-filters').parentElement.style.display = on ? 'none' : '';
   document.querySelector('.command-deck').style.display = on ? 'none' : '';
   document.querySelector('.quick-launch').style.display = on ? 'none' : '';
-  // 候补目标属于「开一个新的」那一屏：读会话时把这一坨收起，否则它和整页概览抢位置。
-  // 用 display 而不是 hidden——`hidden` 归 renderCues 管（"有没有话要说"），两个开关各管一件事。
   document.querySelector('.cue-deck').style.display = on ? 'none' : '';
 }
 
-// 首页 / 空任务的插图位：Gleam 软件内的线条标记（随主题强调色），与 index.html 里的静态版保持一致；
-// 官方折角 logo 只用于应用图标、favicon 和官网
 const HERO_ART = `<div class="hero-art" aria-hidden="true"><svg class="brand-mark" viewBox="0 0 96 96" width="96" height="96" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="18" width="60" height="60" rx="18" stroke-width="1.6" opacity=".35"/><g stroke-width="3"><circle cx="48" cy="48" r="7"/><path d="M48 30v6M48 60v6M30 48h6M60 48h6M35.3 35.3l4.2 4.2M56.5 56.5l4.2 4.2M35.3 60.7l4.2-4.2M56.5 39.5l4.2-4.2"/></g></svg></div>`;
 
 function resetFeedToEmpty(title, desc, opts = {}) {
@@ -5243,7 +4972,6 @@ async function startNewConvo(spaceId) {
     return;
   }
   try {
-    // 指定了别的空间：先切换激活空间（后端联动切换绑定的文件夹）
     if (spaceId && spaceId !== spaceState.activeId) {
       const view = await api(
         'POST',
@@ -5252,8 +4980,6 @@ async function startNewConvo(spaceId) {
       spaceState.activeId = view.active_id || spaceId;
       if (view.workspace) renderWorkspace({ workspace: view.workspace });
     }
-    // 不再立即创建会话：回到首页初始界面，等用户确认发送后由 ensureConvo() 按需创建，
-    // 避免点一次「新任务」就生成一个空会话。
     currentConvo = null;
     convoLive.clear();
     showView('goals');
@@ -5265,7 +4991,6 @@ async function startNewConvo(spaceId) {
 
 async function openConvo(id) {
   try {
-    // 载入历史到短期上下文，便于在旧会话上继续
     const c = await api(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/activate`,
@@ -5298,15 +5023,11 @@ function renderConvoMessages(c) {
     resetFeedToEmpty('这是一个空对话', '在下方输入第一条消息开始。');
     return;
   }
-  // 相邻同角色消息各自成气泡；按 task_id 归组提供“查看执行详情”入口
   msgs.forEach((m) => feed.appendChild(convoBubble(m)));
   scrollToBottom(false);
   refreshWorkbench();
 }
 
-// 气泡底部操作区：历史渲染和 SSE 完成回填共用这一份。
-// （原先这里第一颗是「反馈这条」，指向一个早已删掉的视图——反馈功能整个撤掉了，
-//  那颗按钮点下去只会抛异常，所以连同入口一起去掉。）
 function appendMsgActs(bodyEl, m) {
   const acts = el('div', 'msg-acts');
   if (m.mode && m.mode !== 'chat') {
@@ -5346,7 +5067,6 @@ async function openTaskDetail(taskID) {
     const info = await api('GET', '/api/goals/' + taskID);
     Modal.open(`执行详情 · ${esc((info.goal || '').slice(0, 40))}`, (box) => {
       const meta = el('div', 'field-hint');
-      // 分数在 result 里，taskInfo 顶层没有 score——读错层会让每次详情都显示「完成度 —/100」
       const score =
         info.result && Number.isFinite(info.result.score)
           ? info.result.score
@@ -5371,8 +5091,6 @@ async function openTaskDetail(taskID) {
         const list = el('div', 'timeline');
         steps.forEach((st) => {
           const it = el('div', 'timeline-item');
-          // reply 步骤的 .text 是人话，直接展示；其余对象输出折进「查看原始输出」，
-          // 不再把 JSON.stringify 的整坨怼到时间线上（2026-09-23 QA 报告 M2）。
           let readable = '';
           if (typeof st.output === 'string') readable = st.output;
           else if (
@@ -5398,7 +5116,6 @@ async function openTaskDetail(taskID) {
   }
 }
 
-// 提交后即时渲染“用户气泡 + 进行中的助手气泡”，完成/流式由 SSE 回填
 function appendLiveConvoTurn(goal, taskID, taskMode) {
   const feed = $('#goal-feed');
   const empty = $('#goals-empty');
@@ -5411,7 +5128,6 @@ function appendLiveConvoTurn(goal, taskID, taskMode) {
   aBody.appendChild(aContent);
   aWrap.appendChild(aBody);
   feed.appendChild(aWrap);
-  // 会话模式下卡片是隐藏的，停止入口必须长在气泡上，否则运行中的对话无从打断
   mountStopButton(aBody, taskID, 'running');
   convoLive.set(taskID, {
     assistantEl: aContent,
@@ -5424,7 +5140,6 @@ function appendLiveConvoTurn(goal, taskID, taskMode) {
   scrollToBottom(false);
 }
 
-// 会话视图内联渲染审批卡（批准/拒绝复用统一裁决接口）
 function convoApproval(ap) {
   const live = convoLive.get(ap.task_id);
   if (!live || live.approvalEl) return;
