@@ -125,7 +125,7 @@ func TestRoleTemplate_RoleToolsAlwaysGetSchema(t *testing.T) {
 	// 预算比角色工具数还紧时，预算优先（用户显式设的上限不该被模板顶穿），
 	// 但角色工具要排在目标快筛的结果之前——它们是"这个场景保证要用"的，
 	// 不该被一次可能失手的相关性筛选挤掉。reply 始终占一席（它是收尾步骤）。
-	if got := strings.Count(sec, "参数schema:"); got != 3 {
+	if got := strings.Count(sec, " | 参数："); got != 3 {
 		t.Errorf("仍应只注入 3 个 schema，实际 %d", got)
 	}
 	if !strings.Contains(sec, "- reply：") {

@@ -107,6 +107,8 @@ func (p *Planner) Plan(ctx context.Context, goal, cwd string, recent []memory.Tu
 // 它只依赖工具注册表、不依赖目标，因此属于**稳定段**——放在提示词前部，
 // 让服务端的前缀缓存能跨任务命中。完整 schema 见 toolSchemaSection（那部分随目标变化）。
 // 工具数在上限之内时返回空：schema 本来就全给，再列一遍菜单纯属重复。
+// 注意：紧凑 schema 格式下，菜单模式的体积优势减弱（见 TestToolMenu_ShrinksPrompt），
+// 但菜单仍保留以便模型知道还有哪些工具可用（即使本次未附 schema）。
 func (p *Planner) toolMenuSection() string {
 	if p.MaxToolSchemas <= 0 {
 		return ""
@@ -116,9 +118,9 @@ func (p *Planner) toolMenuSection() string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n## 能力菜单（共 %d 个工具，完整 schema 见后文）\n", len(tools))
+	fmt.Fprintf(&b, "\n## 能力菜单（共 %d 个工具）\n", len(tools))
 	for _, t := range tools {
-		fmt.Fprintf(&b, "- %s：%s\n", t.Name(), firstLine(t.Description()))
+		fmt.Fprintf(&b, "- %s\n", t.Name())
 	}
 	return b.String()
 }
@@ -131,8 +133,7 @@ func (p *Planner) toolSchemaSection(goal string) string {
 		var b strings.Builder
 		b.WriteString("\n## 可用工具\n")
 		for _, t := range tools {
-			schema, _ := json.Marshal(t.Schema())
-			fmt.Fprintf(&b, "- %s：%s 参数schema: %s\n", t.Name(), t.Description(), schema)
+			b.WriteString(compactToolSchema(t))
 		}
 		return b.String()
 	}
@@ -153,10 +154,53 @@ func (p *Planner) toolSchemaSection(goal string) string {
 	}
 	fmt.Fprintf(&b, "\n## 可用工具（以下 %d 个与本次目标最相关，附完整参数 schema）\n", len(picked))
 	for _, t := range picked {
-		schema, _ := json.Marshal(t.Schema())
-		fmt.Fprintf(&b, "- %s：%s 参数schema: %s\n", t.Name(), t.Description(), schema)
+		b.WriteString(compactToolSchema(t))
 	}
 	b.WriteString("只能使用上面附了 schema 的工具；菜单里的其他工具本次不可用。\n")
+	return b.String()
+}
+
+
+// compactToolSchema 生成紧凑的工具 schema 格式，减少 JSON 结构冗余（约 40% token 节省）。
+// 原：- name：desc 参数 schema: {"type":"object","properties":{...}}
+// 新：- name：desc | 参数：path(string, 描述) [必填]
+func compactToolSchema(t types.Tool) string {
+	schema := t.Schema()
+	props, _ := schema["properties"].(map[string]any)
+	required, _ := schema["required"].([]string)
+	reqSet := make(map[string]bool, len(required))
+	for _, r := range required {
+		reqSet[r] = true
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "- %s：%s | 参数：", t.Name(), firstLine(t.Description()))
+	first := true
+	for name, prop := range props {
+		if !first {
+			b.WriteString("，")
+		}
+		first = false
+		propMap, ok := prop.(map[string]any)
+		if !ok {
+			fmt.Fprintf(&b, "%s", name)
+			continue
+		}
+		propType, _ := propMap["type"].(string)
+		propDesc, _ := propMap["description"].(string)
+		fmt.Fprintf(&b, "%s(%s", name, propType)
+		if propDesc != "" {
+			fmt.Fprintf(&b, ", %s", firstLine(propDesc))
+		}
+		b.WriteString(")")
+		if reqSet[name] {
+			b.WriteString("[必填]")
+		}
+	}
+	if len(props) == 0 {
+		b.WriteString("无")
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -380,7 +424,7 @@ func (p *Planner) screenToolNames(goal string, tools []types.Tool, n int) []stri
 	if err != nil {
 		return nil
 	}
-	raw, err := extractJSON(text)
+	raw, err := extractJSONArray(text)
 	if err != nil {
 		return nil
 	}
@@ -789,6 +833,41 @@ func extractJSON(s string) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("JSON 对象未闭合")
+}
+
+// extractJSONArray 提取 JSON 数组（工具快筛等场景返回的是数组而非对象）。
+func extractJSONArray(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
+	start := strings.Index(s, "[")
+	if start < 0 {
+		return nil, fmt.Errorf("未找到 JSON 数组")
+	}
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"':
+			quote = c
+		case c == '[':
+			depth++
+		case c == ']':
+			depth--
+			if depth == 0 && i >= start {
+				return []byte(s[start : i+1]), nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("JSON 数组未闭合")
 }
 
 // ---------- 流式节流器：合并 LLM 增量，避免刷屏 ----------

@@ -54,7 +54,7 @@ func TestToolMenu_UnderThresholdKeepsFullSchemas(t *testing.T) {
 	if strings.Contains(sec, "能力菜单") {
 		t.Error("工具数在上限内不应切换为菜单模式")
 	}
-	if got := strings.Count(sec, "参数schema:"); got != 5 { // reply + 4
+	if got := strings.Count(sec, " | 参数："); got != 5 { // reply + 4
 		t.Errorf("应全量注入 5 个 schema，实际 %d", got)
 	}
 }
@@ -65,7 +65,7 @@ func TestToolMenu_OverThresholdUsesMenu(t *testing.T) {
 	if !strings.Contains(sec, "能力菜单") {
 		t.Error("工具超限时应切换为能力菜单")
 	}
-	if got := strings.Count(sec, "参数schema:"); got != 5 {
+	if got := strings.Count(sec, " | 参数："); got != 5 {
 		t.Errorf("只应注入 5 个完整 schema，实际 %d", got)
 	}
 	if !strings.Contains(sec, "共 21 个工具") {
@@ -85,7 +85,7 @@ func TestToolMenu_AlwaysKeepsReply(t *testing.T) {
 func TestToolMenu_NoToolLeftBehindWhenLimitLarge(t *testing.T) {
 	p := &Planner{Reg: menuRegistry(20), MaxToolSchemas: 100}
 	sec := toolSections(p, "x")
-	if got := strings.Count(sec, "参数schema:"); got != 21 {
+	if got := strings.Count(sec, " | 参数："); got != 21 {
 		t.Errorf("上限足够大时应全量注入，实际 %d", got)
 	}
 }
@@ -112,7 +112,7 @@ func TestToolMenu_ForceToolsRespectLimit(t *testing.T) {
 	r.MustRegister(&fakeTool{name: "web.fetch", desc: "抓取网页内容"})
 	p := &Planner{Reg: r, MaxToolSchemas: 3, ForceTools: []string{"web.fetch"}}
 	sec := toolSections(p, "x")
-	if got := strings.Count(sec, "参数schema:"); got != 3 {
+	if got := strings.Count(sec, " | 参数："); got != 3 {
 		t.Errorf("仍应只注入 3 个 schema，实际 %d", got)
 	}
 	if !strings.Contains(sec, "- web.fetch：") {
@@ -194,7 +194,7 @@ func TestToolMenu_HelperFailureFallsBackToLocal(t *testing.T) {
 	helper.FailNext(errScreeningDown)
 	p := &Planner{Reg: menuRegistry(20), MaxToolSchemas: 5, Helper: helper}
 	sec := toolSections(p, "读取配置")
-	if got := strings.Count(sec, "参数schema:"); got != 5 {
+	if got := strings.Count(sec, " | 参数："); got != 5 {
 		t.Errorf("快筛失败应退回本地打分并补满 5 个，实际 %d", got)
 	}
 }
@@ -210,12 +210,12 @@ func TestToolMenu_SectionIsValidJSONSchemas(t *testing.T) {
 	p := &Planner{Reg: menuRegistry(20), MaxToolSchemas: 5}
 	sec := toolSections(p, "x")
 	for _, line := range strings.Split(sec, "\n") {
-		i := strings.Index(line, "参数schema: ")
+		i := strings.Index(line, " | 参数： ")
 		if i < 0 {
 			continue
 		}
 		var v any
-		if err := json.Unmarshal([]byte(strings.TrimSpace(line[i+len("参数schema: "):])), &v); err != nil {
+		if err := json.Unmarshal([]byte(strings.TrimSpace(line[i+len(" | 参数： "):])), &v); err != nil {
 			t.Fatalf("schema 不是合法 JSON: %v\n%s", err, line)
 		}
 	}
