@@ -17,6 +17,8 @@ directories:
 files:
   - dist/**/*
   - "!dist/**/*.map"
+  - "!dist/win-unpacked/**"
+  - "!dist/win-unpacked.tmp/**"
   - package.json
 asar: true
 # The Go sidecar is built per platform by scripts/build-sidecar.mjs into .sidecar/<platform>-<arch>/
