@@ -46,6 +46,12 @@ Two desktop paths exist and are easy to mix up: the **Electron shell** in
 is shared: it runs unchanged in a browser, in the Electron shell, and in the Go
 desktop build.
 
+**What's not here**: internal design drafts, architecture decision records, and
+detailed comparison documents live on maintainers' local machines and are not
+committed to git. The public source of truth for "what Gleam deliberately does
+not do" is [`docs/known-limits.md`](./docs/known-limits.md) — if a feature
+isn't mentioned there, it's either planned or not yet considered.
+
 ## Prerequisites
 
 - **Go 1.22+** (see `go.mod`)
