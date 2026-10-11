@@ -69,14 +69,17 @@
     if (!PROVS) PROVS = (await api('GET', '/api/providers')).providers || [];
     return PROVS;
   }
-  const glyph = (name, cls = '') =>
-    h('span', {
+  // 首字母取的是**显示语言下**的名字：直接拿中文名去取，英文界面里会留下「智」「月」
+  // 这种落单的汉字。i18nText 是 i18n.js 的全局查表函数，没命中就退回原名。
+  const glyph = (name, cls = '') => {
+    const src = i18nText(String(name || '')) || String(name || '?');
+    const ch = [...src.replace(/^[^\p{L}\p{N}]+/u, '')][0] || '?';
+    return h('span', {
       class: 's2-glyph ' + cls,
       'aria-hidden': 'true',
-      text: (
-        [...String(name || '?').replace(/^[^\p{L}\p{N}]+/u, '')][0] || '?'
-      ).toUpperCase(),
+      text: ch.toUpperCase(),
     });
+  };
   const hostOf = (u) => {
     try {
       return new URL(u).host;
@@ -246,13 +249,23 @@
             'div',
             { class: 's2-model-text' },
             h('strong', {}, m.model || '（未填模型）', ...badges),
-            h('small', {
-              text: `${m.name} · ${d.name}${d.sub ? ' · ' + d.sub : ''}`,
-            }),
-            h('small', {
-              class: m.api_key_set ? 's2-ok' : 's2-warn',
-              text: `${hostOf(m.base_url)} · ${keyState}`,
-            }),
+            // 厂商名与套餐标签由后端目录带出，各成一个文本节点：拼成一整句之后
+            // 节点查不到词条，英文界面里就会剩下一截中文。
+            h(
+              'small',
+              {},
+              m.name,
+              ' · ',
+              d.name,
+              ...(d.sub ? [' · ', d.sub] : []),
+            ),
+            h(
+              'small',
+              { class: m.api_key_set ? 's2-ok' : 's2-warn' },
+              hostOf(m.base_url),
+              ' · ',
+              keyState,
+            ),
           ),
           actions,
         );
@@ -574,64 +587,271 @@
         link,
       );
     }
-    function modelField() {
-      const pl = curPlan();
-      const wrap = h('div', {});
-      const defaultModel = pl ? pl.model : '';
-      let fetchedModels = [];
-      let useSelect = false;
+    // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；
+    // 内置目录只作离线兜底；手填始终可用。三条来源都在界面上标出来。
+    const MODEL_SEARCH_THRESHOLD = 30; // 超过就出过滤框：OpenRouter 这类能拉到几百个
+    const catKey = (host) => 'gleam.modelcat.' + host;
 
-      function renderInput() {
-        wrap.replaceChildren();
-        if (useSelect && fetchedModels.length) {
-          const sel = h('select', {
-            class: 's2-select s2-select--block',
-            id: 's2-dlg-model',
-          });
-          sel.append(
-            h('option', { value: '', text: '— 请选择或手填模型 ID —' }),
-          );
-          fetchedModels.forEach((m) =>
-            sel.append(h('option', { value: m.id, text: m.id })),
-          );
-          if (st.modelName) sel.value = st.modelName;
-          sel.addEventListener('change', () => {
-            st.modelName = sel.value;
-            touch();
-            result.hidden = true;
-            validate();
-            const custom = h('input', {
-              class: 'input s2-dlg-input',
-              style: 'margin-top:6px',
-              placeholder: '或手动输入模型 ID',
-              autocomplete: 'off',
-              spellcheck: 'false',
-            });
-            custom.value = sel.value === '' ? '' : sel.value;
-            custom.addEventListener('input', () => {
-              st.modelName = custom.value;
+    function catGet(host) {
+      try {
+        const o = JSON.parse(localStorage.getItem(catKey(host)) || 'null');
+        return o && Array.isArray(o.ids) && o.ids.length ? o : null;
+      } catch {
+        return null; // 存坏了就当没有，不影响手填
+      }
+    }
+    function catPut(host, ids) {
+      try {
+        localStorage.setItem(
+          catKey(host),
+          JSON.stringify({ ids, at: new Date().toISOString() }),
+        );
+      } catch {
+        /* 存不下只影响下次，不打断本次 */
+      }
+    }
+    function ago(iso) {
+      const mins = Math.max(
+        0,
+        Math.round((Date.now() - Date.parse(iso)) / 60000),
+      );
+      if (mins < 1) return '刚刚';
+      if (mins < 60) return mins + ' 分钟前';
+      const hours = Math.round(mins / 60);
+      return hours < 24 ? hours + ' 小时前' : Math.round(hours / 24) + ' 天前';
+    }
+
+    // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；内置目录只作离线兜底；
+    // 手填始终可用。
+    //
+    // 用与「供应商」**同一个 .s2-picker 弹层**，不用原生 <select>：原生控件做不出
+    // 「选中项打勾」，也没法在列表里塞过滤框，两种控件摆在同一张表单上手感会不一致。
+    function modelField() {
+      let fetched = []; // 本次打开期间拉到的
+      let manual = false;
+      let query = '';
+      let optsBox = null;
+
+      const wrap = h('div', { class: 's2-picker' });
+      const srcNote = h('div', { class: 's2-field-hint' });
+      const custom = h('input', {
+        class: 'input s2-dlg-input',
+        id: 's2-dlg-model-custom',
+        placeholder: '手动输入模型 ID',
+        autocomplete: 'off',
+        spellcheck: 'false',
+        hidden: true,
+      });
+      const trigger = h(
+        'button',
+        {
+          type: 'button',
+          class: 's2-picker-btn',
+          'aria-haspopup': 'listbox',
+          'aria-expanded': 'false',
+          id: 's2-dlg-model',
+        },
+        h('span', { class: 's2-picker-name' }),
+        h('span', { class: 's2-picker-chev', html: ico('chevron', 14) }),
+      );
+      const list = h('div', {
+        class: 's2-picker-list',
+        role: 'listbox',
+        hidden: true,
+        'aria-label': '模型',
+      });
+
+      const host = () =>
+        hostOf(isCustom() ? st.base : (curPlan() || {}).base_url || '');
+      const cached = () => catGet(host());
+      const builtin = () => {
+        const p = curProv();
+        return !isCustom() && p && Array.isArray(p.models) ? p.models : [];
+      };
+      const setName = (text) => {
+        trigger.querySelector('.s2-picker-name').textContent = text;
+      };
+
+      // 三条来源合并去重，越靠前越「新」：本次拉取 > 缓存 > 内置兜底。
+      function sources() {
+        const seen = new Set();
+        const out = [];
+        const push = (id) => {
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            out.push(id);
+          }
+        };
+        fetched.forEach(push);
+        const c = cached();
+        if (c) c.ids.forEach(push);
+        builtin().forEach(push);
+        // 当前值不在列表里（自建网关、或清单没收录）也要显示出来，否则字段会空
+        if (st.modelName && !seen.has(st.modelName)) out.unshift(st.modelName);
+        return out;
+      }
+
+      function modelOpt(id) {
+        const picked = !manual && id === st.modelName;
+        return h(
+          'button',
+          {
+            type: 'button',
+            role: 'option',
+            class: 's2-picker-opt',
+            'aria-selected': String(picked),
+            onclick: () => {
+              manual = false;
+              st.modelName = id;
               touch();
               result.hidden = true;
               validate();
-            });
-            wrap.append(sel, custom);
-          });
-          wrap.append(sel);
-        } else {
-          const i = input(
-            's2-dlg-model',
-            st.modelName || defaultModel,
-            defaultModel,
-            (v) => {
-              st.modelName = v;
+              close();
+              paintModel();
+              trigger.focus();
             },
-          );
-          wrap.append(i);
-        }
+          },
+          h('span', { text: id }),
+          picked
+            ? h('span', { class: 's2-picker-check', html: ico('check', 14) })
+            : null,
+        );
       }
 
-      if (!st.modelName && pl) st.modelName = defaultModel;
-      renderInput();
+      function manualOpt() {
+        return h(
+          'button',
+          {
+            type: 'button',
+            role: 'option',
+            class: 's2-picker-opt',
+            'aria-selected': String(manual),
+            onclick: () => {
+              manual = true;
+              custom.hidden = false;
+              custom.focus();
+              close();
+              paintModel();
+            },
+          },
+          h('span', { text: '或手动输入…' }),
+          manual
+            ? h('span', { class: 's2-picker-check', html: ico('check', 14) })
+            : null,
+        );
+      }
+
+      // 只重画选项：过滤时若整层重建，输入框每敲一个字就失焦。
+      function fillOptions() {
+        if (!optsBox) return;
+        const needle = query.trim().toLowerCase();
+        const shown = sources().filter(
+          (id) => !needle || id.toLowerCase().includes(needle),
+        );
+        optsBox.replaceChildren();
+        if (!shown.length) {
+          optsBox.append(
+            h('div', { class: 's2-picker-group', text: '没有匹配的模型' }),
+          );
+        }
+        shown.forEach((id) => optsBox.append(modelOpt(id)));
+        optsBox.append(
+          h('div', { class: 's2-picker-group', text: '自定义' }),
+          manualOpt(),
+        );
+      }
+
+      function close() {
+        list.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+
+      function paintModel() {
+        const ids = sources();
+        custom.hidden = !manual;
+        list.replaceChildren();
+        optsBox = null;
+
+        if (manual || !ids.length) {
+          // 三条来源都空（自建网关、没 key、没缓存）：不给一个空弹层，直接退到纯手填
+          if (!ids.length) manual = true;
+          custom.hidden = false;
+          setName(
+            manual && !st.modelName ? '手动输入' : st.modelName || '请选择模型',
+          );
+        } else {
+          setName(st.modelName || '请选择模型');
+        }
+        const c = cached();
+        srcNote.textContent = !ids.length
+          ? '没有可用的模型列表，请手动填写模型 ID'
+          : fetched.length
+            ? '已并入本次拉取到的模型'
+            : c
+              ? `内置兜底 + 上次拉取（${ago(c.at)}）`
+              : '内置兜底（点「拉取可用模型」可拿到该厂商的完整列表）';
+        if (!ids.length) {
+          close();
+          return;
+        }
+
+        if (ids.length > MODEL_SEARCH_THRESHOLD) {
+          const filter = h('input', {
+            class: 'input s2-dlg-input',
+            id: 's2-dlg-model-filter',
+            placeholder: '过滤模型…',
+            autocomplete: 'off',
+            spellcheck: 'false',
+          });
+          filter.value = query;
+          filter.addEventListener('input', () => {
+            query = filter.value;
+            fillOptions();
+          });
+          // 别和弹层的方向键抢：在过滤框里按上下键应是移动光标
+          filter.addEventListener('keydown', (e) => e.stopPropagation());
+          list.append(filter);
+        }
+        optsBox = h('div', {});
+        list.append(optsBox);
+        fillOptions();
+      }
+
+      trigger.addEventListener('click', () => {
+        list.hidden = !list.hidden;
+        trigger.setAttribute('aria-expanded', String(!list.hidden));
+        if (!list.hidden) {
+          const pick =
+            list.querySelector('[aria-selected="true"]') ||
+            list.querySelector('.s2-picker-opt');
+          if (pick) pick.focus();
+        }
+      });
+      list.addEventListener('keydown', (e) => {
+        const opts = [...list.querySelectorAll('.s2-picker-opt')];
+        const i = opts.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          (opts[i + 1] || opts[0]).focus();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          (opts[i - 1] || opts[opts.length - 1]).focus();
+        } else if (e.key === 'Escape') {
+          e.stopPropagation();
+          close();
+          trigger.focus();
+        }
+      });
+      custom.addEventListener('input', () => {
+        st.modelName = custom.value;
+        touch();
+        result.hidden = true;
+        validate();
+      });
+
+      // 启动装配时不再从预设取默认模型——那批默认值已被刻意移除；
+      // 没填就是没填，界面显示「请选择模型」，由用户去选或去拉。
+      paintModel();
 
       const fetchBtn = h(
         'button',
@@ -650,24 +870,27 @@
         try {
           const r = await api('POST', '/api/llm/models', target());
           if (r.ok && Array.isArray(r.models) && r.models.length) {
-            fetchedModels = r.models;
-            useSelect = true;
-            renderInput();
+            fetched = r.models.map((m) => m.id);
+            catPut(host(), fetched); // 存下来：下次打开不用重新填 key
+            query = '';
+            paintModel();
             showResult(
               'ok',
-              `拉到 ${r.models.length} 个模型，请从下拉列表选择`,
+              `拉到 ${r.models.length} 个模型（已缓存，下次打开仍可见）`,
             );
-          } else
+          } else {
             showResult(
               'fail',
               (TEST_HINTS[r.kind] || '拉取失败') +
-                '：这个入口可能不提供模型列表，直接手填即可',
+                '：这个入口可能不提供模型列表，从列表里选或手填即可',
             );
+          }
         } catch (err) {
           showResult('fail', err.message);
         }
         fetchBtn.disabled = false;
       });
+      wrap.append(trigger, list, custom, srcNote);
       return field('模型 ID', wrap, fetchBtn);
     }
     function fastToggle() {

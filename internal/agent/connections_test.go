@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -31,7 +33,7 @@ func rowByID(led ConnectionLedger, id string) (ConnectionRow, bool) {
 // （函数可能压根没被调用），所以这条必须在运行时判。
 func TestConnections_EveryEgressKindHasARow(t *testing.T) {
 	f := newFixture(t, nil)
-	led := f.a.ConnectionView("127.0.0.1:8787")
+	led := f.a.ConnectionView("127.0.0.1:8787", false)
 
 	listed := map[string]bool{}
 	for _, k := range EgressKinds() {
@@ -70,7 +72,7 @@ func TestConnections_EveryEgressKindHasARow(t *testing.T) {
 func TestConnections_NoRowHasAnEmptyCell(t *testing.T) {
 	f := newFixture(t, nil)
 	for _, bind := range []string{"", "127.0.0.1:8787", "0.0.0.0:8787"} {
-		for _, r := range f.a.ConnectionView(bind).Rows {
+		for _, r := range f.a.ConnectionView(bind, false).Rows {
 			for _, field := range []struct{ name, val string }{
 				{"title", r.Title}, {"kindText", r.KindText}, {"target", r.Target},
 				{"status", r.Status}, {"trigger", r.Trigger}, {"leaves", r.Leaves},
@@ -97,11 +99,11 @@ func TestConnections_NoRowHasAnEmptyCell(t *testing.T) {
 func TestConnections_InboundRowFollowsRealBindAddr(t *testing.T) {
 	f := newFixture(t, nil)
 
-	if _, ok := rowByID(f.a.ConnectionView(""), "inbound"); ok {
+	if _, ok := rowByID(f.a.ConnectionView("", false), "inbound"); ok {
 		t.Error("拿不到监听地址时不该画本机服务这一行")
 	}
 
-	loop, ok := rowByID(f.a.ConnectionView("127.0.0.1:8787"), "inbound")
+	loop, ok := rowByID(f.a.ConnectionView("127.0.0.1:8787", false), "inbound")
 	if !ok {
 		t.Fatal("绑了回环就该有这一行")
 	}
@@ -112,7 +114,7 @@ func TestConnections_InboundRowFollowsRealBindAddr(t *testing.T) {
 		t.Errorf("回环应说明\"只有本机能连、口令文件同用户可读\"：%q", loop.Alert)
 	}
 
-	open, ok := rowByID(f.a.ConnectionView("0.0.0.0:8787"), "inbound")
+	open, ok := rowByID(f.a.ConnectionView("0.0.0.0:8787", false), "inbound")
 	if !ok {
 		t.Fatal("绑了 0.0.0.0 也该有这一行")
 	}
@@ -131,7 +133,7 @@ func TestConnections_LlmRowTargetMatchesKeyScope(t *testing.T) {
 	f.a.Cfg.LLM.Provider = "glm"
 	f.a.Cfg.LLM.BaseURL = "https://api.example.com/v1"
 
-	r, ok := rowByID(f.a.ConnectionView(""), "llm")
+	r, ok := rowByID(f.a.ConnectionView("", false), "llm")
 	if !ok {
 		t.Fatal("缺模型行")
 	}
@@ -151,7 +153,7 @@ func TestConnections_LlmRowTargetMatchesKeyScope(t *testing.T) {
 
 	// 留痕里有第三个主机：说明发包时的接入地址与设置页现在写的不是同一个。
 	f.a.Gate.RecordEgress("llm", "old.vendor.com", 2048)
-	r2, _ := rowByID(f.a.ConnectionView(""), "llm")
+	r2, _ := rowByID(f.a.ConnectionView("", false), "llm")
 	if !strings.Contains(r2.Alert, "old.vendor.com") {
 		t.Errorf("留痕与当前接入不一致时要点名：%q", r2.Alert)
 	}
@@ -163,7 +165,7 @@ func TestConnections_LlmRowTargetMatchesKeyScope(t *testing.T) {
 // TestConnections_MockModelSaysTheLineCannotSend 模拟模型下不许写得像真在发包。
 func TestConnections_MockModelSaysTheLineCannotSend(t *testing.T) {
 	f := newFixture(t, nil) // fixture 默认 provider = mock
-	r, ok := rowByID(f.a.ConnectionView(""), "llm")
+	r, ok := rowByID(f.a.ConnectionView("", false), "llm")
 	if !ok {
 		t.Fatal("缺模型行")
 	}
@@ -179,7 +181,7 @@ func TestConnections_WebFetchStatusComesFromGate(t *testing.T) {
 	f.a.Reg.MustRegister(&funcTool{name: "web.fetch", perm: types.PermissionReadOnly,
 		fn: func(context.Context, map[string]any) (any, error) { return "ok", nil }})
 
-	r, _ := rowByID(f.a.ConnectionView(""), "web.fetch")
+	r, _ := rowByID(f.a.ConnectionView("", false), "web.fetch")
 	if !strings.Contains(r.Status, "自动放行") {
 		t.Errorf("只读权限应说自动放行：%q", r.Status)
 	}
@@ -189,13 +191,13 @@ func TestConnections_WebFetchStatusComesFromGate(t *testing.T) {
 
 	// 收紧成"每次问你"后，界面必须跟着改口——判据来自门控，不是写死的文案。
 	f.a.Gate.SetToolPermission("web.fetch", types.PermissionUserApproved)
-	r2, _ := rowByID(f.a.ConnectionView(""), "web.fetch")
+	r2, _ := rowByID(f.a.ConnectionView("", false), "web.fetch")
 	if !strings.Contains(r2.Status, "每次问你") {
 		t.Errorf("权限改紧后应改口：%q", r2.Status)
 	}
 
 	f.a.Cfg.Safety.AllowPrivateWeb = true
-	r3, _ := rowByID(f.a.ConnectionView(""), "web.fetch")
+	r3, _ := rowByID(f.a.ConnectionView("", false), "web.fetch")
 	if !strings.Contains(r3.Alert, "内网") {
 		t.Errorf("放开内网抓取必须警示：%q", r3.Alert)
 	}
@@ -209,7 +211,7 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 
 	// ① 凭证存储都没装配
 	for _, id := range []string{"cloud", "feedback"} {
-		r, ok := rowByID(f.a.ConnectionView(""), id)
+		r, ok := rowByID(f.a.ConnectionView("", false), id)
 		if !ok {
 			t.Fatalf("缺 %s 行", id)
 		}
@@ -225,11 +227,11 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 	f.a.Creds = cred
 
 	// ② 有存储但没填项目地址
-	cloud, _ := rowByID(f.a.ConnectionView(""), "cloud")
+	cloud, _ := rowByID(f.a.ConnectionView("", false), "cloud")
 	if !strings.Contains(cloud.Status, "未配置") {
 		t.Errorf("没配项目地址应说未配置：%q", cloud.Status)
 	}
-	fb, _ := rowByID(f.a.ConnectionView(""), "feedback")
+	fb, _ := rowByID(f.a.ConnectionView("", false), "feedback")
 	if !strings.Contains(fb.Status, "只落本机") {
 		t.Errorf("反馈没配远端应说只落本机：%q", fb.Status)
 	}
@@ -238,7 +240,7 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 	if err := cred.SetCloudConfig(credentials.CloudConfig{SupabaseURL: "https://proj.supabase.co"}); err != nil {
 		t.Fatal(err)
 	}
-	half, _ := rowByID(f.a.ConnectionView(""), "feedback")
+	half, _ := rowByID(f.a.ConnectionView("", false), "feedback")
 	if !strings.Contains(half.Status, "未配置") {
 		t.Errorf("缺 anon key 不该算配好：%q", half.Status)
 	}
@@ -247,7 +249,7 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 	if err := cred.SetCloudConfig(credentials.CloudConfig{SupabaseAnonKey: "anon"}); err != nil {
 		t.Fatal(err)
 	}
-	full, _ := rowByID(f.a.ConnectionView(""), "cloud")
+	full, _ := rowByID(f.a.ConnectionView("", false), "cloud")
 	if full.Status != "已配置" || full.Target != llm.KeyScope("https://proj.supabase.co") {
 		t.Errorf("配好后 = %+v", full)
 	}
@@ -261,23 +263,23 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 // 另一半判据：没开审计落盘时不许指路去查落盘文件——那句指路会把"没记"伪装成"没发生"。
 func TestConnections_EgressScopeTextFollowsScanWindow(t *testing.T) {
 	f := newFixture(t, nil)
-	if s := f.a.ConnectionView("").EgressScope; !strings.Contains(s, "还没有任何出网留痕") {
+	if s := f.a.ConnectionView("", false).EgressScope; !strings.Contains(s, "还没有任何出网留痕") {
 		t.Errorf("无留痕时的范围文案 = %q", s)
 	} else if strings.Contains(s, "--audit") {
 		t.Errorf("审计没落盘却让人去查落盘审计：%q", s)
 	}
 
 	f.a.Gate.RecordEgress("llm", "api.example.com", 10)
-	if s := f.a.ConnectionView("").EgressScope; !strings.Contains(s, "本次运行内存里") {
+	if s := f.a.ConnectionView("", false).EgressScope; !strings.Contains(s, "本次运行内存里") {
 		t.Errorf("有留痕但未写满时应说明只数了本次运行：%q", s)
 	}
 
 	f.a.Gate.SetAuditPath(filepath.Join(f.a.Cfg.DataDir, "audit.jsonl"))
-	if s := f.a.ConnectionView("").EgressScope; !strings.Contains(s, "--audit --egress") {
+	if s := f.a.ConnectionView("", false).EgressScope; !strings.Contains(s, "--audit --egress") {
 		t.Errorf("落了盘就该给出回看入口：%q", s)
 	}
 	f.a.Gate.SetAuditPath("")
-	if s := f.a.ConnectionView("").EgressScope; strings.Contains(s, "--audit") {
+	if s := f.a.ConnectionView("", false).EgressScope; strings.Contains(s, "--audit") {
 		t.Errorf("落盘撤掉后指路必须跟着撤：%q", s)
 	}
 }
@@ -289,7 +291,7 @@ func TestConnections_EgressScopeAdmitsRingOverflow(t *testing.T) {
 	for i := 0; i < 240; i++ {
 		f.a.Gate.RecordEgress("llm", "api.example.com", 1)
 	}
-	led := f.a.ConnectionView("")
+	led := f.a.ConnectionView("", false)
 	if !strings.Contains(led.EgressScope, "环已写满") {
 		t.Errorf("留痕溢出仍说\"本次运行\"：%q", led.EgressScope)
 	}
@@ -304,7 +306,7 @@ func TestConnections_EgressScopeAdmitsRingOverflow(t *testing.T) {
 // 它是全表唯一一条反方向的交代：用户以为在联网，其实一次请求都不发。
 func TestConnections_MarketRowIsNotAConnection(t *testing.T) {
 	f := newFixture(t, nil)
-	r, ok := rowByID(f.a.ConnectionView(""), "market")
+	r, ok := rowByID(f.a.ConnectionView("", false), "market")
 	if !ok {
 		t.Fatal("缺市场行")
 	}
@@ -316,5 +318,63 @@ func TestConnections_MarketRowIsNotAConnection(t *testing.T) {
 	}
 	if r.Stats != "" {
 		t.Errorf("不发东西的行不该有出网读数：%q", r.Stats)
+	}
+}
+
+// hasCJK 是否含 CJK 表意文字或中文/全角标点。英文输出里出现任何一个都算中文残留。
+func hasCJK(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 0x3000 && r <= 0x303f, // CJK 标点（「」。、）
+			r >= 0x4e00 && r <= 0x9fff, // CJK 统一表意文字
+			r >= 0xf900 && r <= 0xfaff, // CJK 兼容表意
+			r >= 0xff00 && r <= 0xffef: // 全角形式（：？！（））
+			return true
+		}
+	}
+	return false
+}
+
+// assertNoCJK 反射走一遍所有 string 字段。「英文界面零中文」这道判据不靠人眼盯：
+// 后端拼好英文版台账/候补卡之后，任何一格漏翻（哪怕一个全角冒号）都当场红。
+// 用户数据（目标原文、主机名、命令）不在此列——测试夹具里给英文数据即可。
+func assertNoCJK(t *testing.T, path string, v any) {
+	t.Helper()
+	var walk func(path string, rv reflect.Value)
+	walk = func(path string, rv reflect.Value) {
+		switch rv.Kind() {
+		case reflect.String:
+			if hasCJK(rv.String()) {
+				t.Errorf("%s：英文输出里还有 CJK 字符：%q", path, rv.String())
+			}
+		case reflect.Struct:
+			for i := 0; i < rv.NumField(); i++ {
+				walk(path+"."+rv.Type().Field(i).Name, rv.Field(i))
+			}
+		case reflect.Slice, reflect.Array:
+			for i := 0; i < rv.Len(); i++ {
+				walk(fmt.Sprintf("%s[%d]", path, i), rv.Index(i))
+			}
+		case reflect.Pointer:
+			if !rv.IsNil() {
+				walk(path, rv.Elem())
+			}
+		}
+	}
+	walk(path, reflect.ValueOf(v))
+}
+
+// TestConnections_EnglishLedgerHasNoCJK 英文台账零中文。
+//
+// 为什么值得一条运行时判据：台账有近百句插值文案，靠 review 盯两份说法总会漏；
+// 有了这条，任何一格（含全角标点这种「看着是英文其实没翻」的残留）都会被抓住。
+// 中文版仍要含中文——顺带钉住「英文不是把两份都换掉」这种改法。
+func TestConnections_EnglishLedgerHasNoCJK(t *testing.T) {
+	f := newFixture(t, nil)
+	for _, bind := range []string{"", "127.0.0.1:8787"} {
+		assertNoCJK(t, "connections("+bind+")", f.a.ConnectionView(bind, true))
+	}
+	if !hasCJK(f.a.ConnectionView("", false).Scope) {
+		t.Error("中文版 Scope 不含中文：bi.pick(false) 坏了，两份说法被改成了同一份")
 	}
 }

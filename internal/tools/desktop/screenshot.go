@@ -65,8 +65,10 @@ func (t *ScreenshotTool) Execute(ctx context.Context, args map[string]any) (any,
 }
 
 // Windows: 使用 PowerShell + .NET 截屏
+// 路径要过 escapePS：它被插进单引号里，路径含 ' 就会断开字符串（复用通知那边的同一套转义，
+// 不另写一份）。
 func takeScreenshotWindows(path string) error {
-	ps := fmt.Sprintf(`Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Drawing.Rectangle]::new(0,0,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $bmp=[System.Drawing.Bitmap]::new($b.Width,$b.Height); $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen(0,0,0,0,$b.Size); $bmp.Save('%s',[System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()`, path)
+	ps := fmt.Sprintf(`Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Drawing.Rectangle]::new(0,0,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $bmp=[System.Drawing.Bitmap]::new($b.Width,$b.Height); $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen(0,0,0,0,$b.Size); $bmp.Save('%s',[System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()`, escapePS(path))
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
 	return cmd.Run()
 }

@@ -18,12 +18,13 @@ import (
 	"gleam/internal/atomicfile"
 )
 
-// CueSuppression 一条处置记录。
+// CueSuppression 一条处置记录。**只落人的决定，不落卡片上的话**：
+// Title/Goal 曾经也在这里，但那是显示文案——落盘就把记录当时的语言冻进了文件，
+// 换个语言看「已按下」列表就是一页混排；而且卡片本该是历史的函数（见文件头），
+// 把它抄进记录等于给显示文案找到了第二个家。显示侧的说法现算（见 list）。
 type CueSuppression struct {
 	Fingerprint string `json:"fingerprint"`
 	Signal      string `json:"signal"`
-	Title       string `json:"title"`
-	Goal        string `json:"goal"`
 	At          string `json:"at"`
 	Reason      string `json:"reason"` // dismissed 别再提 · adopted 已采纳
 }
@@ -83,43 +84,61 @@ func (s *cueStore) muted(fp string) bool {
 
 // list 按时间倒序给出处置记录：撤销入口在界面末尾，最新的那条才够得着。
 //
-// 返回的是**给视图的那一份**：多补两句人话（信号与原因）。落盘那份不带它们——
-// 盘上只存取值，显示口径每次现取，这样加一种取值不会留下"旧记录在新界面裸奔"。
-func (s *cueStore) list() []CueSuppressedRow {
+// 返回的是**给视图的那一份**：信号与原因是现取的人话，Title/Goal 也按当前界面语言
+// 现算——拿 cards（调用方刚派生出的未过滤全集）按指纹回填；那段历史已经不在的，
+// 如实说"这条不再成立"，不硬凑一句可能对不上的旧话。
+func (s *cueStore) list(en bool, cards []CueRow) []CueSuppressedRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	byFp := make(map[string]CueRow, len(cards))
+	for _, c := range cards {
+		byFp[c.ID] = c
+	}
 	out := make([]CueSuppressedRow, 0, len(s.Sup))
 	for _, x := range s.Sup {
-		out = append(out, CueSuppressedRow{
+		row := CueSuppressedRow{
 			CueSuppression: x,
-			SignalText:     cueSignalText(x.Signal),
-			ReasonText:     cueReasonText(x.Reason),
-		})
+			SignalText:     cueSignalText(x.Signal, en),
+			ReasonText:     cueReasonText(x.Reason, en),
+		}
+		if c, ok := byFp[x.Fingerprint]; ok {
+			row.Title = c.Title
+			row.Goal = c.Goal
+		} else {
+			row.Title = bi{
+				"这条候补目标已不再成立（历史变了，或归档已被裁剪）",
+				"This cue no longer applies (history changed, or the archive was trimmed)",
+			}.pick(en)
+		}
+		out = append(out, row)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].At > out[j].At })
 	return out
 }
 
 // cueReasonText 处置原因的人话。取值只有两个，但这里仍然是一处一份：
-// 界面按这个字段印，别处再译一版就会和记录它对不上。
-func cueReasonText(reason string) string {
+// 界面按这个字段印，别处再译一版就会和记录它对不上。中英两份并排（bi）。
+func cueReasonText(reason string, en bool) string {
 	switch reason {
 	case cueDismissed:
-		return "别再提"
+		return bi{"别再提", "Dismissed"}.pick(en)
 	case cueAdopted:
-		return "已采纳过"
+		return bi{"已采纳过", "Already adopted"}.pick(en)
 	}
 	return reason
 }
 
 // note 把写盘失败如实说给界面。
-func (s *cueStore) note() string {
+func (s *cueStore) note(en bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.lastErr == nil {
 		return ""
 	}
-	return fmt.Sprintf("处置记录上一次没写下去（眼下的判断仍然生效，重启后可能重来）：%v", s.lastErr)
+	return fmt.Sprintf(bi{
+		"处置记录上一次没写下去（眼下的判断仍然生效，重启后可能重来）：%v",
+		"The last suppression write failed (decisions made so far still apply; a restart may bring some of them back): %v",
+	}.pick(en), s.lastErr)
 }
 
 // record 记一条处置并落盘；同一指纹重复记只留最新的一条。
@@ -135,8 +154,6 @@ func (s *cueStore) record(row CueRow, reason string) error {
 	s.Sup = append(kept, CueSuppression{
 		Fingerprint: row.ID,
 		Signal:      row.Signal,
-		Title:       row.Title,
-		Goal:        row.Goal,
 		At:          time.Now().Format(time.RFC3339),
 		Reason:      reason,
 	})
@@ -173,7 +190,7 @@ func (s *cueStore) flushLocked() error {
 		s.lastErr = err
 		return err
 	}
-	// 0600：这份表存的是目标原文，属于「用户说过什么」那一类，与写前快照同权限。
+	// 0600：指纹从目标原文派生，这份表属于「用户说过什么」的痕迹那一类，与写前快照同权限。
 	if err := atomicfile.Write(s.path, b, 0o600); err != nil {
 		s.lastErr = err
 		return err
@@ -222,12 +239,12 @@ func (a *Agent) CueUnsuppress(fp string) error {
 }
 
 // cueRowsAll 忽略抑制算出全部卡片：处置入口要能找到**刚被记进去**的那张卡，
-// 而 CueView 是给人看的那一份（已过滤、已截配额）。
+// 而 CueView 是给人看的那一份（已过滤、已截配额）。这里只按 ID 对卡，语言无所谓。
 func (a *Agent) cueRowsAll() []CueRow {
 	results, _, err := ListTaskResults(a.Cfg.DataDir, cueTaskScan)
 	if err != nil {
 		return nil
 	}
-	rows := deriveCues(results, &cueStore{})
+	rows := deriveCues(results, false)
 	return rows
 }

@@ -38,11 +38,24 @@ type ProviderPreset struct {
 	Name        string       `json:"name"`
 	Plans       []PlanPreset `json:"plans"`
 	Recommended bool         `json:"recommended,omitempty"` // 推荐厂商（TokenDance/DeepSeek）
+	// Models 该厂商的内置模型 ID 清单。**定位是离线兜底，不是权威**：联网拉到的永远优先。
+	// 按厂商存而不是按套餐存——同一家的模型跨套餐共用，按套餐存会重复三份。
+	// 只放"能站得住"的几条（文档原文点名 + 该家自己的默认模型），不追求抄全：
+	// 抄全必然过期，聚合商（OpenRouter/TokenDance）更是抄不进去。
+	Models []string `json:"models"`
 }
 
-// Providers 内置厂商目录（2026-09 经官方文档核实；入口或套餐有变动时可在设置页直接改）。
-// 依据：火山方舟 docs.volcengine.com/docs/82379/1925114（Coding Plan）、智谱 docs.bigmodel.cn/cn/coding-plan、
-// 阿里云 help.aliyun.com/zh/model-studio/coding-plan、MiniMax platform.minimax.io、Kimi platform.kimi.com。
+// Providers 内置厂商目录（入口或套餐有变动时可在设置页直接改）。
+// 排序规则：**国产厂商在前**（每家的国际站紧挨国内站），**海外平台垫底**
+// （OpenAI/Anthropic/OpenRouter/Gemini/xAI/MuleRouter）——TestProvidersOverseasLast 盯着这条。
+// 收录规则：**只收能走文本对话的模型**。向量 / 重排 / OCR / 图像 / 视频 / TTS / 纯语音一律不收——
+// 名单里混进一个不能对话的模型，比少列几个更坏（用户选中它，换来的是一次必然失败的校验）。
+// 第一批 10 家 2026-09 经官方文档核实（依据：火山方舟 docs.volcengine.com/docs/82379/1925114、
+// 智谱 docs.bigmodel.cn/cn/coding-plan、阿里云 help.aliyun.com/zh/model-studio/coding-plan、
+// MiniMax platform.minimax.io、Kimi platform.kimi.com）。
+// 2026-10-11 第二批：补齐各厂国际站（Z.ai / Kimi / MiniMax / StepFun / 千帆 / TokenHub / BytePlus）、
+// 新增千问AI平台与聚合商 MuleRouter；「腾讯混元」替换为腾讯云 TokenHub
+// （旧混元开放平台 2026-09-30 全面停服下线，见 tokenhub 条目）。
 var Providers = []ProviderPreset{
 	{
 		ID: "tokendance", Name: "TokenDance 词元跳动（聚合）", Recommended: true,
@@ -50,12 +63,24 @@ var Providers = []ProviderPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolAnthropic},
 		},
+		// ⚠ 未核到：这家不在用户给的文档清单里，也没有可读的官方文档入口。
+		//   同 OpenRouter：聚合商的完整清单只存在于它的模型端点，这里只放「一定能用」的入口。
+		Models: []string{
+			"qwen3.8-flash",
+			"glm-5.3",
+		},
 	},
 	{
 		ID: "deepseek", Name: "DeepSeek 深度求索", Recommended: true,
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（快速版，OpenAI 兼容）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanCoding, Label: "编程模式（旗舰版，复杂任务）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://api-docs.deepseek.com/（2026-10-11 核）
+		// 旗舰在前。文档另注明旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 仍被接受，未收录。
+		Models: []string{
+			"deepseek-v4-pro",
+			"deepseek-flash",
 		},
 	},
 	{
@@ -65,12 +90,58 @@ var Providers = []ProviderPreset{
 			{Kind: PlanCoding, Label: "GLM Coding Plan 编程套餐（OpenAI 兼容）", BaseURL: "https://open.bigmodel.cn/api/coding/paas/v4", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanAgent, Label: "Anthropic 兼容入口（Claude Code 同款）", BaseURL: "https://open.bigmodel.cn/api/anthropic", Protocol: ProtocolAnthropic},
 		},
+		// 出处：https://docs.bigmodel.cn/cn/guide/start/quick-start（2026-10-11 核，入口未变）
+		// 旗舰在前：同代里先看到能干的，再看到快的。
+		Models: []string{
+			"glm-5.3",
+			"glm-5.3-flash",
+		},
+	},
+	{
+		// 国际站独立成一家（同 MiniMax 先例）：docs.z.ai 与 open.bigmodel.cn 主体、域名都不同。
+		ID: "zhipu-intl", Name: "Z.ai（智谱国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.z.ai/api/paas/v4", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "GLM Coding Plan 编程套餐（OpenAI 兼容）", BaseURL: "https://api.z.ai/api/coding/paas/v4", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanAgent, Label: "Anthropic 兼容入口（Claude Code 同款）", BaseURL: "https://api.z.ai/api/anthropic", Protocol: ProtocolAnthropic},
+		},
+		// 出处：docs.z.ai/guides/overview/quick-start、docs.z.ai/devpack/tool/others（2026-10-11 核）
+		// 文档承诺所有套餐支持下列两条。glm-5.3-flashx 归在文档的视觉章节，不收；
+		// glm-5.2 / glm-5.1 / glm-4.7 是会被自动路由到 5.3 的旧名，也不收。
+		Models: []string{
+			"glm-5.3",
+			"glm-5.3-flash",
+		},
 	},
 	{
 		ID: "moonshot", Name: "月之暗面 Kimi",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.moonshot.cn/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanCoding, Label: "Kimi Coding（Anthropic 兼容；托管版经 Kimi Code 登录自动配置）", BaseURL: "https://api.moonshot.cn/anthropic", Protocol: ProtocolAnthropic},
+		},
+		// 出处：https://platform.kimi.com/docs/get-api-key（2026-10-11 核，OpenAI 兼容入口未变）
+		Models: []string{
+			"kimi-k3",
+			"kimi-k2.7-code",
+			"kimi-k2.7-code-highspeed",
+			"kimi-k2.6",
+		},
+	},
+	{
+		// platform.kimi.ai 是 Kimi 的国际开发者平台（Moonshot AI），与国内 platform.moonshot.cn 分立。
+		ID: "moonshot-intl", Name: "Kimi（国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.moonshot.ai/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "Kimi Coding（Anthropic 兼容）", BaseURL: "https://api.moonshot.ai/anthropic", Protocol: ProtocolAnthropic},
+		},
+		// 出处：platform.kimi.ai/docs/overview、platform.kimi.ai/docs/api/overview（2026-10-11 核）
+		// 订阅制的 kimi.com/code（api.kimi.ai/coding）是另一套账号体系与另一套模型 ID 命名空间
+		// （那边叫 kimi-for-coding 这类），混进本表必出错，故不收。
+		Models: []string{
+			"kimi-k3",
+			"kimi-k2.7-code",
+			"kimi-k2.7-code-highspeed",
+			"kimi-k2.6",
 		},
 	},
 	{
@@ -80,26 +151,318 @@ var Providers = []ProviderPreset{
 			{Kind: PlanCoding, Label: "百炼 Coding Plan（Anthropic 兼容；Key 为 sk-sp- 开头，与按量不互通）", BaseURL: "https://coding.dashscope.aliyuncs.com/anthropic", Protocol: ProtocolAnthropic},
 			{Kind: PlanAgent, Label: "百炼 Coding Plan（OpenAI 兼容；一个 Key 聚合千问/GLM/Kimi/MiniMax）", BaseURL: "https://coding.dashscope.aliyuncs.com/v1", Protocol: ProtocolOpenAIChat},
 		},
+		// 出处（百炼自有文档）：help.aliyun.com/zh/model-studio。
+		//   platform.qianwenai.com 是「千问AI平台」的文档（另见 qianwen 条目），不是百炼的——
+		//   本条曾误引它并留下一条「入口主机待定夺」的悬案，2026-10-11 起两平台各自成家，悬案作废。
+		//   dashscope 入口是仓库既有值，不动（改它会动到既有用户的配置）。
+		//   qwen3-coder-plus 是本表既有默认，百炼文档未列，保留在末尾以免默认值选不出来。
+		Models: []string{
+			"qwen3.8-max",
+			"qwen3.7-plus",
+			"qwen3.8-flash",
+			"qwen3-coder-plus",
+		},
+	},
+	{
+		// 千问AI平台（platform.qianwenai.com，阿里官方）与阿里云百炼是两个平台、两把 key，
+		// 之前被误当百炼的文档站，2026-10-11 起独立成一家。
+		ID: "qianwen", Name: "千问AI平台（Qwen）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://maas.qianwenaiapi.com/compatible-mode/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "Token Plan 编程订阅（Anthropic 兼容）", BaseURL: "https://token-plan.maas.qianwenaiapi.com/apps/anthropic", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "Token Plan 编程订阅（OpenAI 兼容）", BaseURL: "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：platform.qianwenai.com/docs/developer-guides/getting-started/introduction、
+		//   platform.qianwenai.com/docs/token-plan/personal/token-plan-personal-quickstart（2026-10-11 核）
+		// 按量的 Anthropic 兼容入口（maas.qianwenaiapi.com/apps/anthropic）没占槽位——
+		// 一家每个 kind 只能有一个套餐入口，槽位让给了 Token Plan 的双协议。
+		// qwen3-coder-plus 该平台文档未列，不收。
+		Models: []string{
+			"qwen3.8-max",
+			"qwen3.7-plus",
+			"qwen3.8-flash",
+			"qwen3.7-max",
+		},
 	},
 	{
 		ID: "volc", Name: "火山方舟（豆包）",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", Protocol: ProtocolOpenAIChat},
-			{Kind: PlanCoding, Label: "方舟 Coding Plan（Lite/Pro，Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic},
+			{Kind: PlanCoding, Label: "方舟 Coding Plan（Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "方舟 Coding Plan（OpenAI 兼容入口）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding/v3", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://docs.volcengine.com/docs/ark/coding-plan-personal-get-started（2026-10-11 抓取）
+		// 该页给了 /api/coding 与 /api/coding/v3 两个入口以及下面这份模型清单。
+		// 第三条借用 agent 槽位，与「阿里云百炼」同一个做法：一家只能有一个 coding，
+		// 而套餐下拉是按 kind 取值的，同 kind 的第二条会既选不到、也解析不到。
+		//
+		// ⚠ Agent Plan 没适配：agent-plan-personal-* 那几页（含 -plan-overview）都是
+		//   JS 渲染，抓回来只有前端元数据，拿不到 base_url——不猜，故未加。
+		Models: []string{
+			"doubao-seed-evolving",
+			"doubao-seed-2.1-pro",
+			"doubao-seed-2.1-lite",
+			"doubao-seed-2.0-mini",
+			"deepseek-v4-pro",
+			"deepseek-v4.1-flash",
+			"deepseek-v4-flash",
+			"glm-5.3",
+			"glm-5.3-flash",
+			"kimi-k3",
+			"kimi-k2.8-preview",
+			"kimi-k2.7-code",
+			"minimax-m3",
+			"ark-code-latest",
 		},
 	},
 	{
-		ID: "minimax", Name: "MiniMax",
+		// 火山方舟的国际对应（ByteDance 国际云 BytePlus）。注意模型 ID 用连字符
+		// （seed-2-0-pro、glm-5-2），与国内站 doubao-seed-* 命名不通用，别互相套用。
+		ID: "byteplus", Name: "BytePlus ModelArk（字节国际站）",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国内站）", BaseURL: "https://api.minimaxi.com/v1", Protocol: ProtocolOpenAIChat},
-			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国内站；国际站为 api.minimax.io）", BaseURL: "https://api.minimaxi.com/anthropic", Protocol: ProtocolAnthropic},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://ark.ap-southeast.bytepluses.com/api/v3", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "ModelArk Coding Plan（Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.ap-southeast.bytepluses.com/api/coding", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "ModelArk Coding Plan（OpenAI 兼容入口）", BaseURL: "https://ark.ap-southeast.bytepluses.com/api/coding/v3", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：docs.byteplus.com/en/docs/ModelArk/1330626（/api/v3）、
+		//   docs.byteplus.com/en/docs/modelark/coding-plan-personal-get-started（/api/coding、ark-code-latest）、
+		//   docs.byteplus.com/en/docs/ModelArk/2160841（按量 Anthropic 兼容 /api/compatible，未占槽位）
+		//   （2026-10-11 核）
+		// 清单取自 model-list 页并滤掉已标 Retired 的旧代（seed-1-6/1-8、glm-4-7、deepseek-v3-2、
+		// gpt-oss-120b）；图像 dola-seedream-* 与视频 seedance-* 不收；-ga 与日期快照变体不收。
+		Models: []string{
+			"dola-seed-2-1-turbo",
+			"seed-2-0-pro",
+			"seed-2-0-lite",
+			"seed-2-0-mini",
+			"seed-2-0-code",
+			"deepseek-v4-1-flash",
+			"deepseek-v4-pro",
+			"deepseek-v4-flash",
+			"glm-5-3-flash",
+			"glm-5-2",
+			"kimi-k2",
+			"ark-code-latest",
 		},
 	},
+	{
+		ID: "minimax", Name: "MiniMax（国内站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国内站）", BaseURL: "https://api.minimaxi.com/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国内站）", BaseURL: "https://api.minimaxi.com/anthropic", Protocol: ProtocolAnthropic},
+		},
+		// 出处：https://platform.minimax.io/docs/api-reference/api-overview（2026-10-11 核；该页给的是国际站）
+		Models: []string{
+			"MiniMax-M3.1-Flash-Preview",
+			"MiniMax-M3",
+			"MiniMax-M2.7",
+			"MiniMax-M2.7-highspeed",
+			"MiniMax-M2.5",
+			"MiniMax-M2.5-highspeed",
+			"MiniMax-M2.1",
+			"MiniMax-M2.1-highspeed",
+			"MiniMax-M2",
+		},
+	},
+	{
+		// 国际站独立成一家：混在国内站的 label 里用户根本选不到，而两家主体与入口都不同。
+		// 入口主机取自本表原有的 label 记载（文档页未给出 base URL），故标注为"仓库既有记载"。
+		ID: "minimax-intl", Name: "MiniMax（国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国际站）", BaseURL: "https://api.minimax.io/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国际站）", BaseURL: "https://api.minimax.io/anthropic", Protocol: ProtocolAnthropic},
+		},
+		Models: []string{
+			"MiniMax-M3.1-Flash-Preview",
+			"MiniMax-M3",
+			"MiniMax-M2.7",
+			"MiniMax-M2.7-highspeed",
+			"MiniMax-M2.5",
+			"MiniMax-M2.5-highspeed",
+			"MiniMax-M2.1",
+			"MiniMax-M2.1-highspeed",
+			"MiniMax-M2",
+		},
+	},
+	{
+		ID: "stepfun", Name: "阶跃星辰 StepFun",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.stepfun.com/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://platform.stepfun.com/docs/zh/api-reference/chat/chat-completion-create（2026-10-11 抓取）
+		Models: []string{
+			"step-5-preview",
+			"step-3.7-flash",
+			"step-3.5-flash",
+			"step-3.5-flash-2603",
+			"step-router-v1",
+		},
+	},
+	{
+		// 国际站与国内站分立，API 域名也不同（api.stepfun.ai）。国内站是否同样有 Step Plan，
+		// 官方文档未核到入口，未加——不能拿国际站的路径反推国内站。
+		ID: "stepfun-intl", Name: "StepFun（国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.stepfun.ai/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "Step Plan（Anthropic 兼容，适配 Claude Code）", BaseURL: "https://api.stepfun.ai/step_plan", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "Step Plan（OpenAI 兼容入口）", BaseURL: "https://api.stepfun.ai/step_plan/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：platform.stepfun.ai/docs/en/step-plan/overview（Step Plan 双协议入口与模型清单，
+		// 2026-10-11 核）。api.stepfun.ai/v1 取自官方组织仓库 stepfun-ai/Step-3.5-Flash 的 README
+		// 对照表——国际站文档页是 JS 渲染，未直接给出 base URL。stepaudio 系（TTS/ASR）不收。
+		Models: []string{
+			"step-5-preview",
+			"step-3.7-flash",
+			"step-3.5-flash",
+			"step-3.5-flash-2603",
+			"step-router-v1",
+		},
+	},
+	{
+		ID: "qianfan", Name: "百度千帆",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://qianfan.baidubce.com/v2", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j（模型列表，2026-10-11 抓取）
+		// 该页同时给出每条模型的上下文长度，窗口表用的就是它。
+		Models: []string{
+			"ernie-5.1",
+			"ernie-5.0",
+			"ernie-5.0-thinking-preview",
+			"ernie-5.0-thinking-latest",
+			"ernie-5.0-thinking-exp",
+			"ernie-4.5-turbo-128k",
+			"ernie-4.5-turbo-32k",
+			"ernie-4.5-turbo-20260402",
+			"ernie-4.5-turbo-vl",
+			"ernie-4.5-turbo-vl-32k",
+			"ernie-x1.1",
+			"ernie-x1.1-preview",
+			"deepseek-v4.1-flash",
+			"deepseek-v4-pro",
+			"deepseek-v4-pro-0813",
+			"deepseek-v4-flash-0731",
+			"qwen3.5-397b-a17b",
+			"qwen3.5-122b-a10b",
+			"qwen3.5-27b",
+			"qwen3.5-35b-a3b",
+			"glm-5.3-flash",
+			"glm-5.3",
+			"glm-5.2",
+			"glm-5.1",
+			"kimi-k2.6",
+			"internvl3-38b",
+		},
+	},
+	{
+		ID: "qianfan-intl", Name: "百度千帆（国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.baiduqianfan.ai/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：intl.cloud.baidu.com/en/doc/qianfan/s/qm8qxemze-intl-en（快速开始）、
+		//   intl.cloud.baidu.com/en/doc/qianfan/s/7m95lyy43-intl-en（Model List）（2026-10-11 核）
+		// 国际站产品页与文档均无 coding plan，只有按量。ernie-4.5-turbo-vl（视觉）不收。
+		Models: []string{
+			"ernie-5.1",
+			"ernie-5.0",
+			"ernie-4.5-turbo-128k",
+			"ernie-4.5-turbo-32k",
+			"deepseek-v4-pro",
+			"deepseek-v4-pro-0813",
+			"deepseek-v4-flash",
+			"deepseek-v4-flash-0731",
+			"deepseek-v3.2",
+			"glm-5.2",
+			"glm-5.2-fast",
+			"glm-5.1",
+			"glm-5",
+			"kimi-k2.6",
+			"mimo-v2.5",
+		},
+	},
+	{
+		// 「腾讯混元」旧平台（api.hunyuan.cloud.tencent.com）已于 2026-09-30 全面停服下线
+		// （cloud.tencent.com/document/product/1729/131925），继任者是腾讯云 TokenHub：
+		// 一个入口聚合混元与 DeepSeek/GLM/Kimi/MiniMax/Qwen/Step 等第三方模型，coding plan
+		// 也挂在平台名下——所以不再叫「混元」，也不再拆「腾讯云 / 腾讯混元」两条，整体替换。
+		ID: "tokenhub", Name: "腾讯云 TokenHub",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokenhub.tencentmaas.com/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "TokenHub Coding Plan（Anthropic 兼容，适配 Claude Code）", BaseURL: "https://api.lkeap.cloud.tencent.com/coding/anthropic", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "TokenHub Coding Plan（OpenAI 兼容入口）", BaseURL: "https://api.lkeap.cloud.tencent.com/coding/v3", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：cloud.tencent.com/document/product/1823/130078（API 说明）、1823/130079（模型概览）、
+		//   1823/130092（Coding Plan，默认模型 tc-code-latest）、1823/130062（Token Plan 个人版
+		//   /plan/v3，未占槽位）（2026-10-11 核）
+		// 模型按概览页快照照抄（聚合平台，过期由实时拉取兜底）：glm-5.3-flashx、glm-5v-turbo
+		// （视觉）与 hunyuan-role 系（角色扮演）不收；deepseek/ 前缀写法与日期快照变体不收。
+		Models: []string{
+			"hy4-preview",
+			"hy3",
+			"hy-mt2-pro",
+			"hy-mt2-plus",
+			"hy-mt2-lite",
+			"deepseek-v4-pro",
+			"deepseek-v4.1-flash",
+			"deepseek-v4-flash",
+			"glm-5.3",
+			"glm-5.3-flash",
+			"glm-5.2",
+			"glm-5.1",
+			"glm-5-turbo",
+			"glm-5",
+			"kimi-k3",
+			"kimi-k2.8-preview",
+			"kimi-k2.7-code",
+			"kimi-k2.7-code-highspeed",
+			"kimi-k2.6",
+			"minimax-m3",
+			"minimax-m2.7",
+			"qwen3.5-plus",
+			"qwen3.5-flash",
+			"mimo-v2.6-pro",
+			"mimo-v2.6-flash",
+			"mimo-v2.5-pro",
+			"step-5-preview",
+		},
+	},
+	{
+		ID: "tokenhub-intl", Name: "腾讯云 TokenHub（国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokenhub-intl.tencentmaas.com/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "Token Plan 订阅（Anthropic 兼容）", BaseURL: "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "Token Plan 订阅（OpenAI 兼容）", BaseURL: "https://tokenhub-intl.tencentcloudmaas.com/plan/v3", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：cloud.tencent.com/document/product/1823/130078（国际入口）、
+		//   intl.cloud.tencent.com/document/product/1300/81315（Token Plan，四档可用模型一致）
+		//   （2026-10-11 核）
+		// 国际站可用清单与国内站并不一致（国内有 glm-5.3、kimi-k2.7 系、step-5-preview，国际页未列），
+		// 不互相套用。auto 是 Token Plan 文档点名的路由入口（同 OpenRouter auto 的做法）；
+		// deepseek/ 前缀写法不收。
+		Models: []string{
+			"hy4-preview",
+			"glm-5.3-flash",
+			"glm-5.2",
+			"kimi-k3",
+			"kimi-k2.6",
+			"deepseek-v4-pro-202606",
+			"deepseek-v4-flash-202605",
+			"minimax-m3",
+			"mimo-v2.6-flash",
+			"auto",
+		},
+	},
+	// ---- 以下为海外平台（排序规则要求垫底，见 TestProvidersOverseasLast）----
 	{
 		ID: "openai", Name: "OpenAI",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（Chat Completions）", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanAgent, Label: "Responses API", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIResponses},
+		},
+		// ⚠ 未核到：platform.openai.com 的文档页返回 403，抓不到模型清单。
+		//   只放本表自己的默认模型，不猜别的 ID。待人工补。
+		Models: []string{
+			"gpt-4.1",
 		},
 	},
 	{
@@ -107,11 +470,85 @@ var Providers = []ProviderPreset{
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（Messages API）", BaseURL: "https://api.anthropic.com/v1", Protocol: ProtocolAnthropic},
 		},
+		// 出处：https://platform.claude.com/docs/zh-CN/about-claude/models/overview（2026-10-11 核）
+		// 该页同时给出窗口（四个都是 1M），Task 5 的窗口表用它。
+		// claude-sonnet-4-5 是本表既有默认，文档未列（它在 legacy 链接里），保留在末尾不改行为。
+		Models: []string{
+			"claude-opus-5-5",
+			"claude-sonnet-5-5",
+			"claude-haiku-5-5",
+			"claude-fable-5-1",
+			"claude-sonnet-4-5",
+		},
 	},
 	{
 		ID: "openrouter", Name: "OpenRouter（聚合）",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token", BaseURL: "https://openrouter.ai/api/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 聚合商的目录**故意只列能站得住的几条**：官方文档只点名了下面两个 ID，
+		// 而 openrouter/auto 是它自己的路由入口（长期存在，是这家最稳的一个）。
+		// 完整清单只存在于 GET /api/v1/models —— 那是"拉取"要干的事，不是这里要抄一遍的东西。
+		// 出处：https://openrouter.ai/docs/quickstart（2026-10-11 抓取）
+		Models: []string{
+			"openrouter/auto",                 // 路由入口：由 OpenRouter 自己挑模型
+			"~openai/gpt-sol-latest",          // 文档原文
+			"~anthropic/claude-sonnet-latest", // 文档原文
+		},
+	},
+	{
+		ID: "gemini", Name: "Google Gemini",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://ai.google.dev/gemini-api/docs/openai（2026-10-11 抓取）
+		// 按代次从新到旧；同一家的 flash 与 pro 是两条产品线，不硬把 pro 提前。
+		Models: []string{
+			"gemini-3.8-flash",
+			"gemini-3.5-flash-lite",
+			"gemini-3.1-pro-preview",
+		},
+	},
+	{
+		ID: "xai", Name: "xAI Grok",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.x.ai/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://docs.x.ai/overview（2026-10-11 抓取；该页只点名了这一个模型 ID）
+		Models: []string{
+			"grok-4.7",
+		},
+	},
+	{
+		// 多供应商聚合网关（同 OpenRouter 的定位）：一个 key 打通多家的模型。
+		ID: "mulerouter", Name: "MuleRouter（聚合）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.mulerouter.ai/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://api.mulerouter.ai/v1", Protocol: ProtocolAnthropic},
+		},
+		// 出处：mulerouter.ai/docs/get-started/endpoints（入口）、
+		//   mulerouter.ai/docs/api-reference/endpoint/openai/models（模型表）（2026-10-11 核）
+		// 与 OpenRouter 不同，它的文档是静态表格、逐条点名，所以照收（过期风险由实时拉取兜底）。
+		// Anthropic 兼容与 OpenAI 兼容同主机（/v1/messages）。文档没有 coding plan；
+		// qwen3-vl / qwen3-omni 系（视觉/全模态）不收。
+		Models: []string{
+			"gpt-5.5",
+			"gpt-5.4-mini",
+			"gpt-5.4-nano",
+			"grok-4",
+			"grok-4-20-non-reasoning",
+			"grok-code-fast-1",
+			"qwen3.7-max",
+			"qwen3.6-max-preview",
+			"qwen3.6-plus",
+			"qwen3.6-flash",
+			"qwen3.5-plus",
+			"qwen3.5-flash",
+			"qwen3-max",
+			"qwen3-max-thinking",
+			"qwen-plus",
+			"qwen-flash",
+			"glm-5.1",
 		},
 	},
 }

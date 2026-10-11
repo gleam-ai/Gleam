@@ -37,10 +37,16 @@ func TestKeyScope(t *testing.T) {
 
 // ResolveTarget 是三处调用（启动装配 / 设置保存 / 连接自测）共用的归一化，
 // 这里钉住它的兜底链：预设协议覆盖已配协议，非法协议回落 openai_chat。
+//
+// **默认模型已被刻意移除**（7683701：让用户去拉真实列表，而不是依赖可能过时的默认名），
+// 所以没填 model 时留空才是正确结果——这条断言跟着契约一起改，不是放宽。
 func TestResolveTarget(t *testing.T) {
-	base, _, protocol := ResolveTarget("zhipu", PlanCoding, "", "", "")
+	base, model, protocol := ResolveTarget("zhipu", PlanCoding, "", "", "")
 	if protocol != ProtocolOpenAIChat || base == "" {
-		t.Fatalf("preset = %s %s", base, protocol)
+		t.Fatalf("preset = %s %s %s", base, model, protocol)
+	}
+	if model != "" {
+		t.Errorf("没填模型时应留空（预设不再带默认模型），得到 %q", model)
 	}
 	if _, _, p := ResolveTarget("", "", "https://x/v1", "m", "胡来的协议"); p != ProtocolOpenAIChat {
 		t.Errorf("非法协议应回落，得到 %s", p)
@@ -51,12 +57,16 @@ func TestResolveTarget(t *testing.T) {
 }
 
 func TestResolvePreset_ZhipuCoding(t *testing.T) {
-	base, _, protocol := ResolvePreset("zhipu", PlanCoding, "", "")
+	base, model, protocol := ResolvePreset("zhipu", PlanCoding, "", "")
 	if base != "https://open.bigmodel.cn/api/coding/paas/v4" {
 		t.Errorf("coding 入口 = %s", base)
 	}
 	if protocol != ProtocolOpenAIChat {
 		t.Errorf("protocol=%s", protocol)
+	}
+	// 同上：预设不再带默认模型，留空是预期结果
+	if model != "" {
+		t.Errorf("没填模型时应留空（预设不再带默认模型），得到 %q", model)
 	}
 	// 显式填写优先于预设
 	base2, model2, _ := ResolvePreset("zhipu", PlanToken, "https://custom.example/v4", "my-model")
@@ -204,5 +214,96 @@ func TestFactory_ProtocolSelection(t *testing.T) {
 	}
 	if _, ok := New("", "https://x", "k", "m", 0, 0, 0).(*GLMClient); !ok {
 		t.Error("空协议默认 openai_chat")
+	}
+}
+
+// TestProvidersCatalogInvariants 盯住内置目录的结构不变量。
+//
+// 为什么值这些：界面的模型下拉直接吃这个目录——某家漏了清单，用户在没填 key 时
+// 就选不到任何东西，而编译与既有测试全绿（它们只看 base_url/protocol）。
+func TestProvidersCatalogInvariants(t *testing.T) {
+	seen := map[string]bool{}
+	for _, p := range Providers {
+		if strings.TrimSpace(p.ID) == "" {
+			t.Fatal("有厂商没有 id")
+		}
+		if seen[p.ID] {
+			t.Errorf("厂商 id 重复：%s", p.ID)
+		}
+		seen[p.ID] = true
+
+		if len(p.Plans) == 0 {
+			t.Errorf("%s 没有任何套餐入口", p.ID)
+		}
+		seenKinds := map[string]bool{}
+		for _, pl := range p.Plans {
+			if !ValidProtocol(pl.Protocol) {
+				t.Errorf("%s/%s 协议非法：%q", p.ID, pl.Kind, pl.Protocol)
+			}
+			if strings.TrimSpace(pl.BaseURL) == "" {
+				t.Errorf("%s/%s 的入口为空", p.ID, pl.Kind)
+			}
+			if seenKinds[pl.Kind] {
+				t.Errorf("%s 有两条 %s 套餐（ResolvePreset 只认第一个，第二条既选不到也解析不到）", p.ID, pl.Kind)
+			}
+			seenKinds[pl.Kind] = true
+			// 这里**不要求** pl.Model 非空：默认模型已被刻意移除（让用户去拉真实列表，
+			// 而不是依赖可能过时的默认名）。要求它非空就是与那个决定对立。
+		}
+
+		if len(p.Models) == 0 {
+			t.Errorf("%s 没有内置模型清单（界面要能离线选模型）", p.ID)
+		}
+		for _, m := range p.Models {
+			if strings.TrimSpace(m) == "" {
+				t.Errorf("%s 的模型清单里有空条目", p.ID)
+			}
+		}
+	}
+}
+
+// TestProvidersOverseasLast 盯住目录的排序规则：海外平台一律排在国产厂商（含其国际站）之后。
+// 这是用户定的展示顺序——下拉里先看到国内能直接用的，海外平台垫底。
+func TestProvidersOverseasLast(t *testing.T) {
+	overseas := map[string]bool{
+		"openai":     true,
+		"anthropic":  true,
+		"openrouter": true,
+		"gemini":     true,
+		"xai":        true,
+		"mulerouter": true,
+	}
+	lastDomestic := -1
+	firstOverseas := len(Providers)
+	for i, p := range Providers {
+		if overseas[p.ID] {
+			if i < firstOverseas {
+				firstOverseas = i
+			}
+			continue
+		}
+		lastDomestic = i
+	}
+	if firstOverseas == len(Providers) {
+		t.Fatal("目录里没有任何海外厂商，overseas 清单可能没跟上目录")
+	}
+	if lastDomestic > firstOverseas {
+		t.Errorf("海外平台必须垫底：第一个海外厂商在下标 %d，但它后面还有国产厂商（最后一条在下标 %d）", firstOverseas, lastDomestic)
+	}
+}
+
+// TestProvidersCatalogExpected 钉住目录的成员资格：2026-10-11 批次新增的九家必须在，
+// 已停服的「腾讯混元」不许复活（旧平台 2026-09-30 停服，留着就是一条指向死地址的预设）。
+func TestProvidersCatalogExpected(t *testing.T) {
+	for _, id := range []string{
+		"zhipu-intl", "moonshot-intl", "qianwen", "byteplus", "stepfun-intl",
+		"qianfan-intl", "tokenhub", "tokenhub-intl", "mulerouter",
+	} {
+		if FindProvider(id) == nil {
+			t.Errorf("目录里缺 %s", id)
+		}
+	}
+	if FindProvider("hunyuan") != nil {
+		t.Error("腾讯混元旧平台已停服（api.hunyuan.cloud.tencent.com），不该再出现在目录里")
 	}
 }

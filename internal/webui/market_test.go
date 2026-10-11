@@ -27,6 +27,22 @@ func TestWebUI_Providers(t *testing.T) {
 	if first["id"] == "" || first["plans"] == nil {
 		t.Errorf("预设字段缺失: %v", first)
 	}
+	// 每家都要带非空的 models：它是设置页那个模型下拉的离线来源，缺一家就是
+	// "没填 key 时那家选不出任何模型"，而编译与其它测试全绿（它们只看 id/plans）。
+	// 注意 nil 切片会被 marshal 成 null，`.([]any)` 会直接失败——这正是要拦的。
+	for _, raw := range list {
+		p := raw.(map[string]any)
+		models, ok := p["models"].([]any)
+		if !ok || len(models) == 0 {
+			t.Errorf("厂商 %v 没带 models（界面离线选不了模型）", p["id"])
+			continue
+		}
+		for _, m := range models {
+			if s, _ := m.(string); strings.TrimSpace(s) == "" {
+				t.Errorf("厂商 %v 的 models 里有空条目", p["id"])
+			}
+		}
+	}
 }
 
 func TestWebUI_MarketSkillInstallAndList(t *testing.T) {

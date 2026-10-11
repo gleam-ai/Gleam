@@ -69,7 +69,7 @@ func TestCues_EverySignalProducesARow(t *testing.T) {
 	archive(t, a, failedRun("t6", "又一个目标", "traceOther2", map[types.ErrorKind]int{types.ErrTimeout: 2}))
 
 	got := map[string]bool{}
-	for _, row := range a.CueView().Rows {
+	for _, row := range a.CueView(false).Rows {
 		got[row.Signal] = true
 	}
 	for _, sig := range cueSignals {
@@ -88,7 +88,7 @@ func TestCues_RepeatedFailureWinsOverHalfDone(t *testing.T) {
 	archive(t, a, &types.GoalResult{TaskID: "t4", Goal: "同一个目标", Status: types.GoalPartial, TraceID: "traceX", Score: 40})
 
 	var sigs []string
-	for _, row := range a.CueView().Rows {
+	for _, row := range a.CueView(false).Rows {
 		sigs = append(sigs, row.Signal)
 	}
 	if len(sigs) != 1 || sigs[0] != "repeat_failure" {
@@ -103,7 +103,7 @@ func TestCues_HalfDoneSkipsTraceThatOnceWon(t *testing.T) {
 	archive(t, a, &types.GoalResult{TaskID: "t2", Goal: "写周报", Status: types.GoalPartial, TraceID: "traceY", Score: 50})
 	archive(t, a, &types.GoalResult{TaskID: "t3", Goal: "写周报", Status: types.GoalPartial, TraceID: "traceY", Score: 45})
 
-	if rows := a.CueView().Rows; len(rows) != 0 {
+	if rows := a.CueView(false).Rows; len(rows) != 0 {
 		t.Errorf("成功过一次的目标不该提「每次只做一半」，实得 %+v", rows)
 	}
 }
@@ -117,11 +117,11 @@ func TestCues_ReadOnlyAndStable(t *testing.T) {
 	archive(t, a, failedRun("t1", "反复失败的目标", "traceZ", map[types.ErrorKind]int{types.ErrPermission: 1}))
 	archive(t, a, failedRun("t2", "反复失败的目标", "traceZ", map[types.ErrorKind]int{types.ErrPermission: 1}))
 
-	first, err := json.Marshal(a.CueView())
+	first, err := json.Marshal(a.CueView(false))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := json.Marshal(a.CueView())
+	second, err := json.Marshal(a.CueView(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestCues_DismissSurvivesRestart(t *testing.T) {
 	archive(t, a, failedRun("t1", "别再提我已知晓", "traceD", nil))
 	archive(t, a, failedRun("t2", "别再提我已知晓", "traceD", nil))
 
-	rows := a.CueView().Rows
+	rows := a.CueView(false).Rows
 	if len(rows) == 0 {
 		t.Fatal("前置条件不成立：本该浮出一张卡")
 	}
@@ -149,16 +149,16 @@ func TestCues_DismissSurvivesRestart(t *testing.T) {
 	}
 	// 换一个 Agent 实例（同数据目录）＝重启
 	b := &Agent{Cfg: &config.Config{DataDir: a.Cfg.DataDir}}
-	if got := b.CueView(); len(got.Rows) != 0 {
+	if got := b.CueView(false); len(got.Rows) != 0 {
 		t.Errorf("记了别再提之后仍浮出 %d 张卡", len(got.Rows))
 	}
-	if len(b.CueView().Suppressed) != 1 {
-		t.Errorf("处置记录没进 suppressed，撤销入口就找不到它：%+v", b.CueView().Suppressed)
+	if len(b.CueView(false).Suppressed) != 1 {
+		t.Errorf("处置记录没进 suppressed，撤销入口就找不到它：%+v", b.CueView(false).Suppressed)
 	}
 	if err := b.CueUnsuppress(id); err != nil {
 		t.Fatalf("撤销失败：%v", err)
 	}
-	if len(b.CueView().Rows) == 0 {
+	if len(b.CueView(false).Rows) == 0 {
 		t.Error("撤销「别再提」之后那张卡应该回来")
 	}
 }
@@ -168,7 +168,7 @@ func TestCues_AdoptRecordsStateWithoutRunningAnything(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "采纳但不该跑起来", "traceA", nil))
 	archive(t, a, failedRun("t2", "采纳但不该跑起来", "traceA", nil))
-	id := a.CueView().Rows[0].ID
+	id := a.CueView(false).Rows[0].ID
 
 	before := tree(t, a.Cfg.DataDir)
 	if err := a.CueAdopt(id); err != nil {
@@ -179,13 +179,13 @@ func TestCues_AdoptRecordsStateWithoutRunningAnything(t *testing.T) {
 		t.Errorf("采纳之后盘上多出的不该只有处置记录，实得 %v", diff)
 	}
 	var found bool
-	for _, s := range a.CueView().Suppressed {
+	for _, s := range a.CueView(false).Suppressed {
 		if s.Fingerprint == id && s.Reason == "adopted" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("处置记录没标成 adopted：%+v", a.CueView().Suppressed)
+		t.Errorf("处置记录没标成 adopted：%+v", a.CueView(false).Suppressed)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestCues_RespectsLimit(t *testing.T) {
 		archive(t, a, quietFailedRun(fmt.Sprintf("a%d", i), goal, trace))
 		archive(t, a, quietFailedRun(fmt.Sprintf("b%d", i), goal, trace))
 	}
-	led := a.CueView()
+	led := a.CueView(false)
 	if len(led.Rows) != cueLimit {
 		t.Errorf("最多 %d 张，实得 %d", cueLimit, len(led.Rows))
 	}
@@ -217,7 +217,7 @@ func TestCues_RespectsLimit(t *testing.T) {
 // TestCues_CoverageIsHonestAboutTrim 空历史要说成「读了 0 条」，不能糊成「一切正常」。
 func TestCues_CoverageIsHonestAboutTrim(t *testing.T) {
 	a := cueAgent(t)
-	led := a.CueView()
+	led := a.CueView(false)
 	if led.Scanned != 0 || len(led.Rows) != 0 {
 		t.Fatalf("前置条件：空目录应算出空页（scanned=%d rows=%d）", led.Scanned, len(led.Rows))
 	}
@@ -236,7 +236,7 @@ func TestCues_UnreadableArchiveSaysSo(t *testing.T) {
 	if err := os.WriteFile(p, []byte("not a dir"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	led := a.CueView()
+	led := a.CueView(false)
 	if led.Note == "" && led.Coverage == "" {
 		t.Error("归档读不动时至少要留下一句可看见的说明")
 	}
@@ -248,7 +248,7 @@ func TestCues_KindTextCoversEveryEnum(t *testing.T) {
 		types.ErrParam, types.ErrFormat, types.ErrBusiness, types.ErrPermission,
 		types.ErrNotFound, types.ErrTimeout, types.ErrUpstream, types.ErrInternal, types.ErrUnknown,
 	} {
-		if got := cueKindText(k); got == string(k) || got == "" {
+		if got := cueKindText(k, false); got == string(k) || got == "" {
 			t.Errorf("失败类别 %q 没有人话映射：%q", k, got)
 		}
 	}
@@ -261,12 +261,12 @@ func TestCues_KindTextCoversEveryEnum(t *testing.T) {
 // 而它是用户找回被自己按掉的卡片的唯一路径——M3 那条老坑在这层同样成立。
 func TestCues_LabelsCoverEveryEnumValue(t *testing.T) {
 	for _, sig := range cueSignals {
-		if got := cueSignalText(sig); got == sig || got == "" {
+		if got := cueSignalText(sig, false); got == sig || got == "" {
 			t.Errorf("线索 %q 没有人话映射：%q", sig, got)
 		}
 	}
 	for _, r := range []string{cueDismissed, cueAdopted} {
-		if got := cueReasonText(r); got == r || got == "" {
+		if got := cueReasonText(r, false); got == r || got == "" {
 			t.Errorf("处置原因 %q 没有人话映射：%q", r, got)
 		}
 	}
@@ -274,10 +274,10 @@ func TestCues_LabelsCoverEveryEnumValue(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "标签要跟着记录走", "traceL", nil))
 	archive(t, a, failedRun("t2", "标签要跟着记录走", "traceL", nil))
-	if err := a.CueDismiss(a.CueView().Rows[0].ID); err != nil {
+	if err := a.CueDismiss(a.CueView(false).Rows[0].ID); err != nil {
 		t.Fatalf("记处置失败：%v", err)
 	}
-	sup := a.CueView().Suppressed
+	sup := a.CueView(false).Suppressed
 	if len(sup) != 1 {
 		t.Fatalf("应有一条处置记录，实得 %d", len(sup))
 	}
@@ -300,7 +300,7 @@ func TestCues_AuthoredCopyHasNoMarkdown(t *testing.T) {
 	archive(t, a, failedRun("t3", "另一个**加粗**目标", "traceM2", map[types.ErrorKind]int{types.ErrTimeout: 3}))
 	archive(t, a, failedRun("t4", "另一个**加粗**目标", "traceM2", map[types.ErrorKind]int{types.ErrTimeout: 3}))
 
-	led := a.CueView()
+	led := a.CueView(false)
 	if len(led.Rows) == 0 {
 		t.Fatal("前置条件：本该浮出卡")
 	}
@@ -349,4 +349,33 @@ func fileSetDiff(before, after []string) []string {
 		}
 	}
 	return out
+}
+
+// TestCues_EnglishViewHasNoCJK 英文候补视图零中文（卡片、处置行、覆盖交代全算）。
+// 夹具目标用英文：目标原文是用户数据，本来就不该被翻——要翻的是这一层自己写的句子。
+func TestCues_EnglishViewHasNoCJK(t *testing.T) {
+	a := cueAgent(t)
+	archive(t, a, &types.GoalResult{
+		TaskID: "t1", Goal: "convert the report into a table", Status: types.GoalFailed,
+		TraceID: "traceFail", Score: 20, Error: "upstream returned 502, three retries failed",
+		FailureBreakdown: map[types.ErrorKind]int{types.ErrUpstream: 1},
+	})
+	archive(t, a, &types.GoalResult{
+		TaskID: "t2", Goal: "convert the report into a table", Status: types.GoalFailed,
+		TraceID: "traceFail", Score: 20,
+		FailureBreakdown: map[types.ErrorKind]int{types.ErrUpstream: 1},
+	})
+	led := a.CueView(true)
+	if len(led.Rows) == 0 {
+		t.Fatal("英文视图一张卡都浮不出来，没有可判的对象")
+	}
+	assertNoCJK(t, "cues", led)
+	// 处置行也走同一套人话：记一条「别再提」，suppressed 里的 signal_text/reason_text 必须跟着翻。
+	if err := a.CueDismiss(led.Rows[0].ID); err != nil {
+		t.Fatalf("记处置失败：%v", err)
+	}
+	assertNoCJK(t, "cues-suppressed", a.CueView(true))
+	if !hasCJK(a.CueView(false).Coverage) {
+		t.Error("中文版 Coverage 不含中文：bi.pick(false) 坏了，两份说法被改成了同一份")
+	}
 }
