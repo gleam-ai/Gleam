@@ -125,14 +125,31 @@ var Providers = []ProviderPreset{
 		ID: "volc", Name: "火山方舟（豆包）",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", Protocol: ProtocolOpenAIChat},
-			{Kind: PlanCoding, Label: "方舟 Coding Plan（Lite/Pro，Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic},
+			{Kind: PlanCoding, Label: "方舟 Coding Plan（Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "方舟 Coding Plan（OpenAI 兼容入口）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding/v3", Protocol: ProtocolOpenAIChat},
 		},
-		// ⚠ 未核到：仓库注释引用的 docs.volcengine.com/docs/82379/1925114 只返回控制台元数据，
-		//   平台概览页同样没有入口与模型清单。所以这里**只放本表自己的两个默认模型**（它们
-		//   本来就写在上面，是一定可用的入口），不猜任何别的 ID。待人工补文档后再扩。
+		// 出处：https://docs.volcengine.com/docs/ark/coding-plan-personal-get-started（2026-10-11 抓取）
+		// 该页给了 /api/coding 与 /api/coding/v3 两个入口以及下面这份模型清单。
+		// 第三条借用 agent 槽位，与「阿里云百炼」同一个做法：一家只能有一个 coding，
+		// 而套餐下拉是按 kind 取值的，同 kind 的第二条会既选不到、也解析不到。
+		//
+		// ⚠ Agent Plan 没适配：agent-plan-personal-* 那几页（含 -plan-overview）都是
+		//   JS 渲染，抓回来只有前端元数据，拿不到 base_url——不猜，故未加。
 		Models: []string{
-			"doubao-seed-1-6",
-			"doubao-seed-code",
+			"doubao-seed-evolving",
+			"doubao-seed-2.1-pro",
+			"doubao-seed-2.1-lite",
+			"doubao-seed-2.0-mini",
+			"deepseek-v4-pro",
+			"deepseek-v4.1-flash",
+			"deepseek-v4-flash",
+			"glm-5.3",
+			"glm-5.3-flash",
+			"kimi-k3",
+			"kimi-k2.8-preview",
+			"kimi-k2.7-code",
+			"minimax-m3",
+			"ark-code-latest",
 		},
 	},
 	{
