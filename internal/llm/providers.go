@@ -128,6 +128,97 @@ var Providers = []ProviderPreset{
 			"~anthropic/claude-sonnet-latest", // 文档原文
 		},
 	},
+	// ---- 以下 5 家为 2026-10-11 依官方文档新增 ----
+	//
+	// 收录规则：**只收能走文本对话的模型**。向量 / 重排 / OCR / 图像 / 视频 / TTS /
+	// 纯语音一律不收——名单里混进一个不能对话的模型，比少列几个更坏（用户选中它，
+	// 换来的是一次必然失败的校验）。每家上面写明出处，抄的是文档原文，不做推断。
+	{
+		ID: "gemini", Name: "Google Gemini",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://ai.google.dev/gemini-api/docs/openai（2026-10-11 抓取）
+		Models: []string{
+			"gemini-3.8-flash",
+			"gemini-3.1-pro-preview",
+			"gemini-3.5-flash-lite",
+		},
+	},
+	{
+		ID: "stepfun", Name: "阶跃星辰 StepFun",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.stepfun.com/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://platform.stepfun.com/docs/zh/api-reference/chat/chat-completion-create（2026-10-11 抓取）
+		Models: []string{
+			"step-5-preview",
+			"step-3.7-flash",
+			"step-3.5-flash",
+			"step-3.5-flash-2603",
+			"step-router-v1",
+		},
+	},
+	{
+		ID: "qianfan", Name: "百度千帆",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://qianfan.baidubce.com/v2", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j（模型列表，2026-10-11 抓取）
+		// 该页同时给出每条模型的上下文长度，窗口表用的就是它。
+		Models: []string{
+			"ernie-5.1",
+			"ernie-5.0",
+			"ernie-5.0-thinking-preview",
+			"ernie-5.0-thinking-latest",
+			"ernie-5.0-thinking-exp",
+			"ernie-4.5-turbo-128k",
+			"ernie-4.5-turbo-32k",
+			"ernie-4.5-turbo-20260402",
+			"ernie-4.5-turbo-vl",
+			"ernie-4.5-turbo-vl-32k",
+			"ernie-x1.1",
+			"ernie-x1.1-preview",
+			"deepseek-v4.1-flash",
+			"deepseek-v4-pro",
+			"deepseek-v4-pro-0813",
+			"deepseek-v4-flash-0731",
+			"qwen3.5-397b-a17b",
+			"qwen3.5-122b-a10b",
+			"qwen3.5-27b",
+			"qwen3.5-35b-a3b",
+			"glm-5.3-flash",
+			"glm-5.3",
+			"glm-5.2",
+			"glm-5.1",
+			"kimi-k2.6",
+			"internvl3-38b",
+		},
+	},
+	{
+		ID: "hunyuan", Name: "腾讯混元",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.hunyuan.cloud.tencent.com/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://cloud.tencent.com/document/product/1729/111007（OpenAI 兼容调用示例，2026-10-11 抓取）
+		// 该家另有 Anthropic 兼容入口（文档标题可见），本次未核到具体地址，故未收录。
+		Models: []string{
+			"hunyuan-turbos-latest",
+			"hunyuan-functioncall",
+			"hunyuan-vision",
+			"hunyuan-lite",
+		},
+	},
+	{
+		ID: "xai", Name: "xAI Grok",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.x.ai/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://docs.x.ai/overview（2026-10-11 抓取；该页只点名了这一个模型 ID）
+		Models: []string{
+			"grok-4.7",
+		},
+	},
 }
 
 // KeyScope 把 base_url 归一成"密钥该认的那台主机"（小写 host:port，不含路径）。
