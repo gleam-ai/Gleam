@@ -12,7 +12,6 @@ import (
 	"gleam/internal/worktree"
 )
 
-// worktreeFixture 一个最小 Web UI + 一个工作区目录（是不是仓库由用例决定）。
 func worktreeFixture(t *testing.T) (srv *Server, dataDir, ws string) {
 	t.Helper()
 	srv, dataDir = newArchiveFixture(t)
@@ -44,7 +43,6 @@ func gitInit(t *testing.T, dir string) {
 	}
 }
 
-// 在盘上按同一套布局建一份副本：接口只认 worktree 包那份元数据，用例也走同一个入口。
 func seedWorktree(t *testing.T, dataDir, repo, taskID string) worktree.Meta {
 	t.Helper()
 	m := &worktree.Manager{DataDir: dataDir, BranchPrefix: func() string { return "gleam/" }}
@@ -55,8 +53,6 @@ func seedWorktree(t *testing.T, dataDir, repo, taskID string) worktree.Meta {
 	return meta
 }
 
-// 工作区不是仓库时，这一页必须**说清建不了**，而不是画一个空列表——
-// 空列表会被读成"还没建过副本"，而它们要用户做的事完全不同。
 func TestWorktreeList_NotARepoIsSaidOutLoud(t *testing.T) {
 	srv, _, ws := worktreeFixture(t)
 	ts := newTokenTestServer(srv)
@@ -125,7 +121,6 @@ func TestWorktreeListAndCleanRemove(t *testing.T) {
 		t.Error("刚建出来的副本应当是干净的")
 	}
 
-	// 干净的：直接删掉
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/worktrees/wt1", nil)
 	resp2, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -140,8 +135,6 @@ func TestWorktreeListAndCleanRemove(t *testing.T) {
 	}
 }
 
-// 有未提交改动的副本：默认删不掉（409），带 force=1 才是"我知道会丢"。
-// 这条界线是"不静默丢弃用户改动"的落点，必须在接口这一层也成立。
 func TestWorktreeRemoveDirtyNeedsForce(t *testing.T) {
 	srv, dataDir, ws := worktreeFixture(t)
 	gitInit(t, ws)
@@ -186,12 +179,6 @@ func TestWorktreeRemoveDirtyNeedsForce(t *testing.T) {
 	}
 }
 
-// dirOutsideRepo 造一个**在仓库之外**的临时目录。
-//
-// GHA 的 Windows runner 把 TEMP 设成 <workspace>/.ci-tmp（见 .github/workflows/ci.yml，
-// 为躲开 RUNNER~1 短路径），于是 t.TempDir() 造出来的"普通目录"本身就在 git 仓库里——
-// git 向上就能找到外层仓库，"不是仓库"的断言于是全部反过来。改在缓存目录下建，
-// 就与 TEMP 怎么设无关了。
 func dirOutsideRepo(t *testing.T) string {
 	t.Helper()
 	base, err := os.UserCacheDir()

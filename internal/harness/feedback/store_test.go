@@ -1,5 +1,3 @@
-// store_test.go 反馈仓库的唯一出口：写下去的东西读得回来、越界的 id 一个字节都不落、
-// 截图按文件头认类型而不是按名字、带截图的记录删得掉。
 package feedback
 
 import (
@@ -31,7 +29,6 @@ func sample(id string) *types.Feedback {
 	}
 }
 
-// pngBytes 造一张真 PNG（1x1），用来喂图片 sniff。
 func pngBytes(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -55,15 +52,12 @@ func TestSaveThenRead(t *testing.T) {
 	if got == nil || got.Text != want.Text || got.Kind != want.Kind {
 		t.Fatalf("读回来的不是写进去的那条：%+v", got)
 	}
-	// 原子写不留临时文件：残留说明改名前就退出了
 	residue, _ := filepath.Glob(filepath.Join(s.dir(), "*.tmp*"))
 	if len(residue) != 0 {
 		t.Errorf("feedback/ 留下临时文件: %v", residue)
 	}
 }
 
-// id 由后端生成，但读侧仍要挡：feedback/<id>.json 的 id 一旦能从别处流进来
-// （URL、手改的文件），`../../settings.json` 就把数据目录下的密钥文件变成可读接口。
 func TestUnsafeIDWritesNothing(t *testing.T) {
 	s := newStore(t)
 	ids := []string{"../../escape", `..\\..\\x`, "", "fb-1", NewID() + "x", strings.Repeat("x", 200), ".."}
@@ -78,8 +72,6 @@ func TestUnsafeIDWritesNothing(t *testing.T) {
 	}
 }
 
-// "没提交过"是常态，不是错误；"读到但解析不动"才是错误。
-// 两者混成一个 error，调用点就没法区分"空"和"坏"，界面上会变成同一种"暂无反馈"。
 func TestRead_MissingVsBroken(t *testing.T) {
 	s := newStore(t)
 	got, err := s.Read(NewID())
@@ -98,8 +90,6 @@ func TestRead_MissingVsBroken(t *testing.T) {
 	}
 }
 
-// 文件名与内容不符 = 这份被手改过或放错了位置。按 id 返回一条别人的反馈，
-// 比报"读不到"更坏：用户以为删掉的是自己看的那条。
 func TestRead_RejectsMismatchedFile(t *testing.T) {
 	s := newStore(t)
 	id := NewID()
@@ -156,7 +146,6 @@ func TestList_OrderLimitSkip(t *testing.T) {
 	}
 }
 
-// 没有 feedback/ 目录是常态（没人提过反馈），不该让列表请求失败。
 func TestList_NoDirIsNotAnError(t *testing.T) {
 	list, skipped, err := newStore(t).List(10)
 	if err != nil || skipped != 0 || len(list) != 0 {
@@ -164,7 +153,6 @@ func TestList_NoDirIsNotAnError(t *testing.T) {
 	}
 }
 
-// 类型只认文件头。改名成 .png 的脚本、0 字节、超上限的，都不许进这个目录。
 func TestAttachment_SniffsRealType(t *testing.T) {
 	s := newStore(t)
 	id := NewID()
@@ -175,7 +163,6 @@ func TestAttachment_SniffsRealType(t *testing.T) {
 	if !strings.HasSuffix(name, ".png") || mime != "image/png" {
 		t.Errorf("真 PNG 却存成了 %q / %q", name, mime)
 	}
-	// 同一张图再贴一次不盖前一张：用户贴两次的东西不该悄悄少一份
 	name2, _, err := s.SaveAttachment(id, pngBytes(t))
 	if err != nil || name2 == name {
 		t.Errorf("第二张应当换个名字，实得 %q vs %q", name2, name)
@@ -192,11 +179,9 @@ func TestAttachment_SniffsRealType(t *testing.T) {
 	}
 }
 
-// 读侧同样挡路径：name 来自 URL。挡不住等于把数据目录下的任意文件变成可读接口。
 func TestAttachment_ReadRejectsTraversal(t *testing.T) {
 	s := newStore(t)
 	dataDir := filepath.Dir(s.dir())
-	// 诱饵刻意放 settings.json（不是 .png）：穿越成功就会真读到一个文件
 	if err := os.WriteFile(filepath.Join(dataDir, "settings.json"), []byte("api_key: secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +196,6 @@ func TestAttachment_ReadRejectsTraversal(t *testing.T) {
 	}
 }
 
-// 带截图的记录必须连带删掉：截图截到什么由不得我们。
 func TestDelete_RemovesAttachments(t *testing.T) {
 	s := newStore(t)
 	id := NewID()

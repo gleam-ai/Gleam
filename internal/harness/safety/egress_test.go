@@ -7,11 +7,6 @@ import (
 	"time"
 )
 
-// ---------- 数据出网留痕（P1-3） ----------
-
-// TestRecordEgressKeepsHostAndSizeOnly 出网留痕的边界：只记"发给了谁、发了多少"，
-// **绝不记内容**。把请求正文写进 audit.jsonl，等于把风险从"网络"搬到"磁盘上的日志"——
-// 审计本身就成了新的泄露面。
 func TestRecordEgressKeepsHostAndSizeOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	g := New("auto", nil, nil, nil, time.Second)
@@ -36,7 +31,6 @@ func TestRecordEgressKeepsHostAndSizeOnly(t *testing.T) {
 	if e.Egress != "llm:api.deepseek.com" {
 		t.Errorf("结构化目标不对，实际 %q", e.Egress)
 	}
-	// 人读的那一列也要能直接看出"发给了谁、发了多少"
 	if !strings.Contains(e.Reason, "api.deepseek.com") || !strings.Contains(e.Reason, "12345") {
 		t.Errorf("说明里应含主机与字节数，实际 %q", e.Reason)
 	}
@@ -45,8 +39,6 @@ func TestRecordEgressKeepsHostAndSizeOnly(t *testing.T) {
 	}
 }
 
-// TestRecordEgressDropsEmptyHost 主机名未知时不记——
-// 一条"发给了谁都不知道"的出网记录对审计毫无价值，只会稀释真正有用的行。
 func TestRecordEgressDropsEmptyHost(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	g := New("auto", nil, nil, nil, time.Second)
@@ -64,20 +56,11 @@ func TestRecordEgressDropsEmptyHost(t *testing.T) {
 	}
 }
 
-// TestRecordEgressNilGateSafe 未装配门控时（nil）不能崩——审计是旁路。
 func TestRecordEgressNilGateSafe(t *testing.T) {
 	var g *Gate
-	g.RecordEgress("llm", "example.com", 1) // 不应 panic
+	g.RecordEgress("llm", "example.com", 1)
 }
 
-// TestEgressStatsCountsFromStructuredFields 「连接与出网」台账的读数层。
-//
-// 三条断言各自钉一件事：
-//   - 字节数取结构化字段：台账要加总，而加总若靠解析 Reason 那句中文，
-//     改一个标点就断，且断的方向是"少算"——报出"一共发出去 0 字节"比不报更坏。
-//   - 只数 egress 动作：审批/拦截留痕一起算，出网次数就成了假数。
-//   - 统计范围（Scanned/Cap）随读数一起给：内存环只有最近若干条，
-//     界面若不带上这个范围，读者会把它当成"这台机器上一共发了多少"。
 func TestEgressStatsCountsFromStructuredFields(t *testing.T) {
 	g := New("auto", nil, nil, nil, time.Second)
 	g.RecordEgress("llm", "api.deepseek.com", 1200)
@@ -112,7 +95,6 @@ func TestEgressStatsCountsFromStructuredFields(t *testing.T) {
 	}
 }
 
-// TestEgressStatsNilGateSafe 未装配门控时台账仍能出题（空读数 + 容量）。
 func TestEgressStatsNilGateSafe(t *testing.T) {
 	var g *Gate
 	rep := g.EgressStats()

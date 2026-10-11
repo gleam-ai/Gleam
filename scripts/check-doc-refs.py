@@ -25,10 +25,9 @@ import os
 import re
 import sys
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 DESIGN = "Gleam 技术设计文档.md"
-# §4.6.x 这种**泛指**写法不算引用（它说的是"这一片"，不是某一节）。
 REF = re.compile(r"§(4\.6\.\d+)")
 SKIP_DIRS = {
     ".git",
@@ -48,9 +47,6 @@ def main() -> int:
 
     design_path = os.path.join(root, DESIGN)
     if not os.path.exists(design_path):
-        # 设计文档**不入库**（在 .gitignore 里，仅本机保留）：本机没放就跳过，
-        # 而不是报红。守卫判的是「指针指向的东西在不在」，文档本身不在时无对象可判；
-        # 但文档在、小节解析不出来，下面仍然会硬失败。
         print("跳过：仓库里没有 %s（不入库），本次没有可校验的引用。" % DESIGN)
         return 0
     try:
@@ -62,8 +58,6 @@ def main() -> int:
 
     headings = set(re.findall(r"^### (4\.6\.\d+)", design, re.M))
     if not headings:
-        # 设计文档里一个小节都没解析到，说明这个检查本身失效了——
-        # 报"通过"会是最坏的结果（结构变了但检查还在假装有效）。
         print(
             "在设计文档里没解析到任何 §4.6.N 小节，检查本身失效，请先修本脚本。"
         )

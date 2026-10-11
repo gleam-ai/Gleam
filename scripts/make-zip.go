@@ -1,12 +1,5 @@
 //go:build ignore
 
-// 打 zip 包（纯标准库，避免依赖系统 zip / PowerShell 版本差异）。
-//
-// 用法：go run scripts/make-zip.go <out.zip> <entry>...
-//   entry 可以是文件或目录，支持 "源路径=包内路径" 的形式重命名。
-//
-// 权限位：目录 0755；可执行产物（.exe / .sh 或无扩展名）0755；其余 0644。
-// 这样 macOS / Linux 解压后无需再 chmod。
 package main
 
 import (
@@ -72,9 +65,7 @@ func addDir(zw *zip.Writer, src, alias string) error {
 			return err
 		}
 		if d.IsDir() {
-			// 空目录也要留条目，保持解压后的目录结构
 			name := relName(src, path, alias)
-			// 根目录自身不产生条目（避免出现 "./"）
 			if name == "" || name == "." {
 				return nil
 			}
@@ -124,7 +115,6 @@ func addFile(zw *zip.Writer, src, name string, info os.FileInfo) error {
 	return err
 }
 
-// executable 判定包内文件是否需要可执行位。
 func executable(name string, mode os.FileMode) bool {
 	if mode&0111 != 0 {
 		return true

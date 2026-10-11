@@ -2,8 +2,6 @@ package memory
 
 import "testing"
 
-// 携带轮数默认是"正常态"，而且零值（没设过）也要读成正常态——
-// 零值读成 0 会让新会话一个字的上下文都不带。
 func TestCarryTurnsDefault(t *testing.T) {
 	m := &Manager{}
 	if got := m.CarryTurns(); got != CarryFull {
@@ -11,8 +9,6 @@ func TestCarryTurnsDefault(t *testing.T) {
 	}
 }
 
-// 收紧与松开都要能设进去，并钳在 [CarryTight, CarryFull] 之内：
-// 越界的值只可能来自将来的某个调用点写错，钳住它比让它生效安全。
 func TestSetCarryTurnsClampsAndReportsChange(t *testing.T) {
 	m := &Manager{}
 	if !m.SetCarryTurns(CarryTight) {
@@ -41,7 +37,6 @@ func TestSetCarryTurnsClampsAndReportsChange(t *testing.T) {
 	}
 }
 
-// 开新对话要回到正常携带：上一个会话是因为它自己攒满了才收紧的，那件事不该跟过来。
 func TestResetConversationRelaxesCarry(t *testing.T) {
 	dir := t.TempDir()
 	m, err := Open(dir, 20, 128, 100)

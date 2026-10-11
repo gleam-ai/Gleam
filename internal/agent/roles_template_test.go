@@ -15,9 +15,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// realishRegistry 尽量用真实的工具构造器拼一个注册表，用来校验场景模板里写的工具名。
-// memory/schedule/skill 那几个要挂适配器（由运行时装配），这里用轻量替身占位——
-// 它们的存在只为让"名字对不对"这件事可被检查，不参与任何执行。
 func realishRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
 	reg := registry.New()
@@ -35,8 +32,6 @@ func realishRegistry(t *testing.T) *registry.Registry {
 	return reg
 }
 
-// TestRoleTemplate_EveryRoleIsComplete 场景模板的完整性：
-// 一个角色若只写了人设，就等于没写模板——产出格式、核心工具、模型档位都得有。
 func TestRoleTemplate_EveryRoleIsComplete(t *testing.T) {
 	knownTiers := map[string]bool{
 		TierEconomy: true, TierCoding: true, TierOffice: true, TierReasoning: true,
@@ -54,15 +49,12 @@ func TestRoleTemplate_EveryRoleIsComplete(t *testing.T) {
 		if !knownTiers[r.ModelTier] {
 			t.Errorf("角色 %s 的模型档位 %q 不在已知档位里", r.ID, r.ModelTier)
 		}
-		// 通用助手不限定工具（什么活都可能接），其余角色必须声明核心工具
 		if r.ID != "general" && len(r.Tools) == 0 {
 			t.Errorf("角色 %s 未声明核心工具，菜单模式下容易被筛漏", r.ID)
 		}
 	}
 }
 
-// TestRoleTemplate_ToolNamesResolve 模板里写的工具名必须真实存在。
-// 拼错一个字母不会报错，只会让"保证附上 schema"这条静默失效——所以要有测试兜住。
 func TestRoleTemplate_ToolNamesResolve(t *testing.T) {
 	reg := realishRegistry(t)
 	for _, r := range BuiltinRoles {
@@ -74,10 +66,8 @@ func TestRoleTemplate_ToolNamesResolve(t *testing.T) {
 	}
 }
 
-// TestRoleTemplate_ToolsAreDistinct 角色之间不该雷同到没有区分度，
-// 同时单个角色的工具列表里也不能有重复项。
 func TestRoleTemplate_ToolsAreDistinct(t *testing.T) {
-	seen := map[string]string{} // 工具名 -> 首个声明它的角色
+	seen := map[string]string{}
 	for _, r := range BuiltinRoles {
 		local := map[string]bool{}
 		for _, name := range r.Tools {
@@ -97,8 +87,6 @@ func TestRoleTemplate_ToolsAreDistinct(t *testing.T) {
 	}
 }
 
-// TestRoleTemplate_OutputFormatReachesPrompt 产出格式必须真的进提示词，且落在稳定段里
-// （它不随目标变化，缓存友好）。
 func TestRoleTemplate_OutputFormatReachesPrompt(t *testing.T) {
 	p := &Planner{Reg: bigRegistry(25), MaxToolSchemas: 12, Role: "coder"}
 	got := p.buildSystemPrompt("改个 bug", "D:/ws", nil, nil, "", "")
@@ -114,17 +102,12 @@ func TestRoleTemplate_OutputFormatReachesPrompt(t *testing.T) {
 	}
 }
 
-// TestRoleTemplate_RoleToolsAlwaysGetSchema 场景核心工具在菜单模式下必须附完整 schema——
-// 否则"这个场景本来就靠这几件家伙吃饭"的工具反而可能没参数可填。
 func TestRoleTemplate_RoleToolsAlwaysGetSchema(t *testing.T) {
 	reg := realishRegistry(t)
 	role := FindRole("coder")
 	p := &Planner{Reg: reg, MaxToolSchemas: 3, Role: role.ID, RoleTools: role.Tools}
 	sec := p.toolSchemaSection("随便做点什么")
 
-	// 预算比角色工具数还紧时，预算优先（用户显式设的上限不该被模板顶穿），
-	// 但角色工具要排在目标快筛的结果之前——它们是"这个场景保证要用"的，
-	// 不该被一次可能失手的相关性筛选挤掉。reply 始终占一席（它是收尾步骤）。
 	if got := strings.Count(sec, " | 参数："); got != 3 {
 		t.Errorf("仍应只注入 3 个 schema，实际 %d", got)
 	}
@@ -137,7 +120,7 @@ func TestRoleTemplate_RoleToolsAlwaysGetSchema(t *testing.T) {
 			present++
 		}
 	}
-	if want := 3 - 1; present < want { // 预算 3 减去 reply 必占的 1 席
+	if want := 3 - 1; present < want {
 		t.Errorf("剩余预算应优先给场景核心工具（至少 %d 个），实际只装下 %d 个", want, present)
 	}
 	if !strings.Contains(sec, "本场景核心工具") {
@@ -145,8 +128,6 @@ func TestRoleTemplate_RoleToolsAlwaysGetSchema(t *testing.T) {
 	}
 }
 
-// TestRoleTemplate_RoleToolsFitInDefaultBudget 默认预算下（12 个）角色的核心工具应全部装得下。
-// 这是"模板声明了就一定可用"这句话的实际含义。
 func TestRoleTemplate_RoleToolsFitInDefaultBudget(t *testing.T) {
 	reg := realishRegistry(t)
 	for _, r := range BuiltinRoles {
@@ -163,7 +144,6 @@ func TestRoleTemplate_RoleToolsFitInDefaultBudget(t *testing.T) {
 	}
 }
 
-// TestRoleTemplate_GeneralRoleAddsNothing 通用助手不声明核心工具时，不应凭空多出提示文字。
 func TestRoleTemplate_GeneralRoleAddsNothing(t *testing.T) {
 	reg := realishRegistry(t)
 	role := FindRole("")
@@ -176,8 +156,6 @@ func TestRoleTemplate_GeneralRoleAddsNothing(t *testing.T) {
 	}
 }
 
-// TestTierLLM_FallsBackToMainModel 档位是"可以挑"，不是"必须挑"：
-// 没配档位、档位名不存在、档位指向主模型，三种情况都必须安全回退，不能报错也不能空指针。
 func TestTierLLM_FallsBackToMainModel(t *testing.T) {
 	main := llm.NewMock()
 	mk := func(tiers map[string]string) *Agent {
@@ -202,8 +180,6 @@ func TestTierLLM_FallsBackToMainModel(t *testing.T) {
 	}
 }
 
-// TestTierLLM_BuildsClientPerTier 配了档位就真的换模型，且同一档位复用同一个客户端
-// （否则每次规划都新建连接池）。
 func TestTierLLM_BuildsClientPerTier(t *testing.T) {
 	cfg := config.Default()
 	cfg.LLM.Provider = "glm"
@@ -226,7 +202,6 @@ func TestTierLLM_BuildsClientPerTier(t *testing.T) {
 		t.Errorf("不同档位应各自建客户端，实际 %v", writer.Name())
 	}
 
-	// 改了档位映射后必须能热生效
 	a.Cfg.LLM.Tiers["coding"] = "coder-model-v2"
 	a.RebuildTierClients()
 	if got := a.TierLLM("coder").Name(); got != "coder-model-v2" {
@@ -234,7 +209,6 @@ func TestTierLLM_BuildsClientPerTier(t *testing.T) {
 	}
 }
 
-// TestTierLLM_MockProviderNeverBuildsClient 离线自测不该因为配了档位而产生真实网络调用。
 func TestTierLLM_MockProviderNeverBuildsClient(t *testing.T) {
 	cfg := config.Default()
 	cfg.LLM.Provider = "mock"

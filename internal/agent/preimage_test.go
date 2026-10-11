@@ -14,12 +14,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// 写前快照（批次 F14）。
-//
-// 这组测试盯的是**保险在不在**：快照层坏掉的形态不是报错、不是崩，而是用户点了
-// "还原"之后盘上什么也没回去。所以每条断言都从执行器进、从磁盘回，
-// 不去直接调 `snapshotter.one`——判据对、线没接是本仓库栽过多次的坑。
-
 func snapExecutor(t *testing.T, dataDir, ws string, tools ...types.Tool) *Executor {
 	t.Helper()
 	r := registry.New()
@@ -34,13 +28,6 @@ func snapExecutor(t *testing.T, dataDir, ws string, tools ...types.Tool) *Execut
 	}
 }
 
-// TestSnapshot_SurvivesReplan 一次目标跑两轮 Execute 时，上一轮的快照必须还在清单里。
-//
-// 为什么盯这个：规划可以失败重来（重规划、回落直聊），每轮各建一次执行器状态。
-// 如果快照跟着"这一轮"走，第二轮只看得到自己——上一轮真实写出去的文件就从改动清单
-// 里消失了，界面于是对着一份确实被写过的盘说"没动过"。这是这一层唯一不许出现的方向。
-// 另一半更要紧：`firstPreImageOf` 取**最早**那一份，接不上上一轮，第二轮的"写前"
-// 就是第一轮写出来的内容，还原只能退到任务中间（真机走查 f14check2 抓到的就是这个）。
 func TestSnapshot_SurvivesReplan(t *testing.T) {
 	ws, dataDir := t.TempDir(), t.TempDir()
 	target := filepath.Join(ws, "note.md")
@@ -61,7 +48,6 @@ func TestSnapshot_SurvivesReplan(t *testing.T) {
 	if len(first.PreImages) != 1 {
 		t.Fatalf("第一轮该有一条快照：%+v", first.PreImages)
 	}
-	// 第二轮：计划里只剩一次回复（重规划后回落直聊的典型形态），什么都没写。
 	second := e.Execute(context.Background(), types.Plan{Steps: []types.Step{{ID: "s1", Tool: "rtest"}}}, "t1", string(types.ModeAuto), false)
 	if len(second.Steps) != 1 || second.Steps[0].Tool != "rtest" || second.Steps[0].Status != types.StepSucceeded {
 		t.Fatalf("第二轮该只跑一步回复且成功：%+v", second.Steps)
@@ -70,7 +56,6 @@ func TestSnapshot_SurvivesReplan(t *testing.T) {
 	if len(second.PreImages) != 1 || second.PreImages[0].Tool != "wtest" {
 		t.Errorf("第二轮的清单把上一轮的写入弄丢了：%+v", second.PreImages)
 	}
-	// 清单侧同样不能漏：这一轮没有核对结论，但盘上真的多了一份改动。
 	changes := buildChanges(second.Steps, second.PreImages)
 	if len(changes) != 1 || changes[0].Path != target {
 		t.Fatalf("改动清单该列出那个被写过的路径（漏报＝用户以为盘上没动过）：%+v", changes)
@@ -78,7 +63,6 @@ func TestSnapshot_SurvivesReplan(t *testing.T) {
 	if !changes[0].Reversible {
 		t.Errorf("上一轮留了写前内容，就该报可还原：%+v", changes[0])
 	}
-	// 落盘的那份也要接着上一轮，而不是被第二轮覆盖掉。
 	recs, err := taskPreImages(dataDir, "t1")
 	if err != nil {
 		t.Fatalf("读回清单失败：%v", err)
@@ -95,7 +79,6 @@ func TestSnapshot_SurvivesReplan(t *testing.T) {
 	}
 }
 
-// TestSnapshot_CapturesBeforeWrite 写之前那份内容必须留下来，且留下的就是一字不差的旧内容。
 func TestSnapshot_CapturesBeforeWrite(t *testing.T) {
 	ws, dataDir := t.TempDir(), t.TempDir()
 	target := filepath.Join(ws, "note.md")
@@ -133,16 +116,11 @@ func TestSnapshot_CapturesBeforeWrite(t *testing.T) {
 	if string(b) != old {
 		t.Errorf("写前内容 = %q，应为 %q", b, old)
 	}
-	// 内存里也要带着走：改动清单在收尾时用它，不重新读盘（收尾时盘上已经是新内容了）
 	if len(res.PreImages) != 1 {
 		t.Errorf("Result 里应带快照记录，实际 %d 条", len(res.PreImages))
 	}
 }
 
-// TestSnapshot_ContentFileIsPrivateAndInsideRoot 快照文件既不能跑出快照根目录，也不能给别人读。
-//
-// 内容文件里是用户**刚被覆盖掉**的那份文本，可能就是配置或笔记；0600 与"留在根内"
-// 是同一件事的两半：位置不对会被别的目录扫到，权限不对会被同机的别人读走。
 func TestSnapshot_ContentFileIsPrivateAndInsideRoot(t *testing.T) {
 	ws, dataDir := t.TempDir(), t.TempDir()
 	target := filepath.Join(ws, "p.txt")
@@ -180,10 +158,6 @@ func TestSnapshot_ContentFileIsPrivateAndInsideRoot(t *testing.T) {
 	}
 }
 
-// TestSnapshot_ReadOnlyStepCapturesNothing 只读步骤不留快照。
-//
-// 判据用**工具自己声明的权限**，不是门控当下的有效权限——后者会随用户把某个写工具
-// 手动设成只读而变，那种时候关掉保险等于把"你把它设成只读了"当成"你不需要后路"。
 func TestSnapshot_ReadOnlyStepCapturesNothing(t *testing.T) {
 	ws, dataDir := t.TempDir(), t.TempDir()
 	target := filepath.Join(ws, "r.txt")
@@ -205,10 +179,6 @@ func TestSnapshot_ReadOnlyStepCapturesNothing(t *testing.T) {
 	}
 }
 
-// TestSnapshot_KeepsReasonWhenItCannot 留不住内容时必须说清为什么，而不是安静地少一行。
-//
-// 三种留不住（超大、二进制、目录）在界面上是三种不同的解释：用户看到"不可还原"
-// 的第一个问题永远是"为什么不可还原"。
 func TestSnapshot_KeepsReasonWhenItCannot(t *testing.T) {
 	ws, dataDir := t.TempDir(), t.TempDir()
 	big := filepath.Join(ws, "big.txt")
@@ -243,7 +213,7 @@ func TestSnapshot_KeepsReasonWhenItCannot(t *testing.T) {
 	}
 	wants := []struct {
 		path  string
-		says  string // 原因里该出现的词：界面对用户说的就是这一句
+		says  string
 		bytes int64
 	}{
 		{big, "上限", snapshotMaxBytes + 10},
@@ -270,7 +240,6 @@ func TestSnapshot_KeepsReasonWhenItCannot(t *testing.T) {
 	}
 }
 
-// TestSnapshot_NonAbsoluteArgSkipped 工具解析失败时原样回吐参数值，那种路径不该被当成快照目标。
 func TestSnapshot_NonAbsoluteArgSkipped(t *testing.T) {
 	ws, dataDir := t.TempDir(), t.TempDir()
 	write := &funcTool{name: "wrel", perm: types.PermissionUserApproved,
@@ -283,9 +252,6 @@ func TestSnapshot_NonAbsoluteArgSkipped(t *testing.T) {
 	}
 }
 
-// TestSnapshot_NoDataDirDoesNotBreakRun 没配数据目录时任务照常跑完，只是没有保险。
-//
-// 快照是保险不是前提：为了留后路而让任务跑不完，是拿"能不能干活"换"能不能回头"。
 func TestSnapshot_NoDataDirDoesNotBreakRun(t *testing.T) {
 	ws := t.TempDir()
 	target := filepath.Join(ws, "x.txt")
@@ -305,10 +271,6 @@ func TestSnapshot_NoDataDirDoesNotBreakRun(t *testing.T) {
 	}
 }
 
-// TestFirstPreImageOf_TakesEarliest 同一路径被写三次时，还原要退到**任务开始前**。
-//
-// 斜杠与冗余分隔符不同的两种写法必须算同一个路径，否则会出现"清单里明明有，
-// 却回答不在清单里"——那是一条用户没做错却被拒的还原。
 func TestFirstPreImageOf_TakesEarliest(t *testing.T) {
 	ws := filepath.Clean(t.TempDir())
 	target := filepath.Join(ws, "a", "b.txt")
@@ -329,9 +291,6 @@ func TestFirstPreImageOf_TakesEarliest(t *testing.T) {
 	}
 }
 
-// TestPreImageGroup_PairsMove 一次移动按组成对还原。
-//
-// 只退一端等于把文件留在半路上：还源端是凭空删掉整份内容，还目标端是凭空多出一份。
 func TestPreImageGroup_PairsMove(t *testing.T) {
 	ws := t.TempDir()
 	src := filepath.Join(ws, "src.txt")
@@ -349,8 +308,6 @@ func TestPreImageGroup_PairsMove(t *testing.T) {
 		t.Errorf("组内该是源端与目标端各一条，实得 %+v / %+v", group[0], group[1])
 	}
 	if group[0].Seq != 1 {
-		// 源端取的是**本任务开始前**那条（seq=1），不是"移动之前"那条（seq=2）：
-		// 同一路径被这个任务写过再移走，还原的口径始终是"退到任务开始之前"。
 		t.Errorf("源端该取本任务最早那条快照：%+v", group[0])
 	}
 	if only := preImageGroup(recs, filepath.Join(ws, "src.txt")); len(only) != 1 || only[0].Seq != 1 {
@@ -358,14 +315,12 @@ func TestPreImageGroup_PairsMove(t *testing.T) {
 	}
 }
 
-// TestRestorePreImage_ThreeShapes 还原的三种形状：退回内容 / 删掉造出的 / 空目录才敢删。
 func TestRestorePreImage_ThreeShapes(t *testing.T) {
 	dataDir, ws := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(SnapshotRoot(dataDir), "t1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// 1) 覆盖写：退回去
 	old := filepath.Join(ws, "old.txt")
 	if err := os.WriteFile(old, []byte("新写的"), 0o644); err != nil {
 		t.Fatal(err)
@@ -385,7 +340,6 @@ func TestRestorePreImage_ThreeShapes(t *testing.T) {
 		t.Errorf("还原后内容 = %q", b)
 	}
 
-	// 2) 任务造出来的文件：删掉它
 	created := filepath.Join(ws, "created.txt")
 	if err := os.WriteFile(created, []byte("新东西"), 0o644); err != nil {
 		t.Fatal(err)
@@ -396,13 +350,11 @@ func TestRestorePreImage_ThreeShapes(t *testing.T) {
 	if _, err := os.Stat(created); !os.IsNotExist(err) {
 		t.Error("文件应已被删掉")
 	}
-	// 再点一次还原：本来就是空的，如实说"无需还原"，不报错也不假装做了事
 	again, err := restorePreImage(dataDir, "t1", preImage{Seq: 2, Path: created})
 	if err != nil || !strings.Contains(again, "无需") {
 		t.Errorf("重复还原应是无操作，实得 note=%q err=%v", again, err)
 	}
 
-	// 3) 非空目录：不删。递归删下去就不是"还原"而是"顺手清盘"
 	dir := filepath.Join(ws, "outdir")
 	if err := os.MkdirAll(filepath.Join(dir, "inner"), 0o755); err != nil {
 		t.Fatal(err)
@@ -426,9 +378,6 @@ func TestRestorePreImage_ThreeShapes(t *testing.T) {
 	}
 }
 
-// TestRestorePreImage_KeepsModeBits 还原要连可执行位一起退回去。
-//
-// 内容对了但跑不起来，在用户眼里就是"还原把它弄坏了"。
 func TestRestorePreImage_KeepsModeBits(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows 的权限位只有只读位，测不出可执行位的保留")
@@ -457,7 +406,6 @@ func TestRestorePreImage_KeepsModeBits(t *testing.T) {
 	}
 }
 
-// TestTaskPreImages_BlocksTraversal 任务 ID 会被拼进文件路径，穿越形态必须在读盘之前就被拒。
 func TestTaskPreImages_BlocksTraversal(t *testing.T) {
 	dataDir := t.TempDir()
 	for _, hostile := range []string{"../../settings", "..", "a/b", "", "   ", string(os.PathSeparator)} {
@@ -470,7 +418,6 @@ func TestTaskPreImages_BlocksTraversal(t *testing.T) {
 	}
 }
 
-// TestPruneSnapshots_KeepsNewest 快照是**保险不是堆积**：按任务数淘汰最旧的。
 func TestPruneSnapshots_KeepsNewest(t *testing.T) {
 	dataDir := t.TempDir()
 	root := SnapshotRoot(dataDir)
@@ -495,6 +442,6 @@ func TestPruneSnapshots_KeepsNewest(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "taske")); err != nil {
 		t.Error("最新那个任务（刚跑完的）必须留下")
 	}
-	PruneSnapshots(filepath.Join(dataDir, "never"), 3) // 目录不存在不能崩
-	PruneSnapshots("", 3)                              // 没配数据目录也不能崩
+	PruneSnapshots(filepath.Join(dataDir, "never"), 3)
+	PruneSnapshots("", 3)
 }

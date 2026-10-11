@@ -1,10 +1,3 @@
-// Memory：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 的 $ / api / toast / el / esc 等，所以必须排在 app.js 之后；
-// app.js 的 VIEW_LOADERS 用 `memory: () => initMemoryOnce()` 惰性引用（那个 const 在 app.js 解析期就求值，
-// 直接写 `memory: initMemoryOnce` 会 ReferenceError）。
-
-/* ---------- 记忆 ---------- */
 let memoryInited = false;
 function initMemoryOnce() {
   if (memoryInited) return;
@@ -55,7 +48,6 @@ async function searchMemory() {
     list.forEach((h) => {
       const row = el('div', 'row');
       row.style.padding = 'var(--space-2) 0';
-      // score 是词法向量相似度（0–1），裸数字没人看得懂：换算成相关度百分比并解释口径
       const pct = Math.round(
         Math.max(0, Math.min(1, Number(h.score) || 0)) * 100,
       );

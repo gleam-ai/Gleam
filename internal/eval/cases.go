@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// builtinCases 内置用例集。放在 JSON 里而不是 Go 字面量里，
-// 是为了让用户能直接复制出来改：gleam eval --cases my.json。
-//
 //go:embed cases.json
 var builtinCases []byte
 
@@ -18,12 +15,10 @@ type caseFile struct {
 	Cases []Case `json:"cases"`
 }
 
-// BuiltinCases 返回内置用例集。
 func BuiltinCases() ([]Case, error) {
 	return parseCases(builtinCases)
 }
 
-// LoadCases 从文件读取用例集。
 func LoadCases(path string) ([]Case, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -46,7 +41,6 @@ func parseCases(b []byte) ([]Case, error) {
 	return f.Cases, nil
 }
 
-// FilterLayer 按分层筛选用例（CLI --layer 用）。空层 = 全部。
 func FilterLayer(cases []Case, l Layer) []Case {
 	if l == "" {
 		return cases
@@ -60,10 +54,6 @@ func FilterLayer(cases []Case, l Layer) []Case {
 	return out
 }
 
-// Validate 校验用例集自身是否合法。
-//
-// 其中「没有任何期望」这一条最要紧：那样的用例**永远会通过**，
-// 却会让通过率看起来不错——评测最容易被这样悄悄架空。
 func Validate(cases []Case) error {
 	seen := map[string]bool{}
 	for i, c := range cases {

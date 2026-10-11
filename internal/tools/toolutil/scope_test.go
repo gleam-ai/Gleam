@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// 边界只在 ctx 里写过的时候才覆盖静态配置；没写过就回落。
-// 这条回落是刻意的：界面上单发一次"这一步要不要批准"的判定不在任务链上，
-// 那种时候全局工作区就是事实。
 func TestRootsFromFallsBack(t *testing.T) {
 	fallback := []string{`D:\ws`}
 
@@ -17,7 +14,6 @@ func TestRootsFromFallsBack(t *testing.T) {
 	if got := RootsFrom(nil, fallback); len(got) != 1 || got[0] != fallback[0] {
 		t.Errorf("nil ctx 也应当回落，实际 %v", got)
 	}
-	// 空切片是"没说"，不是"没有边界"：真的没有边界由 ResolveInRoots 拒绝
 	ctx := WithRoots(context.Background(), nil)
 	if got := RootsFrom(ctx, fallback); len(got) != 1 || got[0] != fallback[0] {
 		t.Errorf("空 roots 应当视为没说，实际 %v", got)
@@ -33,8 +29,6 @@ func TestRootsFromOverrides(t *testing.T) {
 	}
 }
 
-// 存进去的是副本：调用方随后改自己那个切片，不该把别的任务（共用同一份配置切片）
-// 的边界一起改掉——多任务并发时这就是串味。
 func TestWithRootsCopies(t *testing.T) {
 	roots := []string{`D:\a`}
 	ctx := WithRoots(context.Background(), roots)
@@ -44,7 +38,6 @@ func TestWithRootsCopies(t *testing.T) {
 	}
 }
 
-// 边界真的生效：ctx roots 决定相对路径落在哪，且越界一律拒。
 func TestResolveInRootsWithContextRoots(t *testing.T) {
 	wt := t.TempDir()
 	other := t.TempDir()

@@ -10,10 +10,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 验收的确定性层：产物核对 ----------
-
-// writeStep 造一个「file.write 自述成功」的步骤。
-// Output 里带工具真正返回的已解析路径（真实链路就是这样，所以核对不必自己解析相对路径）。
 func writeStep(id, path, content string, appendMode bool) types.StepResult {
 	args := map[string]any{"path": path, "content": content}
 	if appendMode {
@@ -40,7 +36,6 @@ func TestVerifyArtifacts_MissingFileIsCaught(t *testing.T) {
 	}
 }
 
-// 路径对、文件也在，但只写进去一部分——只看"存在"发现不了，必须比长度。
 func TestVerifyArtifacts_LengthMismatchIsCaught(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "half.txt")
 	if err := os.WriteFile(p, []byte("一半"), 0o644); err != nil {
@@ -68,22 +63,20 @@ func TestVerifyArtifacts_MatchIsOK(t *testing.T) {
 	}
 }
 
-// 追加写无法断言精确长度（文件可能本来就有内容），只能卡下界。
 func TestVerifyArtifacts_AppendChecksLowerBound(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "a.txt")
-	if err := os.WriteFile(p, []byte("旧的"), 0o644); err != nil { // 6 字节
+	if err := os.WriteFile(p, []byte("旧的"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, "新增", true)}); !facts[0].ok {
 		t.Errorf("追加后长度足够，应判通过：%+v", facts[0])
 	}
-	long := strings.Repeat("长", 100) // 300 字节，远超文件实际长度
+	long := strings.Repeat("长", 100)
 	if facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, long, true)}); facts[0].ok {
 		t.Errorf("文件比追加内容还短，不该判通过：%+v", facts[0])
 	}
 }
 
-// 同一路径写两次只留最后一次：逐条判会把"被后续步骤覆盖"误报成"产物丢失"。
 func TestVerifyArtifacts_LaterWriteSupersedes(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "x.txt")
 	final := "第二次写的内容"
@@ -91,7 +84,7 @@ func TestVerifyArtifacts_LaterWriteSupersedes(t *testing.T) {
 		t.Fatal(err)
 	}
 	facts := verifyArtifacts([]types.StepResult{
-		writeStep("s1", p, "第一次写的内容", false), // 长度与最终状态不同
+		writeStep("s1", p, "第一次写的内容", false),
 		writeStep("s2", p, final, false),
 	})
 	if len(facts) != 1 {
@@ -105,7 +98,6 @@ func TestVerifyArtifacts_LaterWriteSupersedes(t *testing.T) {
 	}
 }
 
-// 写完又删掉是正常流程，不该报"产物丢失"——假警报会让这道闸被当成噪音关掉。
 func TestVerifyArtifacts_WriteThenDeleteIsNotAFalseAlarm(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "tmp.txt")
 	facts := verifyArtifacts([]types.StepResult{
@@ -136,7 +128,6 @@ func TestVerifyArtifacts_Mkdir(t *testing.T) {
 	}
 }
 
-// 移动有两个事后条件，缺一不可：只查目标会漏掉"复制成两份"，只查源会漏掉"搬丢了"。
 func TestVerifyArtifacts_MoveChecksBothEnds(t *testing.T) {
 	dir := t.TempDir()
 	src, dst := filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.txt")
@@ -164,7 +155,6 @@ func TestVerifyArtifacts_MoveChecksBothEnds(t *testing.T) {
 	}
 }
 
-// 没跑成的写、以及不产生产物的工具都不该产生事实：那是三态/错误层的事，不在这里重复记账。
 func TestVerifyArtifacts_IgnoresFailedStepsAndUnknownTools(t *testing.T) {
 	dir := t.TempDir()
 	steps := []types.StepResult{
@@ -179,10 +169,6 @@ func TestVerifyArtifacts_IgnoresFailedStepsAndUnknownTools(t *testing.T) {
 		t.Errorf("这些步骤都不该产生产物事实，实际 %+v", facts)
 	}
 
-	// 失败步骤**即使带着输出**也不进入产物核对（StepResult 允许「失败 + 有输出」这种组合，
-	// 工具完全可以 `return out, err`）。当前执行器只在 err==nil 时记 Output，所以这条
-	// 看起来永远不会触发——但它守的是一条契约：失败由三态/错误层记账，
-	// 这里再记一次就会变成两个"不通过"，把一处失败放大成两处。
 	failedWithOutput := types.StepResult{
 		StepID: "s4", Tool: "file.write", Status: types.StepFailed, Error: "写到一半失败",
 		Output:    map[string]any{"path": filepath.Join(dir, "half.txt")},
@@ -211,7 +197,6 @@ func TestArtifactDigest_ReportsFailures(t *testing.T) {
 	}
 }
 
-// 反思器说 done/98，但代码实测产物不在——不许判 done。
 func TestEvaluate_ArtifactMismatchForcesReplan(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.txt")
 	exec := &Result{Total: 1, Succeeded: 1}
@@ -226,15 +211,13 @@ func TestEvaluate_ArtifactMismatchForcesReplan(t *testing.T) {
 	}
 }
 
-// 没有验收标准的任务同样会「步骤都报成功、产物其实不在」。
-// statusOfExec 只看步骤计数，会把它判成 GoalSuccess——这里就是那道最后闸门。
 func TestApplyAcceptanceVerdict_ArtifactMismatchWithoutCriteria(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.txt")
 	res := &types.GoalResult{
 		Status: types.GoalSuccess, Score: 90,
 		Steps: []types.StepResult{writeStep("s1", p, "内容", false)},
 	}
-	applyAcceptanceVerdict(res, nil) // 一条验收标准都没有
+	applyAcceptanceVerdict(res, nil)
 	if res.Status != types.GoalPartial {
 		t.Errorf("产物实测不在就不许声称完成，实际状态 %v", res.Status)
 	}
@@ -243,8 +226,6 @@ func TestApplyAcceptanceVerdict_ArtifactMismatchWithoutCriteria(t *testing.T) {
 	}
 }
 
-// 最要紧的一条：验收标准自己判了"通过"，但代码实测产物不在。
-// 这正是「摘要看着对、产物其实错」——语义层判过不算数，确定性层说了算。
 func TestApplyAcceptanceVerdict_ArtifactBeatsPassedCriteria(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.txt")
 	acc := []string{"文件已创建"}
@@ -260,7 +241,6 @@ func TestApplyAcceptanceVerdict_ArtifactBeatsPassedCriteria(t *testing.T) {
 	}
 }
 
-// 对照组：产物核对通过时不许乱动状态。
 func TestApplyAcceptanceVerdict_ArtifactOKKeepsSuccess(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "ok.txt")
 	content := "写好的内容"
@@ -277,9 +257,6 @@ func TestApplyAcceptanceVerdict_ArtifactOKKeepsSuccess(t *testing.T) {
 	}
 }
 
-// 循环的完成判定：产物核对不过时必须拦住**分数达标**那半边。
-// 反思器已经被压成 replan，但 score=98 ≥ 阈值，只看前两条照样会放行——
-// 这正是这个守卫承重的地方。
 func TestCompletionReached_ArtifactMismatchBlocks(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "missing.txt")
 	bad := &Result{Total: 1, Succeeded: 1, Steps: []types.StepResult{writeStep("s1", p, "内容", false)}}
@@ -301,9 +278,6 @@ func TestCompletionReached_ArtifactMismatchBlocks(t *testing.T) {
 	}
 }
 
-// ---------- 格式合法：只看"在不在、多长"发现不了"写进去的是坏 JSON" ----------
-
-// putFile 按声明的内容原样落盘（长度因此与 writeStep 的期望一致，判定才能走到格式那一档）。
 func putFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -313,7 +287,7 @@ func putFile(t *testing.T, path, content string) {
 
 func TestVerifyArtifacts_BrokenJSONIsCaught(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "data.json")
-	content := `{"a":1,}` // 尾逗号：长度对得上，但不是合法 JSON
+	content := `{"a":1,}`
 	putFile(t, p, content)
 
 	facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, content, false)})
@@ -334,7 +308,6 @@ func TestVerifyArtifacts_ValidJSONPasses(t *testing.T) {
 	}
 }
 
-// JSONL 常被写成 .json：整体解析不通、但每行都是合法 JSON，这不算写坏。
 func TestVerifyArtifacts_JSONLTolerated(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "rows.json")
 	content := "{\"a\":1}\n{\"b\":2}\n"
@@ -353,7 +326,6 @@ func TestVerifyArtifacts_BOMTolerated(t *testing.T) {
 	}
 }
 
-// 追加写可能只是在往已有文件尾部贴一段，去判格式就是假警报——刻意不查。
 func TestVerifyArtifacts_AppendJSONNotChecked(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "log.json")
 	putFile(t, p, "上一轮写的内容")
@@ -372,7 +344,6 @@ func TestVerifyArtifacts_NonJSONExtensionNotChecked(t *testing.T) {
 	}
 }
 
-// 空内容不判：长度校验已经管了"该有内容却没有"，这里再报一次只是重复记账。
 func TestVerifyArtifacts_EmptyJSONNotFlagged(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "empty.json")
 	putFile(t, p, "")
@@ -381,7 +352,6 @@ func TestVerifyArtifacts_EmptyJSONNotFlagged(t *testing.T) {
 	}
 }
 
-// 格式不合法要能一路走到闸门，而不是只停在 artifactFact 上的一条记录。
 func TestApplyAcceptanceVerdict_BrokenJSONBlocks(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "out.json")
 	content := `{"broken":`
@@ -390,7 +360,7 @@ func TestApplyAcceptanceVerdict_BrokenJSONBlocks(t *testing.T) {
 		Status: types.GoalSuccess,
 		Steps:  []types.StepResult{writeStep("s1", p, content, false)},
 	}
-	applyAcceptanceVerdict(res, nil) // 连验收标准都没有，也必须拦住
+	applyAcceptanceVerdict(res, nil)
 	if res.Status != types.GoalPartial {
 		t.Errorf("格式不合法的产物不该以 success 收尾，实际 %v", res.Status)
 	}

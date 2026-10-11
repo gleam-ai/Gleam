@@ -1,5 +1,3 @@
-// httputil.go 共享 HTTP JSON 工具：统一瞬时故障重试（传输层错误 + 限流/网关状态码）。
-// 与 GLMClient 的重试语义一致，供 Responses / Anthropic 等协议客户端复用。
 package llm
 
 import (
@@ -12,10 +10,8 @@ import (
 	"strings"
 )
 
-const maxBodyBytes = 16 << 20 // 16MB 上限，防异常响应撑爆内存
+const maxBodyBytes = 16 << 20
 
-// StatusCode 从客户端调用错误中提取 HTTP 状态码；非状态类错误（传输层）返回 0。
-// 供上层做连接诊断分类（401 鉴权 / 404 路径或模型 / 429 限流 / 5xx 厂商）。
 func StatusCode(err error) int {
 	var se *statusError
 	if errors.As(err, &se) {
@@ -24,8 +20,6 @@ func StatusCode(err error) int {
 	return 0
 }
 
-// normalizeBase 归一化 base_url：去尾斜杠，并剥掉用户从文档整段复制带来的端点后缀。
-// 各客户端构造时调用，之后拼端点就不会出现 /chat/completions/chat/completions 这类双拼 404。
 func normalizeBase(base string, suffixes ...string) string {
 	base = strings.TrimRight(base, "/")
 	changed := true
@@ -42,8 +36,6 @@ func normalizeBase(base string, suffixes ...string) string {
 }
 
 func postJSONOnce(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) ([]byte, error) {
-	// 出网留痕：只记主机名与请求字节数（见 egress.go 的边界说明）。
-	// 放在真正发包之前——记的是"发出去了什么"，不是"收到了什么"。
 	noteEgress(url, len(body))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -65,7 +57,6 @@ func postJSONOnce(ctx context.Context, hc *http.Client, url string, headers map[
 	return io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 }
 
-// postJSON POST JSON 并返回响应体；瞬时故障按指数退避重试（最多 3 次）。
 func postJSON(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) ([]byte, error) {
 	return DoWithRetry(ctx, DefaultRetryConfig, func(err error) bool { return retryable(ctx, err) }, func() ([]byte, error) {
 		return postJSONOnce(ctx, hc, url, headers, body)
@@ -73,7 +64,6 @@ func postJSON(ctx context.Context, hc *http.Client, url string, headers map[stri
 }
 
 func openStreamOnce(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) (io.ReadCloser, error) {
-	// 出网留痕：流式与非流式走同一条记账口径，否则"流式调用查不到留痕"。
 	noteEgress(url, len(body))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -96,7 +86,6 @@ func openStreamOnce(ctx context.Context, hc *http.Client, url string, headers ma
 	return resp.Body, nil
 }
 
-// openStream POST JSON 并返回 SSE 流；瞬时故障按指数退避重试（最多 3 次）。
 func openStream(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) (io.ReadCloser, error) {
 	return DoWithRetry(ctx, DefaultRetryConfig, func(err error) bool { return retryable(ctx, err) }, func() (io.ReadCloser, error) {
 		return openStreamOnce(ctx, hc, url, headers, body)

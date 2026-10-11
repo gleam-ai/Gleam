@@ -2,9 +2,6 @@ package types
 
 import "testing"
 
-// TestClassifyError 归因分布的判据是"能不能回答该先修哪层"，
-// 不是"每条都对"——所以每一类至少要有一个代表性文本归得对，
-// 归不了的如实落 unknown（不硬塞）。
 func TestClassifyError(t *testing.T) {
 	cases := []struct {
 		msg  string
@@ -28,8 +25,6 @@ func TestClassifyError(t *testing.T) {
 	}
 }
 
-// TestContextBreakdownStateShare 状态占比是"上下文膨胀"的判据线（> 60%），
-// 除零必须安全（空提示词不该 panic）。
 func TestContextBreakdownStateShare(t *testing.T) {
 	var empty ContextBreakdown
 	if empty.StateShare() != 0 {

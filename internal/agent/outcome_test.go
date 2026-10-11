@@ -12,9 +12,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// outcomeTool 一个"调用没炸、但事情没做成"的工具：
-// Execute 返回 nil error，靠 types.OutcomeReporter 声明真实的结果性质。
-// 真实世界里的对应物是 shell.exec（非零退出）与 file.search（超时/没搜到）。
 type outcomeTool struct {
 	name    string
 	out     any
@@ -43,11 +40,6 @@ func outcomeExec(t *testing.T, tool types.Tool, steps ...types.Step) *Result {
 	return e.Execute(context.Background(), types.Plan{Steps: steps}, "t1", "auto", false)
 }
 
-// TestExecute_BusinessFailureCountsAsFailed 这是「完成率失真」的回归断言。
-//
-// 工具返回 nil error 只说明"调用没炸"，不代表"事情做成了"：
-// shell 非零退出、file.search 超时都属于这一类。以前它们被计入 Succeeded，
-// statusOfExec 于是把整个任务判成 success——不是统计口径问题，是数据源头不对。
 func TestExecute_BusinessFailureCountsAsFailed(t *testing.T) {
 	tool := &outcomeTool{
 		name: "bizfail", out: map[string]any{"exit_code": 1},
@@ -70,8 +62,6 @@ func TestExecute_BusinessFailureCountsAsFailed(t *testing.T) {
 	}
 }
 
-// TestExecute_EmptyIsNotFailure 空结果不是错误（不能因此重试），
-// 但必须与"有结果"区分开，否则模型会在"换关键词—还是空—再换"里空转。
 func TestExecute_EmptyIsNotFailure(t *testing.T) {
 	tool := &outcomeTool{
 		name: "empty", out: map[string]any{"count": 0, "files": []string{}},
@@ -90,12 +80,6 @@ func TestExecute_EmptyIsNotFailure(t *testing.T) {
 	}
 }
 
-// TestExecute_OutcomeSurvivesDedupe 去重复用的结果必须连结果性质一起还原。
-// 只存输出、不存 Outcome 的话，一个"空结果"被复用时会被记成 ok，语义就丢了——
-// 而"空"恰恰是模型最容易反复重试的那一态。
-//
-// 用 depends_on 让 s2 严格排在 s1 之后（而不是并发抢锁）：并发时"谁真跑、
-// 谁复用"不确定，断言会飘。
 func TestExecute_OutcomeSurvivesDedupe(t *testing.T) {
 	r := registry.New()
 	r.MustRegister(&outcomeTool{
@@ -123,11 +107,6 @@ func TestExecute_OutcomeSurvivesDedupe(t *testing.T) {
 	}
 }
 
-// TestBuildStepDigest_ReportsOutcomeAndFailure 重规划反馈必须真的带上上次的结果。
-//
-// 原先反馈只有一句"完成度 N/100。问题：…"，文案还写着"上次执行的步骤结果可在反馈中参考"，
-// 而构造执行摘要的 buildDigest 只喂给反思器——规划器第二轮与第一轮几乎同样盲，
-// 这正是"原地打转"频繁触发的原因之一。
 func TestBuildStepDigest_ReportsOutcomeAndFailure(t *testing.T) {
 	exec := &Result{
 		Total: 3,
@@ -148,8 +127,6 @@ func TestBuildStepDigest_ReportsOutcomeAndFailure(t *testing.T) {
 	}
 }
 
-// TestBuildDigest_TellsReflectorAboutOutcome 反思器看到的摘要也必须区分
-// "成功"、"成功但业务失败"、"成功但空结果"——否则它会照着错的前提打分。
 func TestBuildDigest_TellsReflectorAboutOutcome(t *testing.T) {
 	exec := &Result{
 		Total: 2,
@@ -167,17 +144,10 @@ func TestBuildDigest_TellsReflectorAboutOutcome(t *testing.T) {
 	}
 }
 
-// TestRunGoal_ReplanFeedbackCarriesStepResults 重规划反馈必须真的带上上次的步骤结果。
-//
-// 这是"接线"断言，不是函数断言：buildStepDigest 本身正确，不代表它被接进了主循环。
-// 原先的文案写着"上次执行的步骤结果可在反馈中参考"，而构造摘要的 buildDigest
-// 只喂给反思器——规划器第二轮与第一轮几乎同样盲，这正是"原地打转"频繁触发的原因之一。
 func TestRunGoal_ReplanFeedbackCarriesStepResults(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
-		// 第一次规划：故意用一个必定失败的工具
 		planScript(`{"steps":[{"id":"s1","description":"调用会失败的工具","tool":"fail","args":{}}]}`),
 		reflectScript(40, "replan", "步骤失败"),
-		// 第二次规划：改对了
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"好"}}]}`),
 		reflectScript(95, "done", "已回复"),
 	})

@@ -1,54 +1,27 @@
-// Package agent 实现专家角色系统。
-//
-// 角色系统让用户可以为不同任务类型选择专家角色，
-// 规划器在构建系统提示词时注入角色特定的知识与约束，
-// 使 LLM 在规划阶段就具备领域专家视角。
 package agent
 
 import "gleam/internal/agent/geo"
 
-// geoPrompt 返回注入创作类角色的生成式引擎优化准则。
-// 准则正文只维护在 geo 包一处，避免两份文本走偏。
 func geoPrompt() string { return geo.Principles() }
 
-// ExpertRole 定义一个专家角色——准确说是一个**场景模板**。
-//
-// 它不只是"一段人设提示词"：一个场景与另一个场景的差异，落在
-// 系统提示、验收尺度、产出格式、要用哪些工具、该挑哪档模型这五件事上。
-// 把这些差异一次性沉淀在模板里，就不必为了新场景去改底层 Runtime。
 type ExpertRole struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	// SystemPrompt 注入规划器系统提示词的角色知识段。
-	SystemPrompt string `json:"system_prompt"`
-	// AcceptanceFocus 这个角色做验收时该盯住什么。
-	// 通用指南教模型"怎么写可判定的标准"，这里补的是"这个领域该盯哪几件事"——
-	// 领域不同，能算"完成"的尺度就不同：数据要能对账，代码要能验证，文案要能直接交付。
-	AcceptanceFocus string `json:"acceptance_focus,omitempty"`
-	// OutputFormat 该场景的产出格式约束（注入规划器提示词）。
-	// 同一句"写份报告"，分析师要表、项目经理要责任到人、研究员要来源——
-	// 格式期望写进模板，比事后让用户反复纠正便宜得多。
-	OutputFormat string `json:"output_format,omitempty"`
-	// Tools 该场景的核心工具：菜单模式下强制附上完整 schema，避免按目标快筛时漏掉。
-	// 它和"本任务已用过的工具"是两回事——一个是场景需要，一个是上次用过。
-	Tools []string `json:"tools,omitempty"`
-	// ModelTier 该场景建议使用的模型档位（对应配置里的 llm.tiers 键名）。
-	// 空字符串或档位未配置时回退主模型：档位是"可以挑"，不是"必须挑"。
-	ModelTier string `json:"model_tier,omitempty"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	SystemPrompt    string   `json:"system_prompt"`
+	AcceptanceFocus string   `json:"acceptance_focus,omitempty"`
+	OutputFormat    string   `json:"output_format,omitempty"`
+	Tools           []string `json:"tools,omitempty"`
+	ModelTier       string   `json:"model_tier,omitempty"`
 }
 
-// 模型档位名。档位与具体模型的对应关系由用户在配置里给（llm.tiers），
-// 模板只声明"这个场景该用哪一档"——选哪家、什么价位，集成方自己最清楚，
-// 所以 Harness 只提供"可切换"的接口，不替用户绑定模型。
 const (
-	TierEconomy   = "economy"   // 经济耐用：低难度、大批量
-	TierCoding    = "coding"    // 编码强
-	TierOffice    = "office"    // 办公写作强
-	TierReasoning = "reasoning" // 推理强：分析、调研
+	TierEconomy   = "economy"
+	TierCoding    = "coding"
+	TierOffice    = "office"
+	TierReasoning = "reasoning"
 )
 
-// BuiltinRoles 预置专家角色（精选高频场景）。
 var BuiltinRoles = []ExpertRole{
 	{
 		ID:              "general",
@@ -146,7 +119,6 @@ var BuiltinRoles = []ExpertRole{
 	},
 }
 
-// FindRole 按 ID 查找角色，找不到返回通用角色。
 func FindRole(id string) ExpertRole {
 	for _, r := range BuiltinRoles {
 		if r.ID == id {
@@ -156,7 +128,6 @@ func FindRole(id string) ExpertRole {
 	return BuiltinRoles[0]
 }
 
-// HasRole 判断角色 ID 是否已注册；空值由外部请求校验视为默认角色。
 func HasRole(id string) bool {
 	for _, r := range BuiltinRoles {
 		if r.ID == id {
@@ -166,7 +137,6 @@ func HasRole(id string) bool {
 	return false
 }
 
-// RoleList 返回角色列表（用于前端展示与选择）。
 func RoleList() []ExpertRole {
 	return BuiltinRoles
 }

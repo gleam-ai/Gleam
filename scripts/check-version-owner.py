@@ -44,20 +44,16 @@ import os
 import re
 import sys
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 BUILDINFO = os.path.join("internal", "buildinfo", "buildinfo.go")
 STATIC = os.path.join("internal", "webui", "static")
 WEBSITE = "website"
 WEBSITE_PAGE = os.path.join(WEBSITE, "index.html")
-# 打包产物的落点，与 scripts/package.sh 里的 DIST 必须一致。
-# 这里只读**带日期**的校验和：它由打包那次写出，所以"新包打出来了、官网日期还停在上次"
-# 是机械可判的。不带日期的 SHA256SUMS.txt 是 latest 用的，推不出发布日期。
 PACK = "dist"
 SCAN_SUFFIX = (".js", ".html", ".css")
 SUMS_RE = re.compile(r"^SHA256SUMS-(\d{8})\.txt$")
 
-# 替「有没有新版」下结论的文案。只拦**断言式**说法，不拦「最新版本」这类中性词组。
 CLAIM_RE = re.compile(r"已是最新|已经是最|当前已是|无需更新|已是本地")
 
 

@@ -18,20 +18,6 @@ import (
 	"gleam/internal/webui"
 )
 
-// cmdApp 桌面端应用模式：启动引擎 + Web UI + 系统托盘。
-//
-// 交互模型：
-//   - 双击 GleamDesktop.exe 启动后进程常驻后台，托盘显示图标。
-//   - 托盘左键/双击 → 打开/前置应用窗口；右键 → 打开/退出。
-//   - 关闭窗口不退出进程（主服务、调度器、记忆都继续运行）。
-//   - 托盘菜单「退出」才真正结束进程。
-//   - 再次双击 GleamDesktop.exe：若已有实例，则请求现有实例弹窗并立即退出（单实例）。
-//
-// 窗口实现说明：
-//
-//	使用 Edge/Chrome 的 --app 模式启动独立浏览器窗口（独立 msedge.exe 进程），
-//	UI 渲染与主进程完全隔离，不会因为 UI 线程阻塞导致主进程"未响应"。
-//	这是 Slack/Discord/VS Code 等产品长期验证的稳定方案。
 func cmdApp(args []string) error {
 	fs := flag.NewFlagSet("app", flag.ContinueOnError)
 	configPath := fs.String("config", "", "配置文件路径")
@@ -46,7 +32,6 @@ func cmdApp(args []string) error {
 		return err
 	}
 
-	// 单实例：默认端口已被 Gleam 占用时请求现有实例弹窗后退出
 	listenAddr := *addr
 	if busy, gleam := probeAddr(*addr); busy {
 		if gleam {
@@ -77,8 +62,6 @@ func cmdApp(args []string) error {
 	if err != nil {
 		return err
 	}
-	// 台账要说**实测**的监听地址：默认端口被占用时这里会退到随机端口（127.0.0.1:0），
-	// 把 --addr 那个字符串报上去就是说谎。
 	srv.BindAddr = ln.Addr().String()
 	url := "http://" + ln.Addr().String() + "/"
 	announceToken(srv)
@@ -93,7 +76,6 @@ func cmdApp(args []string) error {
 	openWindow := func() { desktop.OpenWindow(url, nil) }
 	srv.ShowWindowFunc = openWindow
 
-	// Ctrl+C 优雅退出（命令行启动时）
 	go func() {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, os.Interrupt)
@@ -103,12 +85,10 @@ func cmdApp(args []string) error {
 		systray.Quit()
 	}()
 
-	// 首启自动打开窗口
 	if !*noBrowser {
 		openWindow()
 	}
 
-	// 托盘状态轮询：tooltip 实时显示任务/待审批数
 	go func() {
 		t := time.NewTicker(5 * time.Second)
 		defer t.Stop()
@@ -126,7 +106,6 @@ func cmdApp(args []string) error {
 		}
 	}()
 
-	// 托盘主循环（阻塞直到用户点「退出」）
 	openInBrowser := func() { _ = desktop.OpenURL(url) }
 	err = systray.Run(systray.Config{
 		Tooltip:    "Gleam · 微光（本地智能体）",
@@ -143,7 +122,6 @@ func cmdApp(args []string) error {
 		},
 	})
 	if errors.Is(err, systray.ErrNotImplemented) {
-		// 非 Windows 平台：回退到打开默认浏览器后阻塞
 		if !*noBrowser {
 			openBrowser(url)
 		}
@@ -157,7 +135,6 @@ func cmdApp(args []string) error {
 	return err
 }
 
-// openBrowser 非 Windows 平台回退：用系统默认浏览器打开。
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch goruntime.GOOS {
@@ -171,7 +148,6 @@ func openBrowser(url string) {
 	_ = cmd.Start()
 }
 
-// probeAddr 探测地址占用情况；第二个返回值表示是否为本机已有的 Gleam。
 func probeAddr(addr string) (busy, isGleam bool) {
 	conn, err := net.DialTimeout("tcp", addr, 800*time.Millisecond)
 	if err != nil {
@@ -184,8 +160,6 @@ func probeAddr(addr string) (busy, isGleam bool) {
 		return true, false
 	}
 	defer resp.Body.Close()
-	// 新版本的 /api/info 要口令：没带口令会拿到 401，但守卫在任何响应上都挂着 X-Gleam-Server，
-	// 认它就够了，不需要先拿到对方的口令。旧版本没有这个头，仍按响应体认。
 	if resp.Header.Get("X-Gleam-Server") == "gleam" {
 		return true, true
 	}
@@ -194,8 +168,6 @@ func probeAddr(addr string) (busy, isGleam bool) {
 	return true, strings.Contains(string(buf[:n]), `"name":"gleam"`)
 }
 
-// openAppWindow 用 Edge/Chrome 的应用模式打开独立窗口（无地址栏与标签页，观感为桌面应用）；
-// 找不到时按平台回退系统默认浏览器。
 func openAppWindow(url string) {
 	cmd := launchAppCmd(url)
 	if cmd == nil {
@@ -204,7 +176,6 @@ func openAppWindow(url string) {
 	go func() { _ = cmd.Wait() }()
 }
 
-// launchAppCmd 启动应用模式浏览器进程。
 func launchAppCmd(url string) *exec.Cmd {
 	for _, p := range browserPathsFor(goruntime.GOOS) {
 		if _, err := os.Stat(p); err != nil {
@@ -232,12 +203,9 @@ func launchAppCmd(url string) *exec.Cmd {
 	return nil
 }
 
-// browserFallbackCmds 按平台返回默认浏览器回退命令序列（依序尝试，首个成功即用）。
-// 纯函数：便于对三个平台的回退行为做确定性单元测试。
 func browserFallbackCmds(goos, url string) [][]string {
 	switch goos {
 	case "darwin":
-		// macOS：open -na 以独立实例启动 Chrome/Edge 应用模式；都没有则开默认浏览器
 		var cmds [][]string
 		for _, app := range []string{"Google Chrome", "Microsoft Edge", "Chromium"} {
 			cmds = append(cmds, []string{"open", "-na", app, "--args", "--app=" + url, "--window-size=1440,900"})
@@ -252,7 +220,6 @@ func browserFallbackCmds(goos, url string) [][]string {
 	}
 }
 
-// browserPathsFor 按平台返回 Edge/Chrome 可执行文件候选路径（纯函数，测试友好）。
 func browserPathsFor(goos string) []string {
 	switch goos {
 	case "darwin":
@@ -276,7 +243,7 @@ func browserPathsFor(goos string) []string {
 			"/usr/bin/chromium",
 			"/usr/bin/chromium-browser",
 		}
-	default: // windows
+	default:
 		progFiles := os.Getenv("ProgramFiles")
 		progFilesX86 := os.Getenv("ProgramFiles(x86)")
 		localAppData := os.Getenv("LocalAppData")

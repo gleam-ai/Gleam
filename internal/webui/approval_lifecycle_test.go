@@ -9,17 +9,6 @@ import (
 	"gleam/internal/llm"
 )
 
-// 停在审批闸门上的取消。
-//
-// 这两条测的是同一件事的两半，缺一不可：
-//   - 审批名单要说真话：任务停了，`GET /api/approvals` 就不该还挂着"有一件事等你决定"；
-//   - 更要真的把引擎叫醒：plan_first 的整计划闸门是**同步**等在 OnApproval 里的，
-//     只把登记删掉，那一行不返回，任务就永远停在 running——取消点了没反应，
-//     界面上还是"进行中"。
-//
-// fixture 的审批超时是 5 秒，这里只等 2 秒：能在这个窗口里定格，说明是取消把它
-// 叫醒的，不是超时兜的（超时兜的话原因也会写成"审批超时"，一并被下面的断言挑出来）。
-
 func TestCancel_PlanFirstGate(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[{"id":"s1","description":"写","tool":"file.write","args":{"path":"pf.txt","content":"x"}}]}`}},
@@ -49,8 +38,6 @@ func TestCancel_PlanFirstGate(t *testing.T) {
 	}
 }
 
-// 逐步审批这一路：executor 自己 select ctx，所以引擎不会被按住，但等待器还留在表里
-// ——它要一直挂到超时才消失，那期间审批名单在说谎。
 func TestCancel_StepGate(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[{"id":"s1","description":"删除","tool":"file.delete","args":{"path":"victim.txt","recursive":false}}]}`}},

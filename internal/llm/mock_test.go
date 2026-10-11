@@ -32,7 +32,6 @@ func TestMockClient_ScriptFIFO(t *testing.T) {
 	if out != "第二个计划" {
 		t.Errorf("出队2 = %q", out)
 	}
-	// 队列耗尽回落默认
 	out, _ = m.Chat(ctx, ChatRequest{System: "[GLEAM-TASK:PLAN] z"})
 	if !strings.Contains(out, `"reply"`) {
 		t.Errorf("默认计划应使用 reply 工具: %q", out)
@@ -57,7 +56,6 @@ func TestMockClient_HandlerAndFail(t *testing.T) {
 	if _, err := m.Chat(context.Background(), ChatRequest{}); err != errMock {
 		t.Errorf("FailNext 未生效: %v", err)
 	}
-	// 恢复后正常
 	if _, err := m.Chat(context.Background(), ChatRequest{}); err != nil {
 		t.Errorf("恢复失败: %v", err)
 	}
@@ -83,7 +81,6 @@ func TestMockClient_Stream(t *testing.T) {
 }
 
 func TestLoadScripts(t *testing.T) {
-	// 由 e2e 测试覆盖文件加载；这里只测 JSON 形状
 	scripts := []Scripted{{Kind: "plan", Texts: []string{`{"steps":[]}`}}}
 	if scripts[0].Kind != "plan" {
 		t.Error("形状错误")
@@ -98,8 +95,6 @@ func TestMockClient_ExtractGoal(t *testing.T) {
 	}
 }
 
-// L1（2026-09-23 QA）：规划器实际把目标原样放在最后一条 user 消息里，
-// mock 必须回显真实目标而不是「未指定目标」；对话模式只回显最后一条用户消息。
 func TestMockClient_EchoesRealGoal(t *testing.T) {
 	m := NewMock()
 	out, _ := m.Chat(context.Background(), ChatRequest{
@@ -112,7 +107,6 @@ func TestMockClient_EchoesRealGoal(t *testing.T) {
 	if strings.Contains(out, "未指定目标") {
 		t.Errorf("不应再出现「未指定目标」: %q", out)
 	}
-	// 带引用前缀时取标记后首行
 	out2, _ := m.Chat(context.Background(), ChatRequest{
 		System:   "[GLEAM-TASK:PLAN]",
 		Messages: []Message{{Role: RoleUser, Content: "[file] 计划.md: @x\n用户目标：整理引用\n后续指令不要带上"}},

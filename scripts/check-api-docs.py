@@ -21,13 +21,11 @@ import os
 import re
 import sys
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 WEBUI = os.path.join("internal", "webui")
 DOC = "README.md"
-# Go 1.22 路由声明：mux.HandleFunc("GET /api/goals/{id}", s.handleGoalGet)
 ROUTE = re.compile(r'HandleFunc\("[A-Z]+ (/api/[^"]*)"')
-# 文档里只认反引号包起来的片段中的路径，避免正文口语提到的 "/api/…" 被当成条目
 SPAN = re.compile(r"`([^`]*)`")
 PATH = re.compile(r"(/api/[A-Za-z0-9_/{}.\-]*)")
 
@@ -66,8 +64,6 @@ def main() -> int:
 
     registered = code_routes(root)
     if not registered:
-        # 一条都没解析到 = 检查本身失效（路由声明换了写法）。报"通过"是最坏结果：
-        # 它会让所有人以为这条规则有闸门。
         print(
             "在 %s 里没解析到任何 /api 路由，检查本身失效，请先修本脚本。"
             % WEBUI

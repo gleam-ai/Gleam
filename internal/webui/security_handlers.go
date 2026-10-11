@@ -5,9 +5,6 @@ import (
 	"strconv"
 )
 
-// handleSecurityAudit 返回安全门控的最近留痕：
-// 哪些操作被拦下了、哪些被放行了、哪些是审核模型加拦的。
-// 没人看过的拦截等于没发生过——这条接口就是给"事后复盘"用的。
 func (s *Server) handleSecurityAudit(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {

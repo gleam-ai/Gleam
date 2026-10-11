@@ -13,14 +13,12 @@ import (
 	"gleam/pkg/types"
 )
 
-// 设计文档 §9：工具调用超时后自动重试或跳过。
-
 func TestExecute_TimeoutRetrySucceeds(t *testing.T) {
 	var calls int32
 	r := registry.New()
 	r.MustRegister(&funcTool{name: "flaky", perm: types.PermissionReadOnly, fn: func(ctx context.Context, args map[string]any) (any, error) {
 		if atomic.AddInt32(&calls, 1) == 1 {
-			<-ctx.Done() // 第一次阻塞到超时
+			<-ctx.Done()
 			return nil, ctx.Err()
 		}
 		return "recovered", nil

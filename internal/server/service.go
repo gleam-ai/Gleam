@@ -15,7 +15,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// Service 目标模式服务：把 Agent 能力暴露为 JSON-RPC 方法。
 type Service struct {
 	Agent *agent.Agent
 	Conn  *Conn
@@ -45,12 +44,10 @@ func (e *taskEntry) snapshot(includeResult bool) map[string]any {
 	return out
 }
 
-// NewService 创建服务。
 func NewService(a *agent.Agent) *Service {
 	return &Service{Agent: a, tasks: map[string]*taskEntry{}}
 }
 
-// Bind 注册全部方法到连接，并把服务挂为 Agent 的事件出口。
 func (s *Service) Bind(c *Conn) {
 	s.Conn = c
 	s.Agent.Notifier = s
@@ -81,8 +78,6 @@ func (s *Service) Bind(c *Conn) {
 	}
 }
 
-// ---------- 基础 ----------
-
 func (s *Service) handleInitialize(_ context.Context, _ json.RawMessage) (any, *RPCError) {
 	tools := s.Agent.Reg.Names()
 	return map[string]any{
@@ -90,7 +85,7 @@ func (s *Service) handleInitialize(_ context.Context, _ json.RawMessage) (any, *
 		"version": buildinfo.Version,
 		"model":   s.Agent.LLM.Name(),
 		"capabilities": map[string]any{
-			"goal":      true, // 目标模式
+			"goal":      true,
 			"tools":     true,
 			"skills":    true,
 			"memory":    true,
@@ -112,8 +107,6 @@ func (s *Service) handleShutdown(_ context.Context, _ json.RawMessage) (any, *RP
 	return map[string]any{"bye": true}, nil
 }
 
-// ---------- 目标模式 ----------
-
 type goalSubmitParams struct {
 	References []types.Reference `json:"references"`
 	Role       string            `json:"role"`
@@ -132,8 +125,6 @@ func (s *Service) handleGoalSubmit(_ context.Context, params json.RawMessage) (a
 	if len([]rune(p.Goal)) < 2 {
 		return nil, Errf(CodeInvalidParams, "goal 不能为空")
 	}
-	// task_id 先补齐再校验：形状规则住在 ValidateGoalRequest（它会变成归档的文件名），
-	// 顺序反了就等于把外部传入的 id 放过了这一关。
 	taskID := p.TaskID
 	if taskID == "" {
 		taskID = types.NewID()
@@ -157,7 +148,6 @@ func (s *Service) handleGoalSubmit(_ context.Context, params json.RawMessage) (a
 		entry.Result = result
 		s.pruneTasksLocked()
 		s.mu.Unlock()
-		// 持久化工作记忆（归档只有一个出口，见 agent.SaveTaskResult）
 		s.saveTaskResult(result)
 		s.Conn.Notify("goal/completed", result)
 	}()
@@ -195,7 +185,6 @@ func (s *Service) handleGoalCancel(_ context.Context, params json.RawMessage) (a
 		entry.Cancel()
 	}
 	s.mu.Unlock()
-	// 交给 Agent 二次保险
 	_ = s.Agent.CancelTask(p.TaskID)
 	return map[string]any{"task_id": p.TaskID, "cancelled": ok}, nil
 }
@@ -213,10 +202,8 @@ func (s *Service) handleGoalList(_ context.Context, _ json.RawMessage) (any, *RP
 	return map[string]any{"count": len(list), "tasks": list}, nil
 }
 
-// maxRetainedTasks 已完成任务保留上限（长期运行防内存无限增长）。
 const maxRetainedTasks = 200
 
-// pruneTasksLocked 淘汰最旧的已完成任务（须持有 s.mu）。
 func (s *Service) pruneTasksLocked() {
 	if len(s.tasks) <= maxRetainedTasks {
 		return
@@ -237,17 +224,11 @@ func (s *Service) pruneTasksLocked() {
 	}
 }
 
-// saveTaskResult 把任务结果归档到数据目录（工作记忆）。写入本身住在 agent.SaveTaskResult
-// ——CLI 与常驻服务共一个出口，"写成了才删运行日志"这条顺序才只有一处需要维护。
 func (s *Service) saveTaskResult(result *types.GoalResult) {
 	if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
-		// 归档失败不打断流程，但必须留下声音：runs/ 里因此保着运行日志，
-		// 不说的话没人知道这条任务在 tasks/ 里其实查不到。
 		fmt.Fprintf(os.Stderr, "[gleam] 任务未存档：%v\n", err)
 	}
 }
-
-// ---------- 工具 ----------
 
 func (s *Service) handleToolsList(_ context.Context, _ json.RawMessage) (any, *RPCError) {
 	list := make([]map[string]any, 0)
@@ -266,7 +247,6 @@ type toolCallParams struct {
 	TimeoutSec int            `json:"timeout_sec"`
 }
 
-// handleToolsCall 直接调用工具；非只读工具同样经过安全门控审批。
 func (s *Service) handleToolsCall(_ context.Context, params json.RawMessage) (any, *RPCError) {
 	var p toolCallParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -297,8 +277,6 @@ func (s *Service) handleToolsCall(_ context.Context, params json.RawMessage) (an
 	return map[string]any{"name": tool.Name(), "output": out}, nil
 }
 
-// ---------- 记忆 ----------
-
 func (s *Service) handleMemorySearch(_ context.Context, params json.RawMessage) (any, *RPCError) {
 	var p struct {
 		Query string `json:"query"`
@@ -325,8 +303,6 @@ func (s *Service) handleMemorySave(_ context.Context, params json.RawMessage) (a
 	}
 	return map[string]any{"id": id, "saved": true}, nil
 }
-
-// ---------- 技能 ----------
 
 func (s *Service) handleSkillsList(_ context.Context, _ json.RawMessage) (any, *RPCError) {
 	list := s.Agent.SkillList()
@@ -357,7 +333,6 @@ func (s *Service) handleSkillSave(_ context.Context, params json.RawMessage) (an
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, Errf(CodeInvalidParams, "参数解析失败: %v", err)
 	}
-	// 走门面而不是直摸 Skills：技能入库的成长事件只在门面那一处记，绕过去就是漏项
 	version, err := s.Agent.SkillSave(skill.Skill{
 		Name: p.Name, Description: p.Description, Params: p.Params, Steps: p.Steps,
 	})
@@ -397,8 +372,6 @@ func (s *Service) handleSkillDelete(_ context.Context, params json.RawMessage) (
 	return map[string]any{"name": p.Name, "deleted": true}, nil
 }
 
-// ---------- 调度 ----------
-
 func (s *Service) handleScheduleCreate(_ context.Context, params json.RawMessage) (any, *RPCError) {
 	var p struct {
 		Name        string `json:"name"`
@@ -407,7 +380,7 @@ func (s *Service) handleScheduleCreate(_ context.Context, params json.RawMessage
 		Cron        string `json:"cron"`
 		IntervalSec int    `json:"interval_sec"`
 		Mode        string `json:"mode"`
-		Notify      string `json:"notify"` // always / on_failure / never（空 = 默认 on_failure）
+		Notify      string `json:"notify"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, Errf(CodeInvalidParams, "参数解析失败: %v", err)
@@ -422,7 +395,6 @@ func (s *Service) handleScheduleCreate(_ context.Context, params json.RawMessage
 	return view, nil
 }
 
-// handleScheduleNotify 修改定时任务的通知策略（always / on_failure / never；空串恢复默认）。
 func (s *Service) handleScheduleNotify(_ context.Context, params json.RawMessage) (any, *RPCError) {
 	var p struct {
 		Name   string `json:"name"`
@@ -466,16 +438,18 @@ func (s *Service) handleScheduleDelete(_ context.Context, params json.RawMessage
 	return map[string]any{"name": p.Name, "deleted": true}, nil
 }
 
-// ---------- agent.Notifier 桥接（推送给对端） ----------
-
-// OnProgress 实现 agent.Notifier。
 func (s *Service) OnProgress(ev types.ProgressEvent) {
 	if s.Conn != nil {
 		s.Conn.Notify("goal/progress", ev)
 	}
 }
 
-// OnApproval 实现 agent.Notifier：通过 goal/ask_approval 请求宿主确认。
+func (s *Service) OnTool(ev types.ToolEvent) {
+	if s.Conn != nil {
+		s.Conn.Notify("goal/tool", ev)
+	}
+}
+
 func (s *Service) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	if s.Conn == nil {
 		return types.ApprovalResponse{Approved: false, Note: "无审批通道"}
@@ -489,25 +463,18 @@ func (s *Service) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	return resp
 }
 
-// OnSuggestion 实现 agent.Notifier。
 func (s *Service) OnSuggestion(taskID, text string) {
 	if s.Conn != nil {
 		s.Conn.Notify("agent/suggestion", map[string]any{"task_id": taskID, "text": text})
 	}
 }
 
-// OnSuggestSkill 实现 agent.Notifier。
 func (s *Service) OnSuggestSkill(taskID string, draft types.SkillDraft) {
 	if s.Conn != nil {
 		s.Conn.Notify("agent/suggest_skill", map[string]any{"task_id": taskID, "skill": draft})
 	}
 }
 
-// OnTaskDone 实现 agent.Notifier：后台任务跑完推给对端（编辑器插件可以据此弹通知）。
-//
-// 与 goal/progress 分开推：进度是流，完成是一次性事实——插件侧对两者的处理不同
-// （前者刷新进度条，后者该提醒用户）。混在一个通道里，插件就得自己判断"这条是不是最后一条"，
-// 而那正是最容易漏掉失败的分叉点。
 func (s *Service) OnTaskDone(ev types.TaskDoneEvent) {
 	if s.Conn != nil {
 		s.Conn.Notify("goal/done", ev)

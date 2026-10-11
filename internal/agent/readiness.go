@@ -13,36 +13,14 @@ import (
 	"gleam/pkg/types"
 )
 
-// 本文件实现「九坑就绪自检」。
-//
-// 来源：一篇讲 Agent SDK 的文章总结了自建 Agent Runtime 常见的九个坑，
-// 结论很扎心——"几个坑叠在一起，结果就是 demo 做了很多，稳定进入生产的 Agent 很少"。
-//
-// 这句话难反驳，但静态清单也难落地：看一遍就忘，没法随版本回归，更没法在
-// 真实运行状态里验证自己到底踩没踩。所以这里不写第二份清单，而是把它做成一次
-// 可执行体检——每一项都从**真实运行状态**取证据（工具注册表、门控审计、用量归集、
-// 提示词实测、成长日志、记忆库），给 pass / warn / fail 三档结论，并附上"怎么补"。
-//
-// 三条设计约束：
-//  1. 只读：不改配置、不发网络请求、不写文件。随时可跑。
-//  2. 无数据不装懂：没有历史数据时给 warn 并注明"暂无数据"，而不是伪造一个绿勾。
-//  3. 结论要指向动作：每项 warn/fail 都带 fix，避免"体检报告很好看但没人动"。
-//
-// 九项与文章的顺序一一对应，便于对照原文。
-
-// ReadinessStatus 单项体检结论。
 type ReadinessStatus string
 
 const (
-	// ReadyPass 这一坑没踩：证据齐备。
 	ReadyPass ReadinessStatus = "pass"
-	// ReadyWarn 机制在但没用起来，或数据不足以下结论。
 	ReadyWarn ReadinessStatus = "warn"
-	// ReadyFail 结构性缺口：这一项不补，后面几项都会各修一遍。
 	ReadyFail ReadinessStatus = "fail"
 )
 
-// ReadinessItem 一个坑的体检结果。
 type ReadinessItem struct {
 	Index    int             `json:"index"`
 	Key      string          `json:"key"`
@@ -53,18 +31,16 @@ type ReadinessItem struct {
 	Fix      string          `json:"fix,omitempty"`
 }
 
-// ReadinessReport 九坑体检报告。
 type ReadinessReport struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 	Total       int             `json:"total"`
 	Passed      int             `json:"passed"`
 	Warned      int             `json:"warned"`
 	Failed      int             `json:"failed"`
-	Verdict     string          `json:"verdict"` // ready | needs_work | not_ready
+	Verdict     string          `json:"verdict"`
 	Items       []ReadinessItem `json:"items"`
 }
 
-// readinessPitfalls 九坑的键名与标题，顺序即文章顺序。
 var readinessPitfalls = []struct {
 	Key   string
 	Title string
@@ -80,7 +56,6 @@ var readinessPitfalls = []struct {
 	{"extensible_memory", "可扩展架构与压缩记忆"},
 }
 
-// Readiness 执行九坑就绪体检，返回只读报告。
 func (a *Agent) Readiness() ReadinessReport {
 	checks := []func() ReadinessItem{
 		a.checkRuntimeKernel,
@@ -123,12 +98,6 @@ func (a *Agent) Readiness() ReadinessReport {
 	return rep
 }
 
-// ---------- 坑 1：Runtime 重复建设 ----------
-
-// checkRuntimeKernel 判断依据不是"写了多少代码"，而是"有多少子系统挂在同一个内核上"。
-// 会话、循环、工具、状态、错误处理各做一套，才叫重复建设；
-// 五条入口（任务循环 / 对话 / 调度触发 / 技能运行 / 工具直调）共用同一个 Agent，
-// 工具 schema 与权限出自同一张表，才叫没重复建设。
 func (a *Agent) checkRuntimeKernel() ReadinessItem {
 	core := []struct {
 		name string
@@ -204,8 +173,6 @@ func (a *Agent) checkRuntimeKernel() ReadinessItem {
 	return it
 }
 
-// effectivePermissionOf 取工具的有效权限：门控在就用门控（含用户覆盖），
-// 门控缺席时退回工具自身的声明——体检本身不能把引擎跑挂。
 func (a *Agent) effectivePermissionOf(t types.Tool) types.Permission {
 	if a.Gate != nil {
 		return a.Gate.EffectivePermission(t)
@@ -213,10 +180,6 @@ func (a *Agent) effectivePermissionOf(t types.Tool) types.Permission {
 	return t.Permission()
 }
 
-// ---------- 坑 2：只会聊不会交付 ----------
-
-// checkDelivery 交付能力 = 真实工具（能改能跑）+ 验收门禁（知道什么叫完成）+ 结构化结果。
-// 三者缺一，产出就只剩"一段看起来像答案的文本"。
 func (a *Agent) checkDelivery() ReadinessItem {
 	readonly, writable, executable := 0, 0, 0
 	toolCount := 0
@@ -265,11 +228,6 @@ func (a *Agent) checkDelivery() ReadinessItem {
 	return it
 }
 
-// ---------- 坑 3：模型与能力锁定 ----------
-
-// checkModelLock 锁不锁死，看的是"换模型要不要改代码"。
-// 厂商目录 + 多协议 + 场景档位这三样都在配置里，换厂商就是改一行配置。
-// 真正会被锁死的是"只用了一个模型"——机制在，但没用起来。
 func (a *Agent) checkModelLock() ReadinessItem {
 	tiers := a.Cfg.LLM.Tiers
 	names := make([]string, 0, len(tiers))
@@ -296,8 +254,6 @@ func (a *Agent) checkModelLock() ReadinessItem {
 	if a.FastLLM != nil {
 		fast = a.FastLLM.Name()
 	}
-	// 验收模型单独报一行：回退与换成功都会返回一个可用客户端，光看有没有客户端看不出区别，
-	// 所以这里明说"换没换成"——独立验收要么是可核对的事实，要么就承认没有。
 	verifyDesc := fmt.Sprintf("%s（与执行者同源：%s 档未配置或与执行者同模型）", a.VerifyModel(""), DefaultVerifyTier)
 	if a.verifyIndependent("") {
 		verifyDesc = fmt.Sprintf("%s（与执行者不同档，独立验收生效）", a.VerifyModel(""))
@@ -330,10 +286,6 @@ func (a *Agent) checkModelLock() ReadinessItem {
 	return it
 }
 
-// ---------- 坑 4：权限与审计割裂 ----------
-
-// checkAuditSplit 坑的原话是"不同的入口使用的权限跟日志其实是不同的"。
-// 所以要看两件事：工具是否全在同一张权限表里，以及被拦截的动作是否留了痕。
 func (a *Agent) checkAuditSplit() ReadinessItem {
 	if a.Gate == nil {
 		return ReadinessItem{
@@ -357,7 +309,6 @@ func (a *Agent) checkAuditSplit() ReadinessItem {
 			}
 		}
 	}
-	// ToolList 是界面与门控共用的那份视图：两者条数不一致，说明有工具漏出了权限表。
 	listed := len(a.ToolList())
 
 	audit := a.Gate.RecentAudit(1 << 20)
@@ -370,7 +321,6 @@ func (a *Agent) checkAuditSplit() ReadinessItem {
 			approved++
 		}
 	}
-	// 完全放行的工具始终需要人工批准；没有审批通道时它们会被自动拒绝。
 	_, nop := a.Notifier.(NopNotifier)
 	hasChannel := a.Notifier != nil && !nop
 	channelDesc := "已接入"
@@ -404,11 +354,6 @@ func (a *Agent) checkAuditSplit() ReadinessItem {
 	return it
 }
 
-// ---------- 坑 5：最佳实践不可复制 ----------
-
-// checkPracticeReuse 最佳实践要能横向复制，得先有"可复制的单位"。
-// Gleam 里有两个：场景模板（一次说清某个场景的提示/验收/格式/工具/档位）
-// 和技能（一次沉淀一套可重复执行的做法）。
 func (a *Agent) checkPracticeReuse() ReadinessItem {
 	roles := RoleList()
 	complete := 0
@@ -452,10 +397,6 @@ func (a *Agent) checkPracticeReuse() ReadinessItem {
 	return it
 }
 
-// ---------- 坑 6：体验与业务脱节 ----------
-
-// checkBusinessGap 坑的原话是"Agent 不理解当前的用户对象、流程和审批"。
-// 对应的可测信号：角色（服务对象与产出格式）+ 工作区（业务上下文边界）+ 空间（按业务隔离）。
 func (a *Agent) checkBusinessGap() ReadinessItem {
 	roles := RoleList()
 	spaces, convos := 0, 0
@@ -500,15 +441,7 @@ func (a *Agent) checkBusinessGap() ReadinessItem {
 	return it
 }
 
-// ---------- 坑 7：模型调用缓存不可控 ----------
-
-// checkCacheControl 坑的原话是"很难充分复用服务端的缓存机制来提高缓存率"。
-// 提示词前缀缓存要求**逐字节相同的最长公共前缀**，所以这一项的根子是提示词布局：
-// 稳定段必须在易变段之前。这里用两个不同目标 + 两个不同工作目录实测，
-// 让布局退化能被回归发现。
 func (a *Agent) checkCacheControl() ReadinessItem {
-	// 没有注册表就构建不出提示词，这一项无从实测。
-	// 要如实说"测不了"，而不是把它算成"布局退化"——归因错了比不报更糟。
 	if a.Reg == nil {
 		return ReadinessItem{
 			Status:  ReadyFail,
@@ -566,18 +499,9 @@ func (a *Agent) checkCacheControl() ReadinessItem {
 }
 
 const (
-	// cacheCoverageWarn 公共前缀占较短提示词的比例下限。
-	// 低于它说明请求里大部分内容都是一次性的，缓存省不下多少——
-	// 但这只是收益问题，不是机制失效，所以是 warn。
 	cacheCoverageWarn = 0.25
 )
 
-// stablePromptMarkers 稳定段的标志性小节标题。
-// 它们必须全部落在公共前缀之内：只要有一个落到公共前缀之外，
-// 就说明它前面被塞进了易变内容，缓存从那里往后全部作废。
-//
-// 注意这里**不含**末尾的输出提醒——它是刻意放在易变段之后的，
-// 为的是让"只输出 JSON"这条约束离生成点更近。
 var stablePromptMarkers = []string{
 	"## 输出格式",
 	"## 规划规则",
@@ -587,13 +511,6 @@ var stablePromptMarkers = []string{
 	"## 专家角色：",
 }
 
-// cacheStatus 判定提示词缓存的健康状况。
-//
-// 判定顺序是有意为之，也修正过一个错判：先看**布局对不对**（这才是"缓存不可控"的根因），
-// 再看稳定段**够不够大**（决定值不值得缓存），最后才看**占比**（决定省得多不多）。
-//
-// 早先只看占比，结果 21 个真实工具时稳定段 2448 字符、布局完全正确，
-// 却因为按目标筛出的工具 schema 尾巴很长而被判 warn——占比低不等于布局坏。
 func cacheStatus(layoutOK bool, stable int, ratio float64) ReadinessStatus {
 	switch {
 	case !layoutOK:
@@ -607,7 +524,6 @@ func cacheStatus(layoutOK bool, stable int, ratio float64) ReadinessStatus {
 	}
 }
 
-// layoutCoversStable 判断公共前缀是否覆盖了全部稳定段。
 func layoutCoversStable(prefix, prompt string) bool {
 	for _, m := range stablePromptMarkers {
 		if strings.Contains(prompt, m) && !strings.Contains(prefix, m) {
@@ -617,14 +533,6 @@ func layoutCoversStable(prefix, prompt string) bool {
 	return true
 }
 
-// measurePromptPrefix 实测系统提示词的公共前缀。
-//
-// 两个样本刻意同时变两样东西：目标（真实使用中最常见的变化）
-// 和工作目录（换了项目就会变）。只变目标的话，如果哪天上游把工作目录
-// 挪到了提示词前部，两份样本的工作目录相同、公共前缀照样能穿过去，
-// 这个检查就会漏掉——同时变两样才拦得住。
-//
-// 返回：公共前缀字符数、较短提示词长度、两份提示词各自长度、布局是否覆盖完整稳定段。
 func (a *Agent) measurePromptPrefix() (stable, shortest, lenA, lenB int, layoutOK bool) {
 	if a.Reg == nil {
 		return 0, 0, 0, 0, false
@@ -659,8 +567,6 @@ func (a *Agent) measurePromptPrefix() (stable, shortest, lenA, lenB int, layoutO
 	return stable, shortest, len(ra), len(rb), layoutOK
 }
 
-// aggregateUsage 汇总当前仍保留在内存中的全部任务用量。
-// 已淘汰的任务不在其中，所以这是"近期样本"而非"历史总量"。
 func (a *Agent) aggregateUsage() types.TaskUsage {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
@@ -679,10 +585,6 @@ func (a *Agent) aggregateUsage() types.TaskUsage {
 	return out
 }
 
-// ---------- 坑 8：缺少健康迭代的简单架构 ----------
-
-// checkIterationArch 持续迭代的前提是"看得见自己跑得怎么样"。
-// 成长日志把每次任务的评分、耗时、token、技能使用都记下来，健康度才有依据。
 func (a *Agent) checkIterationArch() ReadinessItem {
 	if a.Growth == nil {
 		return ReadinessItem{
@@ -717,10 +619,6 @@ func (a *Agent) checkIterationArch() ReadinessItem {
 	return it
 }
 
-// ---------- 坑 9：可扩展架构与压缩记忆 ----------
-
-// checkExtensibleMemory 长任务撑不撑得住，取决于记忆是不是"压缩"的——
-// 超出窗口的对话被摘要而不是丢弃，上下文才不会随任务长度线性膨胀。
 func (a *Agent) checkExtensibleMemory() ReadinessItem {
 	if a.Mem == nil {
 		return ReadinessItem{
@@ -748,15 +646,6 @@ func (a *Agent) checkExtensibleMemory() ReadinessItem {
 		"压缩机制：超出窗口的对话被摘要进滚动上下文，而不是直接丢弃",
 	}
 
-	// 状态占比实测（站点判据：状态段 > 60% 即上下文膨胀）。
-	// 用一份合成的满载样本（6 轮对话 + 满额摘要 + 3 条记忆命中）测提示词四成分的占比——
-	// 只记总字符数时这类膨胀无从定位，分段才能回答"是哪一段在涨"。
-	// 计量单位是字节（b.Len()），中文一段顶三倍字节，判据线按字节校准：
-	// 占比 > 60% **且** 总量 > 20000 字节（≈ 六七千汉字）。只看占比会在小注册表上
-	// 误报——工具少时能力段天然小，状态占比必然高，但两千来字节谈不上"淹没"；
-	// 60% 这条线是给有分量的提示词准备的。它真正的守卫对象是注入上限
-	// （Recent 轮数、摘要上限、每轮截断）被调大后没有人重新看过占比——
-	// 那时总量与占比会同时越过线。
 	bd := a.sampleStateShare()
 	ev = append(ev, fmt.Sprintf("状态占比实测：满载样本下状态段 %d / 提示词总 %d 字节（%.0f%%，判据线 60%% 且总量 > 20000 字节）",
 		bd.State, bd.Total, bd.StateShare()*100))
@@ -778,10 +667,6 @@ func (a *Agent) checkExtensibleMemory() ReadinessItem {
 	return it
 }
 
-// sampleStateShare 用合成的满载状态样本实测提示词分段。
-// 样本按注入上限取满（每轮取截断上限、摘要取上限、记忆取满命中数）——
-// 膨胀总发生在满载时，空载样本只会给出一个永远健康的假数字。
-// 返回完整 breakdown：占比之外，总量本身也是判据的一部分。
 func (a *Agent) sampleStateShare() types.ContextBreakdown {
 	if a.Reg == nil {
 		return types.ContextBreakdown{}
@@ -801,7 +686,6 @@ func (a *Agent) sampleStateShare() types.ContextBreakdown {
 		if i%2 == 1 {
 			role = "assistant"
 		}
-		// 每轮取截断上限：注入的对话都会被 Shorten 到这个长度
 		recent = append(recent, memory.Turn{Role: role, Content: strings.Repeat("这", turnContentCap)})
 	}
 	summary := strings.Repeat("这", summaryInjectCap)
@@ -813,7 +697,6 @@ func (a *Agent) sampleStateShare() types.ContextBreakdown {
 	return bd
 }
 
-// SummaryLine 一行摘要，供 CLI 与日志使用。
 func (r ReadinessReport) SummaryLine() string {
 	return fmt.Sprintf("就绪体检 %d/%d 通过，%d 项待改进，%d 项不合格（%s）",
 		r.Passed, r.Total, r.Warned, r.Failed, r.Verdict)

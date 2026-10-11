@@ -1,10 +1,3 @@
-// Tools：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 的 $ / api / toast / el / esc 等，所以必须排在 app.js 之后；
-// app.js 的 VIEW_LOADERS 用 `tools: () => loadTools()` 惰性引用（那个 const 在 app.js 解析期就求值，
-// 直接写 `tools: loadTools` 会 ReferenceError）。
-
-/* ---------- 工具 ---------- */
 async function loadTools() {
   const list = $('#tools-list');
   list.innerHTML = '<div class="skeleton" style="height:56px"></div>';
@@ -56,8 +49,6 @@ async function loadTools() {
   }
 }
 
-// schemaSummary（L6，2026-09-23 QA）：JSON Schema 直 dump 对不写代码的人是天书，
-// 先渲染「参数名 · 类型 · 必填 · 一句话说明」表，原始 JSON 收进二级折叠。
 function schemaSummary(schema) {
   const props = schema && schema.properties;
   if (!props || !Object.keys(props).length)

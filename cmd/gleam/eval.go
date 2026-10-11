@@ -13,21 +13,6 @@ import (
 	"gleam/internal/eval"
 )
 
-// cmdEval 提示词与行为回归评测。
-//
-// 存在的理由：提示词的稳定段被服务端前缀缓存折扣过，"给提示词做减法"的收益不在省钱，
-// 而在减少注意力稀释——**这件事没法用"省了多少字节"论证，只能靠评测回答"删了会不会变差"**。
-// 没有评测就删规则，是赌博不是工程。
-//
-// 三个深度由浅入深：
-//
-//	select  只跑工具筛选（本地关键词打分），零模型调用、确定性、可离线进 CI
-//	plan    跑到计划，断言计划里的工具与结构（需要模型）
-//	full    跑完整目标（规划+执行+反思），会真的动工具（需要模型）
-//
-// 默认 select：它是唯一不花钱、不联网、结果可复现的深度，也是提示词与工具描述改动
-// 最容易悄悄弄坏的那一层——把某个工具的说明改短到丢了关键词，相关目标就再也选不到它，
-// 而计划看起来仍然"正常"。plan / full 留给人手动跑，或在配了真实模型的环境里跑。
 func cmdEval(args []string) error {
 	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 	configPath := fs.String("config", "", "配置文件路径")
@@ -61,9 +46,6 @@ func cmdEval(args []string) error {
 		return fmt.Errorf("未知深度 %q（可选 select|plan|full）", *depth)
 	}
 
-	// full 深度会真的执行工具（写文件、写记忆）。默认把它关进临时目录，
-	// 免得一次评测把用户的工作区和长期记忆搅了——那个代价比评测本身大得多。
-	// 用户显式传了 --workspace / --data-dir 就尊重用户的选择。
 	var tempDirs []string
 	if d == eval.DepthFull {
 		if *workspace == "" {
@@ -98,8 +80,6 @@ func cmdEval(args []string) error {
 	}
 	defer rt.cleanup()
 
-	// badcase 回流（P3-3）：失败任务 → 用例草稿。期望留占位由人工补——
-	// 机器不知道"应该是什么样"，只有知道这条任务为什么失败的人知道。
 	if *emitCase != "" {
 		return emitCaseDraft(rt.cfg.DataDir, *emitCase)
 	}
@@ -125,15 +105,12 @@ func cmdEval(args []string) error {
 		Repeat: *repeat,
 		OnCase: func(res eval.CaseResult) {
 			if *asJSON {
-				return // JSON 模式下别把过程混进输出
+				return
 			}
-			// 保留池不逐条播报——它是"没被盯着调的样本"，看了单条就会忍不住调它
 			if res.Holdout {
 				return
 			}
 			mark := evalMark(res)
-			// 不稳的用例单独标出来：它的绿可能只是掷硬币掷出来的，
-			// 与"稳定通过"不该长得一样。
 			if !res.Stable {
 				mark += " [不稳]"
 			}
@@ -142,7 +119,6 @@ func cmdEval(args []string) error {
 	}
 	rep := runner.Run(context.Background(), cases)
 
-	// 先存基线（不带 diff，基线文件里不该留"与上一次对比"的结果），再对比。
 	if *save != "" {
 		if err := eval.SaveBaseline(*save, rep); err != nil {
 			return err
@@ -178,7 +154,6 @@ func cmdEval(args []string) error {
 	return evalGateErr(rep, *strict, hasBaseline)
 }
 
-// loadEvalCases 取用例集：给了文件就用文件，否则用内置。
 func loadEvalCases(path string) ([]eval.Case, error) {
 	if path != "" {
 		return eval.LoadCases(path)
@@ -186,11 +161,6 @@ func loadEvalCases(path string) ([]eval.Case, error) {
 	return eval.BuiltinCases()
 }
 
-// emitCaseDraft 把一条失败任务转成用例草稿（badcase 回流，P3-3 / 站点 H4、H5）。
-//
-// 只填机器知道的（goal、实际用到的工具），期望行为留占位由人工补——
-// 站点 H4 的警告必须落在草稿上：只有工程问题进回归集；"换更强模型会不会消失"
-// 是区分研究问题与工程问题的第一问，写进 note 让回流的人先回答它再入库。
 func emitCaseDraft(dataDir, taskID string) error {
 	path := agent.TaskArchivePath(dataDir, taskID)
 	if path == "" {
@@ -207,13 +177,12 @@ func emitCaseDraft(dataDir, taskID string) error {
 	draft := eval.Case{
 		ID:       "bc-" + taskID,
 		Goal:     g.Goal,
-		Role:     "", // 占位：这条任务当时用的专家角色，人工确认后填
+		Role:     "",
 		TaskMode: "",
 		Note: fmt.Sprintf(
 			"badcase 回流自任务 %s（状态 %s，trace %s）。【先回答】：换更强模型这个问题会不会消失？会→研究问题，不进回归集；不会→工程问题，补齐期望后入库。期望行为写成可判定的结构（要什么/不要什么），不要写期望文本。",
 			taskID, g.Status, g.TraceID),
 	}
-	// 实际用到的工具：失败的证据先留下来，期望从"曾选到什么"开始反推
 	seen := map[string]bool{}
 	for _, st := range g.Steps {
 		if st.Tool == "" || seen[st.Tool] {
@@ -241,11 +210,6 @@ func emitCaseDraft(dataDir, taskID string) error {
 	return nil
 }
 
-// evalGateErr --strict 时的门禁判定。
-//
-// 给了基线就只卡「回归」（基线绿、现在红）——那是改动弄坏了东西的硬证据；
-// 没给基线才退而卡「有用例未过」。之所以不一律卡未过：用例集里允许存在
-// 已知未过的用例（记录待修问题），一律卡会逼人把 --strict 整个去掉，门禁就废了。
 func evalGateErr(rep eval.Report, strict, hasBaseline bool) error {
 	if !strict {
 		return nil
@@ -264,10 +228,6 @@ func evalGateErr(rep eval.Report, strict, hasBaseline bool) error {
 	return nil
 }
 
-// renderEvalReport 把报告排成人能读的文本。
-//
-// 未过项连同逐条断言的实测值一起打出来：评测的价值在于"差在哪"，
-// 只报通过率会让人回头再手工复现一遍，那就白跑了。
 func renderEvalReport(rep eval.Report, total int) string {
 	var b strings.Builder
 
@@ -285,7 +245,6 @@ func renderEvalReport(rep eval.Report, total int) string {
 	fmt.Fprintln(&b)
 
 	for _, c := range rep.Cases {
-		// 保留池只进聚合、不展示单条结果：单条被反复看，就会被反复调（H13）
 		if c.Holdout {
 			continue
 		}
@@ -294,8 +253,6 @@ func renderEvalReport(rep eval.Report, total int) string {
 			mark += " [不稳]"
 		}
 		fmt.Fprintf(&b, "  %s %s\n", mark, c.ID)
-		// 不稳的用例必须自己解释自己：抖的是哪一部分（通过与否 / 步数 / 用了哪些工具）。
-		// 不写这一行，读报告的人只能自己再手工重跑几遍，那就白跑了。
 		if !c.Stable {
 			fmt.Fprintf(&b, "          重跑 %d 遍得到 %d 种结果：%s\n",
 				c.Runs, len(c.Variants), strings.Join(c.Variants, "；"))
@@ -327,8 +284,6 @@ func renderEvalReport(rep eval.Report, total int) string {
 		fmt.Fprintf(&b, " / %d 已知问题", rep.Known)
 	}
 	fmt.Fprintf(&b, "（提示词合计 %d 字符）\n", rep.PromptChars)
-	// 用量紧跟在提示词字符数后面，**同一段呈现**：一个是成本代理、一个是成本本体。
-	// 分开写会让人只看到其中一个，然后拿它当全部。
 	switch {
 	case rep.Usage != nil:
 		fmt.Fprintf(&b, "用量：%d 次模型调用，%d token（输入 %d / 输出 %d",
@@ -338,7 +293,6 @@ func renderEvalReport(rep eval.Report, total int) string {
 		}
 		fmt.Fprintf(&b, "），%d 次工具调用", rep.Usage.ToolCalls)
 		if rep.Usage.EstimatedCalls > 0 {
-			// 估出来的值必须自己说自己是估的——不说，这行 token 看起来像实测值。
 			fmt.Fprintf(&b, "；其中 %d 次调用的 token 为估算值", rep.Usage.EstimatedCalls)
 		}
 		fmt.Fprintln(&b)
@@ -346,16 +300,12 @@ func renderEvalReport(rep eval.Report, total int) string {
 			fmt.Fprintf(&b, "  含 --repeat %d 的每一遍：重跑也真的调了模型，所以一并计入\n", rep.RepeatN)
 		}
 	case rep.Depth == eval.DepthPlan:
-		// plan 深度**会**调模型（规划那一次），但它的调用不经过 RunGoal、没有 taskID 登记，
-		// 因此归集不到用例上。这是缺口，不是 0——不写这一句，读的人会把
-		// "没有用量这一行"当成"这批评测没花钱"。
 		fmt.Fprintln(&b, "用量：未计量（plan 深度的规划调用不经过 RunGoal，没有归集到用例上）")
 	}
 	if rep.HoldoutTotal > 0 {
 		fmt.Fprintf(&b, "保留池：%d/%d 通过（%d 条，单条结果不展示——防止调参过拟合到看得见的用例）\n",
 			rep.HoldoutPassed, rep.HoldoutTotal, rep.HoldoutTotal)
 	}
-	// 可重复性单独一行，且明确写出它与通过率的关系——两个数不能互相替代。
 	if rep.Repeatability != nil {
 		fmt.Fprintf(&b, "可重复性：%.0f%%（%d/%d 条用例重跑 %d 遍结果完全一致）\n",
 			*rep.Repeatability*100, rep.StableCases, rep.Total, rep.RepeatN)
@@ -367,8 +317,6 @@ func renderEvalReport(rep eval.Report, total int) string {
 			fmt.Fprintln(&b, "  通过率回答「对不对」，可重复性回答「稳不稳」——两者都达标，结论才可归因。")
 		}
 	}
-	// 指标口径三要素：分子（Passed）、分母（Attempted，不含不可解）、边界（深度）。
-	// 分母不说清楚，"通过率 80%"与"可解样本通过率 60%"能差出二十个百分点。
 	if rep.Unsolvable > 0 {
 		rate := 0.0
 		if rep.Attempted > 0 {
@@ -411,8 +359,6 @@ func renderEvalReport(rep eval.Report, total int) string {
 	return b.String()
 }
 
-// evalMark 终端标记（纯文本，避免控制台字体缺字形）。
-// 已知问题单独一档：它也是红的，但红的原因已经查清并记在用例里，不该与回归混为一谈。
 func evalMark(c eval.CaseResult) string {
 	switch {
 	case c.Passed:

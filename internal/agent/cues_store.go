@@ -1,11 +1,5 @@
 package agent
 
-// cues_store.go — 候补目标的**处置记录**：只有人的决定才落盘，卡片本身不落盘。
-//
-// 卡片是任务历史的一个函数（见 cues.go），历史没变重算一次还是那几张；要落盘的只有
-// 「别再提」和「已采纳」。反过来说：卡片若也落盘，它就必须有人负责删除，而
-// 「登记类结构的消失不跟着它所服务的事走」是这个仓库反复栽过的那一条。
-
 import (
 	"encoding/json"
 	"fmt"
@@ -18,15 +12,11 @@ import (
 	"gleam/internal/atomicfile"
 )
 
-// CueSuppression 一条处置记录。**只落人的决定，不落卡片上的话**：
-// Title/Goal 曾经也在这里，但那是显示文案——落盘就把记录当时的语言冻进了文件，
-// 换个语言看「已按下」列表就是一页混排；而且卡片本该是历史的函数（见文件头），
-// 把它抄进记录等于给显示文案找到了第二个家。显示侧的说法现算（见 list）。
 type CueSuppression struct {
 	Fingerprint string `json:"fingerprint"`
 	Signal      string `json:"signal"`
 	At          string `json:"at"`
-	Reason      string `json:"reason"` // dismissed 别再提 · adopted 已采纳
+	Reason      string `json:"reason"`
 }
 
 const (
@@ -34,14 +24,11 @@ const (
 	cueAdopted   = "adopted"
 )
 
-// cueStore 内存里的一份处置表，落盘在 <DataDir>/cues.json。
 type cueStore struct {
 	mu   sync.Mutex
 	path string
 	Sup  []CueSuppression
 
-	// lastErr 上一次写盘失败的原因。读侧要能回答「为什么这条别再提没生效」——
-	// 静默吞掉写失败等于替用户决定「它其实还会再来」。
 	lastErr error
 }
 
@@ -49,10 +36,6 @@ func cueStorePath(dataDir string) string {
 	return filepath.Join(dataDir, "cues.json")
 }
 
-// loadCueStore 读一次处置表。
-//
-// 文件不存在 = 还没人做过任何处置，这是常态不是错误；读不动 = 记下来并照空表走，
-// 让这一页照常算得出卡：坏一条记录不该把整页变成「没有线索」。
 func loadCueStore(dataDir string) *cueStore {
 	st := &cueStore{path: cueStorePath(dataDir)}
 	b, err := os.ReadFile(st.path)
@@ -82,11 +65,6 @@ func (s *cueStore) muted(fp string) bool {
 	return false
 }
 
-// list 按时间倒序给出处置记录：撤销入口在界面末尾，最新的那条才够得着。
-//
-// 返回的是**给视图的那一份**：信号与原因是现取的人话，Title/Goal 也按当前界面语言
-// 现算——拿 cards（调用方刚派生出的未过滤全集）按指纹回填；那段历史已经不在的，
-// 如实说"这条不再成立"，不硬凑一句可能对不上的旧话。
 func (s *cueStore) list(en bool, cards []CueRow) []CueSuppressedRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,8 +94,6 @@ func (s *cueStore) list(en bool, cards []CueRow) []CueSuppressedRow {
 	return out
 }
 
-// cueReasonText 处置原因的人话。取值只有两个，但这里仍然是一处一份：
-// 界面按这个字段印，别处再译一版就会和记录它对不上。中英两份并排（bi）。
 func cueReasonText(reason string, en bool) string {
 	switch reason {
 	case cueDismissed:
@@ -128,7 +104,6 @@ func cueReasonText(reason string, en bool) string {
 	return reason
 }
 
-// note 把写盘失败如实说给界面。
 func (s *cueStore) note(en bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -141,7 +116,6 @@ func (s *cueStore) note(en bool) string {
 	}.pick(en), s.lastErr)
 }
 
-// record 记一条处置并落盘；同一指纹重复记只留最新的一条。
 func (s *cueStore) record(row CueRow, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -160,7 +134,6 @@ func (s *cueStore) record(row CueRow, reason string) error {
 	return s.flushLocked()
 }
 
-// clear 撤掉一条处置：点错「别再提」要能反悔，否则抑制会变成永久静默。
 func (s *cueStore) clear(fp string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -190,7 +163,6 @@ func (s *cueStore) flushLocked() error {
 		s.lastErr = err
 		return err
 	}
-	// 0600：指纹从目标原文派生，这份表属于「用户说过什么」的痕迹那一类，与写前快照同权限。
 	if err := atomicfile.Write(s.path, b, 0o600); err != nil {
 		s.lastErr = err
 		return err
@@ -199,15 +171,8 @@ func (s *cueStore) flushLocked() error {
 	return nil
 }
 
-// ---------- 门面（供接入层调用） ----------
-
-// CueDismiss 「别再提这一条」：落盘，之后每次重算都按指纹过滤掉。
 func (a *Agent) CueDismiss(id string) error { return a.cueRecord(id, cueDismissed) }
 
-// CueAdopt 记一条「这条已经交给用户了」——它**不提交任务**。
-//
-// 采纳的实际动作发生在输入区：界面把 goal 填进去，按回车的那一下才是执行，
-// 那一次会留下正常的任务归档。这里只负责让这张卡不再重复浮出来。
 func (a *Agent) CueAdopt(id string) error { return a.cueRecord(id, cueAdopted) }
 
 func (a *Agent) cueRecord(id, reason string) error {
@@ -222,7 +187,6 @@ func (a *Agent) cueRecord(id, reason string) error {
 	return fmt.Errorf("这条候补目标已经不成立了（历史变了，或它已被裁剪）")
 }
 
-// CueUnsuppress 撤销一条处置：对应的卡会重新浮出来（前提是那段历史还在）。
 func (a *Agent) CueUnsuppress(fp string) error {
 	if fp == "" {
 		return fmt.Errorf("缺少处置记录编号")
@@ -238,8 +202,6 @@ func (a *Agent) CueUnsuppress(fp string) error {
 	return nil
 }
 
-// cueRowsAll 忽略抑制算出全部卡片：处置入口要能找到**刚被记进去**的那张卡，
-// 而 CueView 是给人看的那一份（已过滤、已截配额）。这里只按 ID 对卡，语言无所谓。
 func (a *Agent) cueRowsAll() []CueRow {
 	results, _, err := ListTaskResults(a.Cfg.DataDir, cueTaskScan)
 	if err != nil {

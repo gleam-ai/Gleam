@@ -11,14 +11,10 @@ import (
 	"gleam/pkg/types"
 )
 
-// toolSections 把「能力菜单」与「本次可用工具 schema」两段拼起来。
-// 代码里把它们拆开，是为了让不随目标变化的能力菜单落进提示词的稳定段
-// （见 buildSystemPrompt 的缓存布局注释）；但断言"模型最终看到什么"时，两段是一体的。
 func toolSections(p *Planner, goal string) string {
 	return p.toolMenuSection() + p.toolSchemaSection(goal)
 }
 
-// menuRegistry 造一批工具，名称带序号便于断言（reply 固定存在）。
 func menuRegistry(n int) *registry.Registry {
 	r := registry.New()
 	r.MustRegister(&funcTool{name: "reply", perm: types.PermissionReadOnly,
@@ -36,7 +32,6 @@ func menuRegistry(n int) *registry.Registry {
 	return r
 }
 
-// fakeTool 带描述的工具，用于关键词打分测试。
 type fakeTool struct {
 	name string
 	desc string
@@ -54,7 +49,7 @@ func TestToolMenu_UnderThresholdKeepsFullSchemas(t *testing.T) {
 	if strings.Contains(sec, "能力菜单") {
 		t.Error("工具数在上限内不应切换为菜单模式")
 	}
-	if got := strings.Count(sec, " | 参数："); got != 5 { // reply + 4
+	if got := strings.Count(sec, " | 参数："); got != 5 {
 		t.Errorf("应全量注入 5 个 schema，实际 %d", got)
 	}
 }
@@ -76,7 +71,6 @@ func TestToolMenu_OverThresholdUsesMenu(t *testing.T) {
 func TestToolMenu_AlwaysKeepsReply(t *testing.T) {
 	p := &Planner{Reg: menuRegistry(20), MaxToolSchemas: 5}
 	sec := toolSections(p, "做点跟文件无关的事")
-	// reply 是几乎所有计划的收尾步骤，必须始终可用
 	if !strings.Contains(sec, "- reply：") {
 		t.Error("reply 必须始终附完整 schema")
 	}
@@ -90,8 +84,6 @@ func TestToolMenu_NoToolLeftBehindWhenLimitLarge(t *testing.T) {
 	}
 }
 
-// TestToolMenu_ForceToolsAlwaysIncluded 本任务此前用过的工具必须始终带上 schema——
-// 菜单模式有漏筛风险，用过的工具下一轮多半还得用，不能让它靠猜参数。
 func TestToolMenu_ForceToolsAlwaysIncluded(t *testing.T) {
 	r := menuRegistry(20)
 	r.MustRegister(&fakeTool{name: "web.fetch", desc: "抓取网页内容"})
@@ -106,7 +98,6 @@ func TestToolMenu_ForceToolsAlwaysIncluded(t *testing.T) {
 	}
 }
 
-// TestToolMenu_ForceToolsRespectLimit 强制保留也不能突破上限以外的顺序：上限内先满足强制项。
 func TestToolMenu_ForceToolsRespectLimit(t *testing.T) {
 	r := menuRegistry(20)
 	r.MustRegister(&fakeTool{name: "web.fetch", desc: "抓取网页内容"})
@@ -120,7 +111,6 @@ func TestToolMenu_ForceToolsRespectLimit(t *testing.T) {
 	}
 }
 
-// TestToolMenu_ShrinksPrompt 菜单模式要真的省下提示词体积（这才是它的意义）。
 func TestToolMenu_ShrinksPrompt(t *testing.T) {
 	reg := menuRegistry(20)
 	full := toolSections(&Planner{Reg: reg, MaxToolSchemas: 0}, "读文件")
@@ -171,7 +161,6 @@ func TestScoreToolNames_EmptyGoalFallsBack(t *testing.T) {
 	}
 }
 
-// TestToolMenu_HelperScreeningUsed 配了辅助模型时用它快筛，省主模型的 token。
 func TestToolMenu_HelperScreeningUsed(t *testing.T) {
 	helper := llm.NewMock()
 	helper.Enqueue("tool_pick", `["web.fetch","file.read"]`)
@@ -188,7 +177,6 @@ func TestToolMenu_HelperScreeningUsed(t *testing.T) {
 	}
 }
 
-// TestToolMenu_HelperFailureFallsBackToLocal 快筛失败时不能让规划器无工具可用。
 func TestToolMenu_HelperFailureFallsBackToLocal(t *testing.T) {
 	helper := llm.NewMock()
 	helper.FailNext(errScreeningDown)
@@ -205,7 +193,6 @@ type screeningError struct{}
 
 func (e *screeningError) Error() string { return "辅助模型不可用" }
 
-// TestToolMenu_SectionIsValidJSONSchemas 注入的 schema 必须是可解析的 JSON，不能拼坏。
 func TestToolMenu_SectionIsValidJSONSchemas(t *testing.T) {
 	p := &Planner{Reg: menuRegistry(20), MaxToolSchemas: 5}
 	sec := toolSections(p, "x")

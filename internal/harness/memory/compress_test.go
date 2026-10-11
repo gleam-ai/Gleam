@@ -44,7 +44,6 @@ func TestManager_CompressUsesLLMSummary(t *testing.T) {
 	if !strings.Contains(m.Summary(), "LLM 摘要") {
 		t.Errorf("摘要 = %q", m.Summary())
 	}
-	// 溢出区已清空：再次压缩返回 false
 	if m.Compress(nil) {
 		t.Error("空溢出区不应再次压缩")
 	}
@@ -105,8 +104,8 @@ func TestShortTerm_Oldest(t *testing.T) {
 	}
 	s.Add("user", "a")
 	s.Add("user", "b")
-	s.Add("user", "c") // 满
-	s.Add("user", "d") // 覆盖 a
+	s.Add("user", "c")
+	s.Add("user", "d")
 	if old, ok := s.Oldest(); !ok || old.Content != "b" {
 		t.Errorf("最旧 = %+v ok=%v，应为 b", old, ok)
 	}
@@ -133,7 +132,6 @@ func TestManager_StatsAndClearSummary(t *testing.T) {
 	if st3.Summary != "" || st3.Overflow != 0 {
 		t.Errorf("清空后 stats = %+v", st3)
 	}
-	// 清空后重启不恢复旧摘要
 	m2, _ := Open(m.dir, 3, 64, 100)
 	if s := m2.Summary(); s != "" {
 		t.Errorf("清空后重开仍有摘要: %q", s)

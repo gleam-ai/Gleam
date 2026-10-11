@@ -8,8 +8,6 @@ import (
 	"gleam/internal/desktop"
 )
 
-// ---------- 云端账号 ----------
-
 func (s *Server) handleAccountGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, s.Agent.AuthSession())
 }
@@ -70,8 +68,6 @@ func (s *Server) handleAccountSignOut(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, s.Agent.AuthSession())
 }
 
-// handleAccountOAuth 启动第三方登录：后端起本地回环，返回授权地址并用系统浏览器打开。
-// 授权完成令牌自动落本地凭证，前端随后轮询 /api/account。
 func (s *Server) handleAccountOAuth(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Provider string `json:"provider"`
@@ -85,12 +81,9 @@ func (s *Server) handleAccountOAuth(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "%s", err.Error())
 		return
 	}
-	// 用系统默认浏览器打开授权页（而非应用内窗口），完成后回环自动收码。
 	_ = desktop.OpenURL(u)
 	writeJSON(w, 200, map[string]any{"auth_url": u})
 }
-
-// ---------- 本地数据 ----------
 
 func (s *Server) handleLocalData(w http.ResponseWriter, _ *http.Request) {
 	dataDir := s.Agent.DataDir()

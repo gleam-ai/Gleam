@@ -9,10 +9,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// 等级公式里 skill_created 占 20 分、skill_used 占 5 分，而这两类事件此前**没有生产者**：
-// 面板上的「技能」与等级永远数不出技能这条腿。这里钉住的事件口径是
-// 「一条技能入库记一次、一次跑通的复用记一次」——不是「每次写文件都记一次」。
-
 func countType(g *growth.Log, typ string) int {
 	n := 0
 	for _, e := range g.All() {
@@ -41,7 +37,6 @@ func oneStepSkill(name string) skill.Skill {
 	}
 }
 
-// 首次落库记一次；改版本、装模板、强制重装都不该再记——否则等级会被「保存了几次」刷上去。
 func TestSkillGrowth_CreatedFiresOncePerSkill(t *testing.T) {
 	f := newFixture(t, nil)
 	g := withGrowth(t, f)
@@ -67,7 +62,6 @@ func TestSkillGrowth_CreatedFiresOncePerSkill(t *testing.T) {
 	if n := countType(g, "skill_created"); n != 3 {
 		t.Fatalf("装模板也是一条新技能入库，应记 3 条，记了 %d", n)
 	}
-	// 强制重装：模板盖掉本地，版本号涨了但技能没变多。
 	if v, err := f.a.SkillInstallPreset("quick-note", true); err != nil || v != 2 {
 		t.Fatalf("强制重装应 v2，got v%d err%v", v, err)
 	}
@@ -79,8 +73,6 @@ func TestSkillGrowth_CreatedFiresOncePerSkill(t *testing.T) {
 	}
 }
 
-// 绕过门面直接写 store 的那条路不再存在（service / handler / 自动优化都走 SkillSave）。
-// 这条断言挡的是「将来有人新加一条写技能的路，忘了记事件」。
 func TestSkillGrowth_AutoOptimizeDoesNotRecount(t *testing.T) {
 	f := newFixture(t, nil)
 	g := withGrowth(t, f)
@@ -100,7 +92,6 @@ func TestSkillGrowth_AutoOptimizeDoesNotRecount(t *testing.T) {
 	if _, err := f.a.RunSkill(context.Background(), "broken", nil); err != nil {
 		t.Fatal(err)
 	}
-	// 首次运行失败：不记复用；自动优化存成 v2：不记第二次入库。
 	if n := countType(g, "skill_used"); n != 0 {
 		t.Fatalf("跑坏的技能不该算复用，记了 %d", n)
 	}
@@ -112,7 +103,6 @@ func TestSkillGrowth_AutoOptimizeDoesNotRecount(t *testing.T) {
 	}
 }
 
-// 跑通才算一次复用：一次成功跑两个步骤，Steps 记的是步骤数（面板与效率口径要用它）。
 func TestSkillGrowth_UsedOnlyOnSuccessfulRun(t *testing.T) {
 	f := newFixture(t, nil)
 	g := withGrowth(t, f)
@@ -127,7 +117,6 @@ func TestSkillGrowth_UsedOnlyOnSuccessfulRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// 参数缺失：执行前就报错，不该留下任何复用记录。
 	if _, err := f.a.RunSkill(context.Background(), "make-notes", nil); err == nil {
 		t.Fatal("缺参数应报错")
 	}

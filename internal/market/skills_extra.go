@@ -2,19 +2,6 @@ package market
 
 import "gleam/pkg/types"
 
-// extraSkills 技能目录的第二批：让"更多种类"真的成立。
-//
-// 两条写法并存，都是**能跑**的：
-//   - **步骤式**：每步调一个内置工具（file.* / memory.* / web.fetch …），确定性、可审计；
-//   - **提示词式**：一步 `prompt.run` 把技能正文交给模型。这一步的权限与模型调用同级
-//     （只读放行），理由见 internal/tools/prompt。
-//
-// 为什么不留 placeholder 提示词：技能被装进本机后就是可编辑的文件，写得含糊等于把
-// "怎么用"留给用户猜。这里的提示词都写了**约束**（不许编造、不确定要标注），
-// 因为这些约束正是质量差异所在。
-//
-// 用 init 追加而不是把目录拆成两半：`SkillCatalog` 仍是那一个 owner
-// （search/find 都读它），第二批只是内容变多，不该多引一个"来源"概念。
 func init() {
 	SkillCatalog = append(SkillCatalog, extraSkills...)
 }

@@ -52,7 +52,7 @@ import re
 import sys
 
 import _gocomment
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 OWNER_FILE = os.path.join("internal", "agent", "connections.go")
 CALL_NAME = "RecordEgress"
@@ -61,8 +61,6 @@ SKIP_DIRS = {".git", "bin", "dist", "node_modules", "static"}
 KINDS_RE = re.compile(r"var\s+egressKinds\s*=\s*\[\]string\{(.*?)\}", re.S)
 STR_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
-
-# 剥注释这件事的 owner 在 scripts/_gocomment.py（两道闸门共用），这里只留一个名字。
 strip_go_comments = _gocomment.strip
 
 
@@ -92,8 +90,6 @@ def scan_sites(docs):
     for label, src in docs:
         for m in re.finditer(r"\b%s\(" % CALL_NAME, src):
             before = src[: m.start()]
-            # 跳过函数定义本身（`func (g *Gate) RecordEgress(kind, host …)`）：
-            # 它的第一参数按定义就是变量，把它算成"传变量的落点"会在第一天就红在自己身上。
             if re.search(r"func\s+(?:\([^)]*\)\s*)?$", before):
                 continue
             arg = first_arg(src, m.end() - 1)
@@ -276,7 +272,6 @@ def self_test() -> int:
         else:
             print("  拦住：%s（%s）" % (name, sink[0][:56]))
 
-    # 干扰文本一：注释里提一句这个函数名（台账的文档注释就是这么写的），不许凭空多出一个落点。
     decoy_src = (
         '// 门控留痕见 gate.%s("cloud", host, n)——注释不是调用点。\n'
         % CALL_NAME
@@ -292,8 +287,6 @@ def self_test() -> int:
     else:
         print("  不误报：注释里提到的 %s 不算调用点" % CALL_NAME)
 
-    # 干扰文本二：注释里用 `**` 标重点（这个文件的注释本来就在这么写），不许判红。
-    # 注释是写给读源码的人的，只有字符串会上界面——判据混在一起，第一天就红在满屏假告警上。
     decoy_md = "// egressKinds 出网落点清单，**这一份是 owner**。\n" + head
     hits = markdown_in_texts(strip_go_comments(decoy_md))
     if hits:
@@ -334,8 +327,6 @@ def main() -> int:
 
     kinds = owner_kinds(owner_src)
     literals, variables = scan_sites(docs)
-    # markdown 判据只扫 owner 文件：台账的每一句面向用户的话都住在那儿，
-    # 扫全仓会把别处（真正会渲染 markdown 的地方）的写法也算成红。
     rc = judge(kinds, literals, variables, markdown_in_texts(owner_src), print)
     if rc != 0 or not selftest:
         return rc

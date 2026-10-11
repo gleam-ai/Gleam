@@ -1,10 +1,3 @@
-/* 从本机导入：扫本机其他 AI 工具留下的记忆 / 规则、MCP 配置与技能。
- *
- * 依赖 app.js 里的全局（$ / el / esc / api / toast），所以必须在它之后加载。
- *
- * 服务端只读扫描，前端只提交候选 id——路径与命令由服务端查回，
- * 不给「填任意路径读任意文件」留口子。MCP 撞名由安装路径拒掉，这里跳过不覆盖。
- */
 const LocalImport = (() => {
   let cache = null;
   const picked = { memory: new Set(), mcp: new Set() };
@@ -21,7 +14,6 @@ const LocalImport = (() => {
         ? (n / 1024).toFixed(1) + ' KB'
         : (n / 1048576).toFixed(1) + ' MB';
 
-  /* ---------- 记忆导入（记忆页） ---------- */
   function memRow(c) {
     const row = el('label', 'import-row');
     const cb = el('input');
@@ -114,7 +106,6 @@ const LocalImport = (() => {
     }
   }
 
-  /* ---------- MCP / 技能检测（市场 → 本机检测） ---------- */
   function mcpRow(c) {
     const row = el('label', 'import-row' + (c.installed ? ' is-dim' : ''));
     const cb = el('input');

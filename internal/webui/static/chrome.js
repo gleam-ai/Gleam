@@ -1,9 +1,3 @@
-/* Gleam Web UI — 窗口外壳（chrome）：应用菜单、前进后退、终端面板、右侧栏、
- * 全局键位表与「设置 → 快捷键」页。依赖 app.js 里的全局（$ / el / esc / api / toast /
- * Modal / UIPrefs / showView / BrowserPane / TaskSearch …），所以必须在它之后加载。
- *
- * 桌面壳（Electron）通过 preload 暴露 window.gleamDesktop；没有它就是普通浏览器，
- * 菜单里做不到的项直接隐藏，而不是摆着一个点了没反应的按钮。 */
 'use strict';
 
 const Desk =
@@ -15,8 +9,6 @@ document.documentElement.dataset.shell = Desk ? 'desktop' : 'browser';
 if (Desk && Desk.platform)
   document.documentElement.dataset.platform = Desk.platform;
 
-/* 简易 markdown → HTML：只处理 release notes 里用到的子集（标题、列表、粗体、换行）。
- * 不做完整解析，够用就行。 */
 function renderNotes(md) {
   if (!md) return '';
   const lines = md.split('\n');
@@ -63,13 +55,9 @@ function renderNotes(md) {
   return out.join('');
 }
 
-/* ============================================================
- * 键位表：动作 → 组合键。默认值写在这里，用户改过的存 localStorage('gleam-keys')。
- * ============================================================ */
 const Keymap = (() => {
   const KEY = 'gleam-keys';
   const IS_MAC = /Mac/i.test(navigator.platform || '');
-  // run 在 init 之后才会被调用，所以这里可以放心引用下面定义的各个模块。
   const ACTIONS = [
     {
       id: 'nav.settings',
@@ -194,8 +182,6 @@ const Keymap = (() => {
     ['panel', '侧栏入口'],
     ['system', '系统'],
   ];
-  // 菜单里那几项（关闭窗口 / 重新载入 / 缩放 / 全屏）跟着桌面应用的惯例走、不可改：
-  // 桌面壳没有原生菜单，加速键得由我们自己接。浏览器里这些键本来就归浏览器。
   const FIXED_DESKTOP = {
     'Ctrl+W': () => Desk.window('close'),
     'Ctrl+R': () => Desk.view('reload'),
@@ -225,13 +211,10 @@ const Keymap = (() => {
   function save() {
     try {
       localStorage.setItem(KEY, JSON.stringify(st));
-    } catch {
-      /* 隐私模式：本次会话内仍生效 */
-    }
+    } catch {}
     listeners.forEach((fn) => fn());
   }
   const action = (id) => ACTIONS.find((a) => a.id === id);
-  // 用户显式清空过的绑定存为 ''，与「没改过」(undefined) 区分开
   function binding(id) {
     const a = action(id);
     if (!a) return '';
@@ -291,7 +274,6 @@ const Keymap = (() => {
     PageDown: 'PageDown',
     Insert: 'Insert',
   };
-  // 用 e.code 而不是 e.key：Shift 会把 [ 变成 {、把 = 变成 +，按 key 记下来的组合就对不上了
   function comboOf(e) {
     let k = '';
     const c = e.code || '';
@@ -331,7 +313,6 @@ const Keymap = (() => {
       .map((p) => `<kbd>${esc(p)}</kbd>`)
       .join('');
   }
-  // 一个可接受的组合：F 键可以单按；其余至少要带 Ctrl 或 Alt，否则打字就会被吃掉
   function acceptable(combo) {
     if (!combo) return false;
     const ps = combo.split('+');
@@ -351,7 +332,6 @@ const Keymap = (() => {
     }
     const a = ACTIONS.find((x) => binding(x.id) === combo);
     if (!a) return;
-    // 模态开着时，只放行反馈键本身以外的全局键会把界面叠成好几层——一律让路
     if (
       document.querySelector(
         '#modal-overlay:not([hidden]), #onboarding-overlay:not([hidden])',
@@ -419,9 +399,6 @@ function newWindow() {
   if (!w) toast('浏览器拦下了新窗口，请允许本页弹出窗口', 'warning');
 }
 
-/* ============================================================
- * 前进 / 后退：记录视图切换的历史（只记 showView，不记滚动）
- * ============================================================ */
 const NavHistory = (() => {
   const stack = [document.documentElement.dataset.view || 'goals'];
   let idx = 0;
@@ -437,7 +414,6 @@ const NavHistory = (() => {
     back.title = '返回' + (b ? `（${b}）` : '');
     fwd.title = '前进' + (f ? `（${f}）` : '');
   }
-  // showView 是 app.js 顶层的函数声明（全局对象属性），在这里包一层，app.js 里的调用也会走到
 
   showView = function (name, ...rest) {
     const r = orig.call(this, name, ...rest);
@@ -469,17 +445,13 @@ const NavHistory = (() => {
   return { back: () => go(-1), forward: () => go(1) };
 })();
 
-/* ============================================================
- * 应用菜单：文件 / 编辑 / 视图 / 帮助
- * ============================================================ */
 const MenuBar = (() => {
   const bar = $('#menubar');
   const pop = $('#menubar-pop');
   let openId = null;
   let focusBefore = null;
-  let byKeyboard = false; // 鼠标打开的菜单按 Esc 关掉时，不把焦点环留在菜单按钮上
+  let byKeyboard = false;
 
-  // 浏览器里没有 webContents：编辑项退回 execCommand，剪贴板读取走 Clipboard API
   function browserEdit(act) {
     const t =
       focusBefore && document.contains(focusBefore)
@@ -564,7 +536,6 @@ const MenuBar = (() => {
         show: deskHas('view'),
       },
       '-',
-      // 网页没法改浏览器自己的缩放；浏览器里这三项交给浏览器（Ctrl+0 / Ctrl+= / Ctrl+-），不在菜单里装样子
       {
         label: '实际大小',
         accel: 'Ctrl+0',
@@ -594,7 +565,6 @@ const MenuBar = (() => {
   };
   function items(id) {
     const raw = MENUS[id]().filter((it) => it === '-' || it.show !== false);
-    // 去掉首尾与相邻的分隔线（某些项被隐藏后）
     const out = [];
     raw.forEach((it) => {
       if (it === '-' && (!out.length || out[out.length - 1] === '-')) return;
@@ -651,7 +621,6 @@ const MenuBar = (() => {
       .forEach((b) => b.setAttribute('aria-expanded', 'false'));
   }
   bar.querySelectorAll('.menubar-item').forEach((b) => {
-    // mousedown 不抢焦点：编辑菜单要作用在原来那个输入框上
     b.addEventListener('mousedown', (e) => e.preventDefault());
     b.addEventListener('click', () =>
       openId === b.dataset.menu ? close() : open(b.dataset.menu),
@@ -713,13 +682,6 @@ const MenuBar = (() => {
   return { open, close };
 })();
 
-/* ============================================================
- * 检查更新：本机服务端去问 GitHub 的 release，前端只把三种结果说人话。
- *   · 有新版   → 摆出要下载的资产名与大小，用户点「立即更新」才下载并替换
- *   · 已是最新 → 直接说（这句现在是问出来的结论，不是替本机下判断）
- *   · 连不上   → 说清是网络/代理，别让人以为是版本问题
- * 下载与替换都在服务端做（见 internal/webui/update.go），前端递不进地址。
- * ============================================================ */
 const UpdateCheck = (() => {
   const RELEASES = 'https://github.com/gleam-ai/Gleam/releases';
 
@@ -845,18 +807,13 @@ async function checkUpdate() {
   return UpdateCheck.run();
 }
 
-/* ============================================================
- * 关于 Gleam
- * ============================================================ */
 const About = (() => {
   async function open() {
     let info = {};
     let desk = null;
     try {
       info = await api('GET', '/api/info');
-    } catch {
-      /* 下方显示未知 */
-    }
+    } catch {}
     if (deskHas('info')) {
       try {
         desk = await Desk.info();
@@ -979,9 +936,6 @@ const ChromeTip = (() => {
   };
 })();
 
-/* ============================================================
- * 右侧栏：三张入口卡
- * ============================================================ */
 const AuxPanel = (() => {
   const aux = $('#aux');
   const btn = $('#aux-toggle');
@@ -1034,10 +988,6 @@ const AuxPanel = (() => {
   return { toggle, set, files, setWorkspace };
 })();
 
-/* ============================================================
- * 底部终端：一条命令 = 一次 shell.exec（经 POST /api/tools/call，走同一套安全门控）。
- * 不是交互式 PTY：没有 vim / top 这类全屏程序，长时间运行的命令受工具超时约束。
- * ============================================================ */
 const Terminal = (() => {
   const panel = $('#term');
   const btn = $('#term-toggle');
@@ -1047,7 +997,7 @@ const Terminal = (() => {
   const note = $('#term-note');
   let workspace = '';
   let cwd = '';
-  let busy = null; // { cmd, approvalBox }
+  let busy = null;
   const hist = [];
   let hi = 0;
   const MIN_H = 140;
@@ -1077,9 +1027,7 @@ const Terminal = (() => {
     try {
       const ws = await api('GET', '/api/workspace');
       setWorkspace(ws.workspace || '');
-    } catch {
-      /* 连不上服务：保持现状 */
-    }
+    } catch {}
   }
   function setWorkspace(ws) {
     if (ws !== workspace) {
@@ -1143,7 +1091,6 @@ const Terminal = (() => {
     try {
       const cd = /^cd(?:\s+(.*))?$/.exec(cmd);
       if (cd) {
-        // cd 在一次性的 shell 里不会留下来：让 shell 自己解析目标目录，再把结果当作下一条命令的 cwd
         const target = (cd[1] || '').trim() || workspace;
         const isWin = /^[A-Za-z]:\\/.test(workspace);
         const q = isWin

@@ -1,13 +1,5 @@
-// Market：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 的 $ / api / toast / el / esc 等，所以必须排在 app.js 之后；
-// app.js 的 VIEW_LOADERS 用 `market: () => loadMarket()` 惰性引用（那个 const 在 app.js 解析期就求值，
-// 直接写 `market: loadMarket` 会 ReferenceError）。
-
-/* ---------- 市场：MCP 服务器 + 技能模板 ---------- */
 bindSegmented('#mc-trust');
 
-// 标签筛选：只用目录里真有的 tags，客户端过滤，不新增后端
 let mcpTagActive = '';
 function renderMCPTags(presets) {
   const row = $('#mcp-tags');
@@ -61,7 +53,7 @@ async function loadMarket() {
   loadMCPMarket();
   loadSkillMarket();
   loadMCPInstalled();
-  LocalImport.renderLocal(); // 「本机检测」页签：扫本机别的工具配过的 MCP / 技能
+  LocalImport.renderLocal();
 }
 
 async function loadMCPMarket() {
@@ -74,9 +66,6 @@ async function loadMCPMarket() {
     );
     const presets = res.presets || [];
     wrap.innerHTML = '';
-    // 日常那句「实测最快：npm 国内镜像…」不在这里显示了（列表页要的是干净）。
-    // 但 `source_note` **必须留**：它说的是"目录源连不上，这份来自缓存，可能不全"——
-    // 把残缺说成完整，比不显示更坏。所以只隐常规信息，异常说明照旧显示。
     if (res.source_note)
       wrap.appendChild(el('div', 'market-note', res.source_note));
     if (!presets.length) {
@@ -90,11 +79,6 @@ async function loadMCPMarket() {
   }
 }
 
-// 市场条目图标：自绘 24 栅格线条图，**不引外部品牌图**（与设置页同一套约束）。
-//
-// 为什么按关键词猜而不是每条手写：内置目录只有十几条，远端目录一次就能拉回来几十条，
-// 手写跟不上；而抓 favicon 要引外部品牌资源、还多一条出网路径。猜不到就退回字母方块——
-// 朴素比来路不明的图标诚实。
 const MKT_ICON = {
   folder:
     '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
@@ -128,7 +112,6 @@ const MKT_ICON = {
     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 3-3 4 4"/>',
   pdf: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
 };
-// 关键词 → 图标。**顺序有意义**：先命中的赢，所以把更具体的词排在前面。
 const MKT_ICON_RULES = [
   [/filesystem|文件|folder/, 'folder'],
   [/git|版本管理|仓库/, 'branch'],
@@ -153,7 +136,6 @@ const MKT_ICON_RULES = [
   [/robot|agent|自动化|automation/, 'robot'],
 ];
 
-// marketIcon 挑一个自绘图标：命中关键词用它，命中不了返回空串（调用方退回字母方块）。
 function marketIcon(p) {
   const hay =
     `${p.id || ''} ${p.name || ''} ${p.desc || ''} ${(p.tags || []).join(' ')}`.toLowerCase();
@@ -163,15 +145,12 @@ function marketIcon(p) {
   return '';
 }
 
-// marketHue 按名字取一个稳定的色相：同一台服务器每次都是同一个颜色，
-// 而不同条目能看出区别——列表读起来才不会糊成一片灰方块。
 function marketHue(name) {
   let h = 0;
   for (const ch of String(name || '?')) h = (h * 31 + ch.codePointAt(0)) % 360;
   return h;
 }
 
-// 市场条目：语义图标（自绘）或字母方块 · 名称 · 一行说明
 function marketTile(p) {
   const svg = marketIcon(p);
   const t = el('span', 'market-icon' + (svg ? ' market-icon--glyph' : ''));
@@ -189,11 +168,9 @@ function mcpPresetCard(p) {
   card.dataset.tags = (p.tags || []).join('|');
   card.appendChild(marketTile(p));
   const main = el('div', 'market-main');
-  // 来源与「装不了」都要在按下之前就说：点完才报错，观感上跟"根本不在目录里"分不出来。
   const src = p.remote
     ? '<span class="badge badge--mode">官方注册表</span>'
     : '';
-  // 「缺运行时」与「装不了」是两件事：前者是这台机器缺东西（能补），后者是这条本机跑不了（补不了）。
   const noRT = p.runtime_found === false && p.installable !== false;
   const blocked =
     p.installable === false
@@ -201,8 +178,6 @@ function mcpPresetCard(p) {
       : noRT
         ? `<span class="badge badge--warn">缺 ${esc(p.runtime)}</span>`
         : '';
-  // 名字单独包一层：**只有它能被截断**。名字和徽标挤在同一行又不截断时，
-  // 长名字会把徽标顶出卡片、压在右边那颗按钮上——那正是之前看到的重叠。
   const badges =
     `${p.installed ? '<span class="badge badge--success">已安装</span>' : ''}` +
     `${p.params && p.params.length ? '<span class="badge badge--mode">需配置</span>' : ''}${src}${blocked}`;
@@ -210,8 +185,6 @@ function mcpPresetCard(p) {
     <div class="market-desc">${esc(p.installable === false && p.unsupported ? p.unsupported : p.desc)}</div>`;
   main.title = `${p.desc || ''}\n${p.command} · 信任 ${PERM_LABELS[p.trust] || p.trust}${p.tags && p.tags.length ? ' · ' + p.tags.join(' / ') : ''}`;
   card.appendChild(main);
-  // 装不了就不给按钮：徽标已经把话说完了，再放一颗写着「装不了」的灰按钮
-  // 等于同一句话说两遍，还把名字挤得更短。
   if (p.installable !== false) {
     const actions = el('div', 'row-actions');
     const btn = el(
@@ -220,7 +193,6 @@ function mcpPresetCard(p) {
       p.installed ? '重装' : '安装',
     );
     if (noRT) {
-      // 缺运行时：该给的是"怎么补"，所以按钮说的是下一步，而不是重复徽标那句话
       btn.textContent = '如何补齐';
       btn.title = p.runtime_why || '本机没有 ' + p.runtime;
       btn.addEventListener('click', () =>
@@ -300,7 +272,6 @@ function openMCPInstallDialog(p) {
       try {
         await send(p.installed);
       } catch (err) {
-        // 目录里的「已安装」是打开面板那一刻的快照，可能已经过时：409 就当场补一次确认
         if (
           err.status === 409 &&
           (await confirmModal(err.message, '已经装过了', {
@@ -325,8 +296,6 @@ function openMCPInstallDialog(p) {
   });
 }
 
-// 技能页的分类筛选：与 MCP 页同一套交互（点一下筛、再点取消），判据从 tags 换成
-// 目录给的 category——分类是单一归属，不会出现"一条技能同时属于三格"。
 let skillCatActive = '';
 function renderSkillCats(cats) {
   const row = $('#skill-cats');
@@ -366,7 +335,6 @@ async function loadSkillMarket() {
         encodeURIComponent($('#skill-search').value.trim()),
     );
     const presets = res.presets || [];
-    // 分类表由后端给：界面自己维护一份就会漂，而漂的方向是"筛选栏有一格点了是空的"
     renderSkillCats(res.categories || []);
     wrap.innerHTML = '';
     if (!presets.length) {
@@ -415,7 +383,6 @@ async function loadSkillMarket() {
           btn.textContent = '已安装';
           loadSkills();
         } catch (err) {
-          // 目录里的标记可能过时（别处刚装/删过）：409 就当场补一次确认
           if (
             err.status === 409 &&
             (await confirmModal(err.message, '已经装过了', {
@@ -464,8 +431,6 @@ async function loadMCPInstalled() {
     mcp.forEach((m) => {
       const row = el('div', 'card row');
       const main = el('div', 'row-main');
-      // 三态分开说：停用是用户自己的选择，未连接是服务器的故障——混成一句「未连接」，
-      // 用户就会去点重连，而重连一个自己关掉的东西本来就该被拒。
       const state = !m.enabled
         ? '<span class="badge badge--cancelled">已停用</span>'
         : m.connected

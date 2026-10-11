@@ -1,6 +1,3 @@
-// Package scheduler 实现轻量级任务调度器：
-// 基于 time.Ticker 的一分钟心跳，支持 Cron 表达式、固定间隔与文件变化（轮询）触发。
-// 任务持久化为 JSON，重启后自动恢复并补算下次触发时间。
 package scheduler
 
 import (
@@ -16,45 +13,31 @@ import (
 	"gleam/internal/atomicfile"
 )
 
-// JobNamePattern 任务名的合法形状。
-//
-// **为什么任务名不能有斜杠**：它是 REST 路径参数（/api/schedules/{name}/enabled）。
-// Go 的 mux 在**解码后**的路径上匹配，`a/b` 编码成 `a%2Fb` 也会先还原成两个 segment
-// ——路由直接不命中，返回纯文本 404。结果是这个任务能按时跑，却永远删不掉、停不了，
-// 只能去改 jobs 文件。名字是主键，就得在写入口把它钉成可寻址的形状。
 var JobNamePattern = regexp.MustCompile(`^[\w\p{Han}\-. ]{1,64}$`)
 
-// Job 定时任务。
 type Job struct {
 	Name         string     `json:"name"`
 	Cron         string     `json:"cron,omitempty"`
 	IntervalSec  int        `json:"interval_sec,omitempty"`
-	WatchPath    string     `json:"watch_path,omitempty"` // 文件/目录变化触发
+	WatchPath    string     `json:"watch_path,omitempty"`
 	WatchPattern string     `json:"watch_pattern,omitempty"`
 	Goal         string     `json:"goal"`
 	Mode         string     `json:"mode,omitempty"`
-	Notify       string     `json:"notify,omitempty"` // 跑完要不要通知（空 = 默认 on_failure）
+	Notify       string     `json:"notify,omitempty"`
 	Enabled      bool       `json:"enabled"`
-	OneShot      bool       `json:"one_shot,omitempty"`      // 触发一次后自动禁用
-	WhenText     string     `json:"when_text,omitempty"`     // 用户原始时间说法（自然语言）
-	ScheduleText string     `json:"schedule_text,omitempty"` // 解析后的人读调度说明
+	OneShot      bool       `json:"one_shot,omitempty"`
+	WhenText     string     `json:"when_text,omitempty"`
+	ScheduleText string     `json:"schedule_text,omitempty"`
 	LastRun      *time.Time `json:"last_run,omitempty"`
 	NextRun      *time.Time `json:"next_run,omitempty"`
 }
 
-// 通知策略：任务跑完之后要不要打扰用户。
-//
-// 为什么默认是「成功静默、只报异常」：定时任务的整个价值就是"不用盯着"。
-// 一个每小时跑一次的巡检每次都弹通知，等于让用户继续盯着——那还不如不做定时；
-// 反过来，失败不响就等于没有巡检：用户会以为一切正常，而它已经坏了很久。
-// 想每次都知道的用户显式设 always。
 const (
-	NotifyOnFailure = "on_failure" // 默认：成功静默，失败才通知
-	NotifyAlways    = "always"     // 每次都通知
-	NotifyNever     = "never"      // 从不通知（结果仍可在任务记录里查）
+	NotifyOnFailure = "on_failure"
+	NotifyAlways    = "always"
+	NotifyNever     = "never"
 )
 
-// NormalizeNotify 归一化通知策略：空值取默认，非法值报错。
 func NormalizeNotify(v string) (string, error) {
 	switch trim(v) {
 	case "":
@@ -65,13 +48,6 @@ func NormalizeNotify(v string) (string, error) {
 	return "", fmt.Errorf("非法通知策略 %q（可用：%s / %s / %s）", v, NotifyAlways, NotifyOnFailure, NotifyNever)
 }
 
-// ShouldNotify 这次跑完要不要通知。
-//
-// 为什么是 Job 上的一个方法，而不是散在调用点：策略只有一份实现。
-// 否则"什么时候该打扰用户"会在多处各判一次，然后漂移——而漂移的方向通常是
-// 「某个调用点忘了判」，于是失败被静默掉，正好是最不能静默的那一类。
-//
-// 存量任务里若存了非法值，按默认走：**别让一个脏字段把失败通知静默掉**。
 func (j Job) ShouldNotify(succeeded bool) bool {
 	policy, err := NormalizeNotify(j.Notify)
 	if err != nil {
@@ -87,10 +63,8 @@ func (j Job) ShouldNotify(succeeded bool) bool {
 	}
 }
 
-// FireFunc 到点回调（由运行时注入，通常为提交一个目标）。
 type FireFunc func(j Job)
 
-// Scheduler 调度器。
 type Scheduler struct {
 	mu      sync.Mutex
 	path    string
@@ -99,8 +73,8 @@ type Scheduler struct {
 	stop    chan struct{}
 	running bool
 
-	watch    map[string]watchSnap // 文件监听快照
-	lastFire map[string]time.Time // 变化触发去抖
+	watch    map[string]watchSnap
+	lastFire map[string]time.Time
 }
 
 type watchSnap struct {
@@ -109,7 +83,6 @@ type watchSnap struct {
 	Count   int       `json:"count"`
 }
 
-// Open 加载调度任务（文件不存在则空库）。
 func Open(path string, fire FireFunc) (*Scheduler, error) {
 	s := &Scheduler{
 		path:     path,
@@ -142,14 +115,12 @@ func Open(path string, fire FireFunc) (*Scheduler, error) {
 	return s, nil
 }
 
-// SetFire 设置/替换触发回调（装配期延迟绑定）。
 func (s *Scheduler) SetFire(f FireFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.fire = f
 }
 
-// Start 启动心跳循环。
 func (s *Scheduler) Start() {
 	s.mu.Lock()
 	if s.running {
@@ -161,7 +132,6 @@ func (s *Scheduler) Start() {
 	go s.loop()
 }
 
-// Stop 停止调度。
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,7 +155,6 @@ func (s *Scheduler) loop() {
 	}
 }
 
-// tick 每秒检查到期任务（精确到分钟级 Cron、秒级 interval/监听）。
 func (s *Scheduler) tick(now time.Time) {
 	var due []*Job
 	s.mu.Lock()
@@ -223,7 +192,6 @@ func (s *Scheduler) tick(now time.Time) {
 	}
 }
 
-// checkWatch 轮询监听路径，变化时触发（带 10 秒去抖）。
 func (s *Scheduler) checkWatch(j *Job, now time.Time) {
 	snap, _ := s.snapshot(j.WatchPath, j.WatchPattern)
 	if prev, ok := s.watch[j.Name]; ok && snap != prev {
@@ -243,7 +211,6 @@ func (s *Scheduler) checkWatch(j *Job, now time.Time) {
 	s.watch[j.Name] = snap
 }
 
-// snapshot 计算路径快照：单文件取 mtime/size；目录取 mtime/size/条目数。
 func (s *Scheduler) snapshot(path, pattern string) (watchSnap, watchSnap) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -259,7 +226,6 @@ func (s *Scheduler) snapshot(path, pattern string) (watchSnap, watchSnap) {
 	return snap, snap
 }
 
-// recomputeNext 依据任务类型计算下次触发时间。
 func (s *Scheduler) recomputeNext(j *Job, now time.Time) {
 	switch {
 	case j.Cron != "":
@@ -273,18 +239,16 @@ func (s *Scheduler) recomputeNext(j *Job, now time.Time) {
 		next := now.Add(time.Duration(j.IntervalSec) * time.Second)
 		j.NextRun = &next
 	case j.WatchPath != "":
-		next := now.Add(5 * time.Second) // 监听类任务的轮询节拍
+		next := now.Add(5 * time.Second)
 		j.NextRun = nil
 		_ = next
 	}
 }
 
-// AddJob 新增任务（校验 Cron/间隔/目标）。
 func (s *Scheduler) AddJob(name, cron string, intervalSec int, goal, mode string) (Job, error) {
 	return s.AddJobDetailed(name, cron, intervalSec, goal, mode, "", "")
 }
 
-// AddJobDetailed 新增任务并记录自然语言时间说法与人读调度说明。
 func (s *Scheduler) AddJobDetailed(name, cron string, intervalSec int, goal, mode, whenText, scheduleText string) (Job, error) {
 	name = trim(name)
 	if name == "" {
@@ -312,7 +276,6 @@ func (s *Scheduler) AddJobDetailed(name, cron string, intervalSec int, goal, mod
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// 任务名是主键：静默覆盖会让用户"新建"变成"改掉旧任务"，且原配置悄无声息丢失。
 	if _, exists := s.jobs[name]; exists {
 		return Job{}, fmt.Errorf("任务名 %q 已存在，请换一个", name)
 	}
@@ -328,7 +291,6 @@ func (s *Scheduler) AddJobDetailed(name, cron string, intervalSec int, goal, mod
 	return *job, nil
 }
 
-// DeleteJob 删除任务。
 func (s *Scheduler) DeleteJob(name string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -341,7 +303,6 @@ func (s *Scheduler) DeleteJob(name string) (bool, error) {
 	return true, s.saveLocked()
 }
 
-// SetEnabled 启停任务。
 func (s *Scheduler) SetEnabled(name string, enabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -356,7 +317,6 @@ func (s *Scheduler) SetEnabled(name string, enabled bool) error {
 	return s.saveLocked()
 }
 
-// SetNotify 设置通知策略（always / on_failure / never；空串恢复默认）。
 func (s *Scheduler) SetNotify(name, policy string) error {
 	norm, err := NormalizeNotify(policy)
 	if err != nil {
@@ -369,8 +329,6 @@ func (s *Scheduler) SetNotify(name, policy string) error {
 		return fmt.Errorf("任务 %q 不存在", name)
 	}
 	if norm == NotifyOnFailure {
-		// 默认值不落盘：省掉一个字段，也让"没写过"与"写成了默认"不可区分——
-		// 而它们本来就该是同一件事。
 		j.Notify = ""
 	} else {
 		j.Notify = norm
@@ -378,8 +336,6 @@ func (s *Scheduler) SetNotify(name, policy string) error {
 	return s.saveLocked()
 }
 
-// TriggerNow 立即触发指定任务（HTTP 回调 / 手动触发入口，设计文档 §4.2.5 事件触发）。
-// 返回是否存在且已触发。OneShot 任务触发后自动停用。
 func (s *Scheduler) TriggerNow(name string) (bool, error) {
 	s.mu.Lock()
 	j, ok := s.jobs[name]
@@ -407,7 +363,6 @@ func (s *Scheduler) TriggerNow(name string) (bool, error) {
 	return true, err
 }
 
-// ListJobs 任务列表（按名称排序）。
 func (s *Scheduler) ListJobs() []Job {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -419,7 +374,6 @@ func (s *Scheduler) ListJobs() []Job {
 	return out
 }
 
-// Count 任务数。
 func (s *Scheduler) Count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

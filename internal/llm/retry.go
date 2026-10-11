@@ -5,15 +5,13 @@ import (
 	"time"
 )
 
-// RetryConfig 重试策略配置。
 type RetryConfig struct {
-	MaxAttempts int           // 最大尝试次数（含首次）
-	BaseDelay   time.Duration // 首次重试前的基础延迟
-	MaxDelay    time.Duration // 退避上限
-	Multiplier  float64       // 退避乘数（指数退底）
+	MaxAttempts int
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
+	Multiplier  float64
 }
 
-// DefaultRetryConfig 默认重试策略：最多 3 次尝试，指数退避 400ms → 800ms → 1600ms。
 var DefaultRetryConfig = RetryConfig{
 	MaxAttempts: 3,
 	BaseDelay:   400 * time.Millisecond,
@@ -21,8 +19,6 @@ var DefaultRetryConfig = RetryConfig{
 	Multiplier:  2.0,
 }
 
-// DoWithRetry 按配置重试 f，直到成功、次数耗尽或 context 取消。
-// isRetryable 判定当前错误是否值得重试。
 func DoWithRetry[T any](ctx context.Context, cfg RetryConfig, isRetryable func(error) bool, f func() (T, error)) (T, error) {
 	var zero T
 	delay := cfg.BaseDelay

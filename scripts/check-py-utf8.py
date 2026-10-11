@@ -30,7 +30,7 @@ import os
 import subprocess
 import sys
 
-import _utf8  # noqa: F401  # 本文件自己也要印中文，先修好再说话
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 GLOB_PREFIX = "check-"
 GLOB_SUFFIX = ".py"
@@ -123,7 +123,6 @@ def self_test(root):
     else:
         print("  误伤：已经 import _utf8 的文本仍被拦下——判据失效")
         ok = False
-    # docstring 里全是中文、但只印 ASCII 的检查器不该被拖进来
     ascii_src = '"""闸门脚本：中文说明很长很长。"""\nprint("ok")\n'
     if check_source("check-z.py", ascii_src) is None:
         print(
@@ -132,7 +131,6 @@ def self_test(root):
     else:
         print("  误伤：只把中文写在 docstring 里的文本被拦下——判据管太宽")
         ok = False
-    # 拿真文件跑一遍，确认负例不是只活在构造文本里
     paths = candidates(root) or []
     bad = []
     for path in paths:
@@ -150,8 +148,6 @@ def self_test(root):
             "  真实文件全部合规：%d 个（check-*.py 与 scripts/mutation/*.py）"
             % len(paths)
         )
-    # 子进程里测一条真实命令的字节编码：判据说"已自修"，输出就得真是 UTF-8。
-    # 只拿 check-* 探：mutation 脚本一跑就是十几分钟，还会真的去改仓库代码。
     probe = next(
         (x for x in paths if os.path.basename(x).startswith(GLOB_PREFIX)), None
     )

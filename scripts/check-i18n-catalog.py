@@ -46,14 +46,12 @@ import re
 import sys
 
 import _gocomment
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 PROVIDERS_FILE = os.path.join("internal", "llm", "providers.go")
 I18N_FILE = os.path.join("internal", "webui", "static", "i18n.js")
 
 
-# 与 Go 侧运行时判据（connections_test.go 的 hasCJK）同一组区段：全角标点也算 CJK——
-# 「（）：」落在这些区段里，英文词条必须连标点一起换成 ASCII，否则照样漏。
 def has_cjk(s):
     return any(
         0x3000 <= c <= 0x303F
@@ -64,7 +62,6 @@ def has_cjk(s):
     )
 
 
-# `Name: "…"` / `Label: "…"`：字段名 + 冒号 + 一个 Go 字符串字面量（或不是字面量）。
 FIELD_RE = re.compile(
     r'\b(Name|Label)\s*:\s*(?:"((?:[^"\\]|\\.)*)"|([^"\s][^,\n]*))'
 )
@@ -146,9 +143,6 @@ def check(root):
     return problems
 
 
-# ---------- 负例控制：判据自己也要被证明会红 ----------
-
-
 def self_test():
     ok = True
 
@@ -157,26 +151,21 @@ def self_test():
 
     good_i18n = "const I18N_EN = {\n  '按量 Token（OpenAI 兼容）': 'Pay-as-you-go (OpenAI-compatible)',\n};\n"
 
-    # 坏例 1：词条缺失。
     bad = 'p := ProviderPreset{ID: "x", Name: "未收录 厂商"}'
     ps = run(bad, good_i18n)
     ok &= expect(bool(ps), "词条缺失会被判红", ps)
 
-    # 坏例 2：显示名传变量。
     bad_var = "Name: providerName,"
     ps = run(bad_var, good_i18n)
     ok &= expect(bool(ps), "传变量会被判红", ps)
 
-    # 坏例 3：字典解析不出。
     ps = run('Name: "某厂商"', "const I18N_EN = broken")
     ok &= expect(bool(ps), "字典解析不出会被判红", ps)
 
-    # 干扰 1：CJK 只在注释里——剥注释后不该要求词条。
     decoy = '// 这句中文在注释里，解释收录规则\nName: "PlainName"'
     ps = run(decoy, good_i18n)
     ok &= expect(not ps, "注释里的中文不误报", ps)
 
-    # 干扰 2：不含 CJK 的显示名本来就不归这道闸管。
     ps = run('Label: "Coding Plan (OpenAI-compatible)"', good_i18n)
     ok &= expect(not ps, "非 CJK 显示名不误报", ps)
 

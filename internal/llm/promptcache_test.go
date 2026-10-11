@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// ---------- 前缀长度工具 ----------
-
 func TestStablePrefixLen_CountsRunes(t *testing.T) {
 	cases := []struct {
 		a, b string
@@ -30,11 +28,9 @@ func TestStablePrefixLen_CountsRunes(t *testing.T) {
 	}
 }
 
-// TestStablePrefixLen_DoesNotSplitMultibyte 公共前缀必须整字切分：
-// 按字节切会把一个汉字劈成半个，比出来的长度没有意义。
 func TestStablePrefixLen_DoesNotSplitMultibyte(t *testing.T) {
 	a := "稳定段"
-	b := "稳定端" // 第三个字不同
+	b := "稳定端"
 	stable, restA, restB := SplitCacheBoundary(a, b)
 	if stable != "稳定" {
 		t.Errorf("公共前缀应为「稳定」，实际 %q", stable)
@@ -43,8 +39,6 @@ func TestStablePrefixLen_DoesNotSplitMultibyte(t *testing.T) {
 		t.Errorf("剩余部分应整字切分，实际 %q / %q", restA, restB)
 	}
 }
-
-// ---------- OpenAI 兼容协议（GLM / DeepSeek / Qwen…） ----------
 
 func TestGLM_ParsesOpenAIStyleCachedTokens(t *testing.T) {
 	body := `{"choices":[{"message":{"role":"assistant","content":"好的"}}],
@@ -71,8 +65,6 @@ func TestGLM_ParsesDeepSeekStyleCachedTokens(t *testing.T) {
 	}
 }
 
-// TestGLM_DeepSeekFieldWinsWhenBothPresent 两种叫法同时出现时以顶层字段为准，
-// 避免把两个口径的数字加在一起。
 func TestGLM_DeepSeekFieldWinsWhenBothPresent(t *testing.T) {
 	body := `{"choices":[{"message":{"role":"assistant","content":"x"}}],
 		"usage":{"prompt_tokens":1000,"completion_tokens":10,
@@ -94,8 +86,6 @@ func TestGLM_NoCacheFieldIsZero(t *testing.T) {
 	}
 }
 
-// TestGLM_StreamRequestsUsage 流式请求要主动索要 usage——
-// 规划走的就是流式，不主动要就永远只能估算，缓存命中量也就无从得知。
 func TestGLM_StreamRequestsUsage(t *testing.T) {
 	c := NewGLM("http://x", "", "m", 0.3, 100, 0)
 	p := c.payload(ChatRequest{System: "s"}, true)
@@ -107,8 +97,6 @@ func TestGLM_StreamRequestsUsage(t *testing.T) {
 	}
 }
 
-// TestGLM_StreamUsageReachesHook 流式收尾块里的 usage（含缓存命中）要真正上报，
-// 不能像以前那样一律丢掉、退化成估算。
 func TestGLM_StreamUsageReachesHook(t *testing.T) {
 	sse := strings.Join([]string{
 		`data: {"choices":[{"delta":{"content":"你"}}]}`,
@@ -141,8 +129,6 @@ func TestGLM_StreamUsageReachesHook(t *testing.T) {
 	}
 }
 
-// TestGLM_StreamOptionsRejectedFallsBack 个别厂商不认 stream_options 会直接 400：
-// 必须自动退回再试一次，并且此后不再发该字段——不能为了拿准数字把主链路弄挂。
 func TestGLM_StreamOptionsRejectedFallsBack(t *testing.T) {
 	var bodies []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -173,14 +159,11 @@ func TestGLM_StreamOptionsRejectedFallsBack(t *testing.T) {
 	}
 }
 
-// ---------- Anthropic ----------
-
 func TestAnthropic_ParsesCacheReadTokens(t *testing.T) {
 	body := `{"content":[{"type":"text","text":"好的"}],
 		"usage":{"input_tokens":100,"output_tokens":20,
 		"cache_read_input_tokens":800,"cache_creation_input_tokens":200}}`
 	u := usageFromAnthropicBody(t, body)
-	// Anthropic 的 input_tokens 不含缓存部分，总输入要三项相加才与 OpenAI 口径一致
 	if u.PromptTokens != 1100 {
 		t.Errorf("总输入应为 100+800+200=1100，实际 %d", u.PromptTokens)
 	}
@@ -189,11 +172,9 @@ func TestAnthropic_ParsesCacheReadTokens(t *testing.T) {
 	}
 }
 
-// TestAnthropic_SystemGetsCacheBreakpoint 长系统提示词要挂 cache_control 断点：
-// Anthropic 的前缀缓存是显式的，不标就完全不缓存。
 func TestAnthropic_SystemGetsCacheBreakpoint(t *testing.T) {
 	c := NewAnthropic("http://x", "", "m", 0.3, 100, 0)
-	long := strings.Repeat("规则", 1200) // 远超 1024 token 下限
+	long := strings.Repeat("规则", 1200)
 	p := c.payload(ChatRequest{System: long}, false)
 	blocks, ok := p.System.([]anthropicSystemBlock)
 	if !ok || len(blocks) != 1 {
@@ -215,8 +196,6 @@ func TestAnthropic_ShortSystemStaysPlainString(t *testing.T) {
 	}
 }
 
-// ---------- Responses 协议 ----------
-
 func TestResponses_ParsesCachedTokens(t *testing.T) {
 	body := `{"output_text":"好的","usage":{"input_tokens":1000,"output_tokens":20,
 		"input_tokens_details":{"cached_tokens":900}}}`
@@ -232,9 +211,6 @@ func TestResponses_ParsesCachedTokens(t *testing.T) {
 	}
 }
 
-// ---------- 测试辅助 ----------
-
-// usageFromChatBody 用假的 chat completions 响应驱动 GLMClient，取回它上报的 Usage。
 func usageFromChatBody(t *testing.T, body string) Usage {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -265,9 +241,6 @@ func usageFromAnthropicBody(t *testing.T, body string) Usage {
 	})
 }
 
-// captureUsage 临时挂一个用量钩子，收集 fn 执行期间上报的 Usage。
-// 钩子只能注册不能注销（全局广播表），所以这里依赖"包内测试顺序执行"这一事实：
-// 读取发生在 fn 返回后、下一次调用之前，不会被别的用例串味。
 func captureUsage(t *testing.T, fn func()) Usage {
 	t.Helper()
 	var got Usage

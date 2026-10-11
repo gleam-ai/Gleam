@@ -1,15 +1,3 @@
-// 界面语言：中英切换的词表与翻译器。
-//
-// 覆盖范围是**整个静态界面**——顶栏、侧栏、输入区、菜单、面板坞、设置页、市场、
-// 站点、记忆、成长、快捷键，以及 placeholder / title / aria-label 属性层。
-// **不覆盖后端返回的运行时文字**（任务进度、通知、报错）：那些字从 Go 侧来，
-// 前端拿到的就已经是成品句子，这里只负责界面自己的文案。
-//
-// 翻译是增量的：DOM 一变就补翻新增的部分，所以设置页、任务卡、对话气泡这些
-// 后渲染的内容也会被翻到（早期版本只在加载时走一遍，切英文后打开设置页仍是中文）。
-//
-// 翻译单位是**整个文本节点 / 整个属性值**：键必须与界面上的原文逐字相等，
-// 带插值的句子（如「共 3 个快捷键」）走下面的 I18N_PATTERNS。
 const I18N_EN = {
   目标: 'Goals',
   定时任务: 'Schedules',
@@ -61,7 +49,6 @@ const I18N_EN = {
   执行前询问: 'Ask first',
   自动执行: 'Auto-run',
   仅对话: 'Chat only',
-  通用: 'General',
   执行权限: 'Access',
   任务档位: 'Task mode',
   专家角色: 'Expert role',
@@ -194,6 +181,9 @@ const I18N_EN = {
   不指定工作区: 'No workspace',
   '不限定领域，适合日常办公与杂项任务':
     'No fixed domain; good for everyday office and misc tasks',
+  'Gleam，开工吧': 'Gleam, let’s get to work',
+  '说清一件事就行，剩下的交给本机执行。上下文不外传。':
+    'Describe one thing; the rest runs on this machine. Context never leaves it.',
   严谨: 'Precise',
   个人资料: 'Profile',
   '为选定的厂商填入 API Key，我们会测试连通性。':
@@ -345,7 +335,7 @@ const I18N_EN = {
   在系统浏览器打开: 'Open in system browser',
   '在系统浏览器打开（Google、GitHub 这类站点拒绝被嵌入，走这条）':
     'Open in system browser (sites like Google and GitHub refuse embedding — use this)',
-  '在编程模式和通用模式之间切换。': 'Switch between Code and General mode.',
+  '在编程模式和目标模式之间切换。': 'Switch between Code and Goals mode.',
   '在页面导航历史中前进到下一页。': 'Go forward in the page history.',
   '在页面导航历史中返回上一页。': 'Go back in the page history.',
   地址: 'Address',
@@ -683,7 +673,7 @@ const I18N_EN = {
   选择或切换工作区: 'Choose or switch workspace',
   选择模型厂商: 'Choose a model provider',
   通用助手: 'General assistant',
-  '通用：规划 → 执行 → 复盘': 'General: plan → execute → review',
+  '目标：规划 → 执行 → 复盘': 'Goals: plan → execute → review',
   邮箱: 'Email',
   重做: 'Redo',
   重启后生效: 'Takes effect after restart',
@@ -1300,8 +1290,8 @@ const I18N_EN = {
   '任务跑完后自动删掉没有未提交改动的副本；有改动的一律保留，不会被静默丢掉。':
     'After a task finishes, copies with no uncommitted changes are deleted automatically; copies with changes are always kept and never dropped silently.',
   '会议室预约 · 内部表单': 'Meeting room booking · internal form',
-  '侧栏顶部的「编程 / 通用」切换时，顺带切换的界面与权限偏好。只保存在本机。':
-    'Interface and access preferences that switch along with Code / General at the top of the sidebar. Stored locally only.',
+  '侧栏顶部的「编程 / 目标」切换时，顺带切换的界面与权限偏好。只保存在本机。':
+    'Interface and access preferences that switch along with Code / Goals at the top of the sidebar. Stored locally only.',
   '允许「GEO」页对你的站点做生成式搜索可见度分析（会调用模型）。':
     "Allow the GEO page to analyze your sites' visibility in generative search (makes model calls).",
   '关着：任务直接在你的工作区里执行，改动就地落盘。':
@@ -1463,8 +1453,8 @@ const I18N_EN = {
     'No account service is configured on this computer, so all data is kept locally only.',
   '进入编程模式时把输入框的执行权限切到这一档；高风险操作仍会请你批准。':
     "Switch the input's access level to this one when entering Code mode; high-risk actions still ask for your approval.",
-  '进入通用模式时把输入框的执行权限切到这一档。':
-    "Switch the input's access level to this one when entering General mode.",
+  '进入目标模式时把输入框的执行权限切到这一档。':
+    "Switch the input's access level to this one when entering Goals mode.",
   '远程 SSH 工作区暂不支持：这里只保存主机别名，Gleam 不会连接这些主机，也不会读取任何密钥文件。':
     "Remote SSH workspaces aren't supported yet: only host aliases are stored here — Gleam won't connect to them or read any key files.",
   '远程主机与 Gleam 的出网边界。':
@@ -1516,8 +1506,6 @@ const I18N_EN = {
   '拉取失败：': 'Fetch failed: ',
   '获取失败：': 'Fetch failed: ',
   '更新失败：': 'Update failed: ',
-  // ---- 连接台账与候补目标：app.js 现场拼的那几句。句子的本体归后端两份
-  // （connections.go / cues.go 的 bi），这里只管前端自己长出来的字。
   '没有查到任何常驻边界。': 'No standing boundaries found.',
   填进输入区: 'Fill into input',
   '把这句话填进下方输入区——按回车才会开始跑':
@@ -1539,9 +1527,6 @@ const I18N_EN = {
   '最近的任务里没有反复出问题的地方，这一轮没什么可提的。':
     'Nothing keeps going wrong in recent tasks — nothing to suggest this round.',
 
-  // ---- 键盘页 / 终端栏 / 任务卡 / 模型弹层 / 市场与导入：各文件现场拼的字 ----
-  // 带分隔符的键是给「前缀查表」用的 head：整节点是「head+尾巴」拼出来的，
-  // head 查到就把前缀换成英文、尾巴递归走一遍词条与规则。
   未连接: 'Not connected',
   替换: 'Replace',
   '按下新的组合键…': 'Press a new combo…',
@@ -1594,10 +1579,6 @@ const I18N_EN = {
     'Built-in fallback (use Fetch available models for the full list)',
   刚刚: 'just now',
 
-  // ---- 厂商名与套餐标签 ----
-  // 这些字由后端 /api/providers 带出来（内置目录写的就是中文），在界面上各是一个
-  // **完整的文本节点**，按键查表即可。厂商名还决定头像里的首字母，settings2-models.js
-  // 的 glyph() 同样先过一遍这里，否则英文界面会留下「智」「月」这种落单的汉字。
   'TokenDance 词元跳动（聚合）': 'TokenDance (aggregator)',
   'DeepSeek 深度求索': 'DeepSeek',
   '智谱 GLM': 'Zhipu GLM',
@@ -1667,7 +1648,6 @@ const I18N_EN = {
   'Token Plan 订阅（Anthropic 兼容）': 'Token Plan (Anthropic-compatible)',
   'Token Plan 订阅（OpenAI 兼容）': 'Token Plan (OpenAI-compatible)',
 
-  // ---- 模型设置页 ----
   推荐: 'Recommended',
   显示名称: 'Display name',
   '模型 ID': 'Model ID',
@@ -1686,7 +1666,6 @@ const I18N_EN = {
     'Gleam can hold several models and you switch between them in chat. You can also add a faster, cheaper helper model for compression, review and other frequent small calls.',
   '高级：生成参数与模型档位': 'Advanced: generation parameters and model tiers',
 
-  // ---- 外观、引导与其他静态界面 ----
   更新: 'Update',
   专家团: 'Experts',
   有可用更新: 'Update available',
@@ -1704,8 +1683,6 @@ const I18N_EN = {
   '每个动作都先问你。最安全，但最慢。':
     'Every action asks you first. Safest, but slowest.',
 
-  // ---- 连接自测（TEST_HINTS）----
-  // 这些值既是独立文案，也会被拼进「模型 ID：<原因>」那一行，故两种用法都要认。
   校验失败: 'Check failed',
   '删除失败：': 'Delete failed: ',
   '鉴权失败：API Key 不正确或已过期':
@@ -1718,8 +1695,7 @@ const I18N_EN = {
   '网络不通：检查 Base URL、代理或防火墙':
     'Network unreachable: check the Base URL, proxy or firewall',
 
-  // ---- 设置页其余静态文案 ----
-  '通用 · 当前': 'General · current',
+  '目标 · 当前': 'Goals · current',
   '编程 · 当前': 'Code · current',
   复制路径: 'Copy path',
   '手动：': 'Manual: ',
@@ -1727,7 +1703,6 @@ const I18N_EN = {
   '跟随系统：按启动 Gleam 时的 HTTPS_PROXY / HTTP_PROXY / NO_PROXY 环境变量；手动：只走下面这一条地址；不使用：直连，环境变量一律忽略。改完重启 Gleam 才切换。':
     'System: uses the HTTPS_PROXY / HTTP_PROXY / NO_PROXY environment variables present when Gleam started; Manual: only the address below; Off: direct connection, environment variables ignored. A restart is needed for the change to take effect.',
 
-  // ---- app.js：工作台 ----
   '连不上本机的 Gleam 服务，请确认它仍在运行':
     "Can't reach the local Gleam service — make sure it's still running",
   没能加载: "Couldn't load",
@@ -1883,7 +1858,6 @@ const I18N_EN = {
   '做一个发布会倒计时单页：全屏深色背景、居中的天/时/分/秒倒计时（目标时间写在页面顶部的常量里）、一句标语和预约提醒按钮。':
     'Build a single-page launch countdown: a full-screen dark background, a centered days/hours/minutes/seconds countdown (target time as a constant at the top of the page), a tagline, and a reminder button.',
 
-  // ---- chrome.js：快捷键 / 更新 / 关于 ----
   逗号: 'comma',
   '浏览器拦下了新窗口，请允许本页弹出窗口':
     'The browser blocked the new window — allow pop-ups for this page',
@@ -1915,7 +1889,6 @@ const I18N_EN = {
   '至少要带 Ctrl 或 Alt（F1–F12 除外）':
     'Must include at least Ctrl or Alt (except F1–F12)',
 
-  // ---- geo.js / growth.js ----
   '已开启：创作完成后自动给出 GEO 建议':
     'On: suggests GEO improvements automatically after you write',
   可以这样改: 'Try this',
@@ -1926,7 +1899,6 @@ const I18N_EN = {
   档位名为空: 'tier name is empty',
   模型名为空: 'model ID is empty',
 
-  // ---- market.js / memory.js ----
   '没有匹配的 MCP 服务器': 'No matching MCP servers',
   无: 'None',
   搜索你的长期记忆: 'Search your long-term memory',
@@ -1938,7 +1910,6 @@ const I18N_EN = {
   '这条记忆与搜索词的相关度（词法相似度换算，同义词不算相关），越高越相关':
     'How relevant this memory is to the search term (lexical similarity; synonyms do not count). Higher means more relevant',
 
-  // ---- schedules.js ----
   暂停: 'Pause',
   恢复: 'Resume',
   '任务名不能含 / 或 \\，换一个说法即可':
@@ -1946,7 +1917,6 @@ const I18N_EN = {
   '请用一句话说说执行时间，例如“每天早上9点”':
     'Describe the schedule in one sentence, e.g. “every day at 9am”',
 
-  // ---- settings2-models.js ----
   '已激活此模型，下一个任务开始用它':
     'This model is active; the next task will use it',
   '删除模型？': 'Delete model?',
@@ -1958,7 +1928,6 @@ const I18N_EN = {
   '已填写的供应商、地址和密钥都不会保存。':
     'The provider, address and key you entered will not be saved.',
 
-  // ---- settings2-pages.js ----
   '自定义智能体暂不支持，可在任务输入框里选择内置专家角色':
     'Custom agents are not supported yet — pick a built-in expert role in the task input',
   '· 任务已暂停': ' · task paused',
@@ -1983,7 +1952,6 @@ const I18N_EN = {
   '先填代理地址，例如 http://127.0.0.1:7890':
     'Enter the proxy address first, e.g. http://127.0.0.1:7890',
 
-  // ---- settings2.js ----
   '清除本机登录凭证；本地任务和设置不会被删除。':
     'Clears the local sign-in credentials; local tasks and settings are not deleted.',
   '登录后可同步账户信息；不登录也能使用全部本地功能。':
@@ -1994,7 +1962,6 @@ const I18N_EN = {
   '下次打开 Gleam 时按窗口宽度决定':
     'Decided by window width the next time Gleam opens',
 
-  // ---- skills.js / tools.js ----
   '启用后重新进入技能清单，可被引用与运行':
     'Once enabled it re-enters the skill list and can be referenced and run',
   '停用后保留内容与统计，但不再进技能清单':
@@ -2007,7 +1974,6 @@ const I18N_EN = {
   恢复内置默认: 'Restore built-in default',
   '参数（JSON）': 'Parameters (JSON)',
 
-  // ---- 第三轮补：前缀片段（后面还拼着运行期值，单独成句时也要认得出）与档位校验词 ----
   '已停用 ·': 'Disabled ·',
   '自动压缩已关闭 ·': 'Auto-compress off ·',
   '· 云端账号': ' · Cloud account',
@@ -2016,8 +1982,6 @@ const I18N_EN = {
   模型名为空: 'model name is empty',
 };
 
-// 插值句子的翻译规则：整节点匹配正则后替换。只收界面自己拼的句子；
-// 数字、主机名这类运行期值原样保留。
 const I18N_MONTHS = [
   'Jan',
   'Feb',
@@ -2071,8 +2035,6 @@ const I18N_PATTERNS = [
     /^切换到「(.+?)」时自动换成这个主题色。$/,
     (m, n) => `Accent switches to this when you switch to ${I18N_EN[n] || n}.`,
   ],
-  // 组合尾缀（默认/辅助 + 无密钥）必须排在单尾缀之前，否则「· 无密钥」先把
-  // 前半截当 host 吞掉，剩下的「默认」永远翻不动。
   [/^(.+) · 默认 · 无密钥$/, (m, p) => `${I18N_EN[p] || p} · default · no key`],
   [/^(.+) · 辅助 · 无密钥$/, (m, p) => `${I18N_EN[p] || p} · fast · no key`],
   [/^(.*) · 无密钥$/, (m, host) => `${I18N_EN[host] || host} · no key`],
@@ -2101,10 +2063,7 @@ const I18N_PATTERNS = [
   ],
   [/^来源: 系统 PATH · (.*)$/, (m, p) => `Source: system PATH · ${p}`],
   [/^预算闸 · (.+)$/, (m, rest) => `Budget · ${rest}`],
-  // 候补卡的时间戳「最近一次 2026-01-02 15:04」：没有全角分隔符，前缀查表够不着。
   [/^最近一次 (.+)$/, (m, when) => `Last seen ${when}`],
-  // ---- 计数与拼装句：app.js / market.js / importer.js / chrome.js 各处现拼的 ----
-  // 数字典插在句中，词条够不着；一个形状一条规则，运行期数字原样保留。
   [/^(\d+) 项需要处理$/, (m, n) => `${n} items need attention`],
   [/^(\d+) 个目标正在推进$/, (m, n) => `${n} goals in progress`],
   [/^(\d+) 个工具$/, (m, n) => `${n} tools`],
@@ -2217,22 +2176,15 @@ const I18N_PATTERNS = [
     (m, end, mid) =>
       `Usage is "the last request's input ÷ the model window". Older turns beyond the window are summarized as they overflow — nothing is lost; at ${end}% (task finished) or ${mid}% (task running), the next round automatically carries fewer turns, and the task keeps going after compressing.`,
   ],
-  // 前缀查表：界面里大量「中文前缀 + 拼出来的尾巴」（像 '工作区 · ' + 名字、'操作失败：' + 原因）。
-  // 这类整节点是拼好的句子，精确匹配不到；这里把第一个分隔符前的那段当键去查表，
-  // 查得到就换掉前缀、保留尾巴（尾巴多是运行期内容，本来就不该翻）。查不到就整句不翻。
   [
     /^([^：·]{1,24}(?:：| · ))([\s\S]+)$/,
     (m, head, tail) => {
       const has = (k) => Object.prototype.hasOwnProperty.call(I18N_EN, k);
       if (!has(head)) return null;
-      // 尾巴也递归翻一次：「请我批准 · 编程」的尾巴是词条、「等你批准 · 8 项」的
-      // 尾巴要走计数规则——尾巴里全剩运行期值时原样保留。
       return I18N_EN[head] + (i18nText(tail) || tail);
     },
   ],
   [/^钩子（(\d+)）$/, (m, n) => `Hooks (${n})`],
-  // 连接自测的结果行「<模型 ID>：<原因>（HTTP 4xx）」：模型 ID 是运行期值，
-  // 冒号前那段不该被当词条，所以只在前面都认不出时才接（前缀查表会主动让位）。
   [
     /^(\S+)：(.+?)(（HTTP (\d+)）)?$/,
     (m, model, why, _http, code) => {
@@ -2253,7 +2205,6 @@ const I18N_PATTERNS = [
     (m, what) =>
       `Deleting “${what}” removes this endpoint's key and configuration.`,
   ],
-  // 时长：设置页的秒 / 分钟下拉，以及「N 个文件」「N 条记忆」这类计数尾巴。
   [/^(\d+(?:\.\d+)?) 秒$/, (m, n) => `${n} s`],
   [/^(\d+(?:\.\d+)?) 分钟$/, (m, n) => `${n} min`],
   [/^(\d+)分钟$/, (m, n) => `${n} min`],
@@ -2280,8 +2231,6 @@ const I18N_PATTERNS = [
     (m, n) =>
       `Scanned ${n} files. The selection is written into Gleam's memory store paragraph by paragraph; read-only — their files are never modified.`,
   ],
-  // ---- 第三轮：现场拼出的整句按「形状」收口 ----
-  // 句子里混着运行期数字 / ID / 路径时不进词表，按形状匹配；尾巴能递归翻的就递归。
   [/^搜索 "(.+)" · (\d+) 个结果$/, (m, q, n) => `Search "${q}" · ${n} results`],
   [/^验收清单 (\d+)\/(\d+) 项通过$/, (m, a, b) => `Checklist ${a}/${b} passed`],
   [/^本次改动 (\d+) 个路径$/, (m, n) => `${n} paths changed this round`],
@@ -2376,7 +2325,6 @@ const I18N_PATTERNS = [
     (m, a, b) => `${a} in total; the first ${b} are listed here`,
   ],
   [/^更新 (\d+)%$/, (m, n) => `Updating ${n}%`],
-  // chrome.js：检查更新 / 应用更新的一串句子
   [
     /^没能问到更新情况：(.+?)。稍后再试一次。$/,
     (m, e) => `Couldn't check for updates: ${e}. Try again later.`,
@@ -2418,7 +2366,6 @@ const I18N_PATTERNS = [
     /^「(.+?)」的快捷键已清除$/,
     (m, t) => `Shortcut for "${i18nText(t) || t}" cleared`,
   ],
-  // growth.js / importer.js / market.js
   [
     /^第 (\d+) 行「(.+?)」(.+?)（格式：档位: 模型ID）$/,
     (m, i, line, why) =>
@@ -2442,7 +2389,6 @@ const I18N_PATTERNS = [
     (m, x) =>
       `Delete this memory? "${x}" — once deleted it is no longer searched.`,
   ],
-  // schedules.js / settings2-pages.js / skills.js / tools.js
   [
     /^删除定时任务「(.+?)」？此操作不可恢复。$/,
     (m, n) => `Delete scheduled task "${n}"? This cannot be undone.`,
@@ -2517,14 +2463,11 @@ const I18N_PATTERNS = [
     /^(\d+) 个 index\.html 不是 Gleam 生成的，已略过$/,
     (m, n) => `${n} index.html files were not generated by Gleam — skipped`,
   ],
-  // 会话用量行：`≈12.3k tokens · 4 次调用 · 6 次工具`
   [
     /^([\s\S]*?) tokens · (\d+) 次调用(?: · (\d+) 次工具)?$/,
     (m, tk, calls, tools) =>
       `${tk} tokens · ${calls} calls${tools ? ` · ${tools} tools` : ''}`,
   ],
-  // 用量 tooltip 的「；」串：整串不命中时由 i18nText 的「，；」分段规则拆开，
-  // 逐段落到下面这三条。
   [
     /^输入 (\d+) \/ 输出 (\d+) token$/,
     (m, i, o) => `Input ${i} / output ${o} tokens`,
@@ -2534,7 +2477,6 @@ const I18N_PATTERNS = [
     (m, p, t) => `Cache hit ${p}% (${t} tokens)`,
   ],
   [/^(\d+) 次重试$/, (m, n) => `${n} retries`],
-  // 改动清单的表头片段与账号行
   [/^可还原 (\d+)\/(\d+)$/, (m, a, b) => `Restorable ${a}/${b}`],
   [/^([\s\S]+) · 云端账号$/, (m, h) => `${h} · Cloud account`],
   [/^已连接 SSH：(.+)$/, (m, h) => `Connected over SSH: ${h}`],
@@ -2551,43 +2493,28 @@ const i18nOrig = new WeakMap();
 let i18nLang = 'zh';
 let i18nApplying = false;
 
-// 翻规则里的「尾巴」：尾巴是拼接留下的片段，可能带着空白，先按 i18nNode 的规矩
-// 归一化（空白压成单空格、去首尾）再查，否则 `· 参数: x` 会因前导空格查不中。
 function i18nTail(s) {
   return i18nText(String(s).replace(/\s+/g, ' ').trim(), false);
 }
 
-// 输入框里预填的内容（.value 不走 DOM 文本节点那条路）。英文模式下同样给英文；
-// 中文模式原样返回，不做任何翻译。
 function i18nValue(text) {
   const s = String(text);
   return i18nLang === 'en' ? i18nText(s) || s : s;
 }
 
-// 取一条文案的英文；没有就返回 null（表示"这句不翻"）。
-// 规则可以返回 null 表示"这条不归我管"，后面更专的规则还有机会——最靠前的
-// 那条「前缀查表」就是这样：它认不出前缀时会主动让位给排在其后的具体规则。
 function i18nText(key, isAttr) {
   if (Object.prototype.hasOwnProperty.call(I18N_EN, key)) return I18N_EN[key];
-  // 属性层也走插值规则：title="上下文窗口占用 41%（…）" 这类同样是界面自己拼的句子。
   for (const [re, fn] of I18N_PATTERNS) {
     const m = re.exec(key);
     if (!m) continue;
     const hit = fn(...m);
     if (hit != null) return hit;
   }
-  // 运行期自己拼上去的句号：`bits.join('；') + '。'`（app.js 的站点/改动汇总行）。
-  // 整句查不到就把句号摘下来再查一次，查到了补回一个英文句号——别因为一个标点漏翻一整句。
   const HAN = /[\u4e00-\u9fff\uf900-\ufaff]/;
   if (key.endsWith('。')) {
     const en = i18nText(key.slice(0, -1), isAttr);
     if (en != null) return /[.!?;,:]$/.test(en) ? en : en + '.';
   }
-  // 分隔符串起来的汇总行（app.js 里 `bits.join('；')` / `bits.join('，')`）：先按分号切，
-  // 每段各自再走一遍完整规则（可能命中整句 pattern，也可能继续按逗号细分），分隔符换成
-  // 英文标点。**必须先分号后逗号**：句子内部本来就有逗号（`有 N 个空间…，切到…就能扫到`），
-  // 先按逗号切会把整句打碎。带中文的段必须每段都翻得动，整串才动；一段翻不动就整句不翻,
-  // 不半翻——运行期内容（路径、名字）不该被抠掉半截。纯 ASCII 段原样穿过。
   const splitJoin = (sep, en) => {
     const parts = key.split(sep);
     if (parts.length < 2) return null;
@@ -2618,8 +2545,6 @@ function i18nNode(n) {
   const box = /^(\s*)([\s\S]*?)(\s*)$/.exec(raw);
   const body = box[2];
   if (!body) return;
-  // 源码里的长文案会被格式化器折行，DOM 里就带上了换行与缩进，而词条记的是「一行」。
-  // 查表前把内部空白压成单空格；命中后只替换正文那一段，首尾空白原样留着。
   const key = body.replace(/\s+/g, ' ');
   const en = key in I18N_EN ? I18N_EN[key] : i18nText(key, false);
   if (en == null) return;
@@ -2648,7 +2573,6 @@ function i18nRestoreAttrs(el) {
   }
 }
 
-// 单个文本节点：英文写译文，中文写回原文（原文存在 i18nOrig 里，只存一次）。
 function i18nOneNode(n, restore) {
   if (restore) {
     const raw = i18nOrig.get(n);
@@ -2658,7 +2582,6 @@ function i18nOneNode(n, restore) {
   i18nNode(n);
 }
 
-// 翻译一棵子树。只在英文模式下写 DOM；中文模式靠 i18nOrig 还原。
 function i18nWalk(root, restore) {
   if (!root) return;
   if (root.nodeType === Node.TEXT_NODE) {
@@ -2677,7 +2600,6 @@ function i18nWalk(root, restore) {
   while ((n = walker.nextNode())) i18nOneNode(n, restore);
 }
 
-// 后渲染的内容：只在英文模式下观察，且写 DOM 时把观察回调挡掉（否则自己触发自己）。
 const i18nObserver = new MutationObserver((records) => {
   if (i18nApplying || i18nLang !== 'en') return;
   i18nApplying = true;
@@ -2709,8 +2631,6 @@ function applyLang(lang) {
   } finally {
     i18nApplying = false;
   }
-  // 后端按界面语言组句子的面板（/api/connections、/api/cues 的 lang 参数）
-  // 得拿新语言的数据重取一遍：静态文案上面已经翻完，动态面板的字在响应里。
   window.dispatchEvent(
     new CustomEvent('langchange', { detail: { lang: i18nLang } }),
   );

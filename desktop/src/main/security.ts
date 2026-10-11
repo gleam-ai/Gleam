@@ -1,4 +1,3 @@
-// Security baseline for every webContents and the default session.
 import {
   app,
   BrowserWindow,
@@ -12,7 +11,6 @@ import {
 import { APP_HOST, APP_ORIGIN, APP_SCHEME } from './protocol';
 import { getShortcut, setShortcut } from './shortcut';
 
-// Note: Node's URL reports origin "null" for schemes it does not know (app:), so compare scheme + host.
 function isAppURL(raw: string): boolean {
   try {
     const u = new URL(raw);
@@ -31,9 +29,7 @@ function isExternalHTTP(raw: string): boolean {
   }
 }
 
-/** Navigation / window-open / webview guards. Installed from app 'web-contents-created'. */
 export function hardenContents(contents: WebContents): void {
-  // Top-level navigation may only stay inside app://gleam/.
   const guardNav = (e: Electron.Event, url: string) => {
     if (!isAppURL(url)) {
       e.preventDefault();
@@ -43,7 +39,6 @@ export function hardenContents(contents: WebContents): void {
   contents.on('will-navigate', guardNav);
   contents.on('will-redirect', guardNav);
 
-  // No new windows. http(s) links go to the system browser; everything else is dropped.
   contents.setWindowOpenHandler(({ url }) => {
     if (isExternalHTTP(url)) void shell.openExternal(url);
     else console.warn(`[security] blocked window.open(${url})`);
@@ -56,10 +51,8 @@ export function hardenContents(contents: WebContents): void {
   });
 }
 
-/** Deny-by-default permissions for the default session. */
 export function hardenSession(ses: Session): void {
   ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    // Clipboard writes from our own UI (copy buttons) are the one thing it legitimately asks for.
     const ok =
       permission === 'clipboard-sanitized-write' &&
       isAppURL(details.requestingUrl);
@@ -75,14 +68,8 @@ export function hardenSession(ses: Session): void {
       requestingOrigin === APP_ORIGIN
     );
   });
-  // Nothing in the app needs downloads in Phase 0.
   ses.on('will-download', (e) => e.preventDefault());
 }
-
-// ---- IPC allowlist -------------------------------------------------------------------------------
-// Every channel is listed here, and every handler checks that the call comes from our own top frame.
-// The preload exposes exactly these channels and nothing else. Every argument is checked against a
-// fixed list: the renderer never gets to name an arbitrary webContents / BrowserWindow method.
 
 export const IPC_CHANNELS = [
   'desktop:info',
@@ -100,7 +87,6 @@ export const IPC_CHANNELS = [
   'desktop:update:restart',
   'desktop:tray:sync',
 ] as const;
-/** main -> renderer push channel (window maximised / full-screen state). */
 export const IPC_EVENTS = [
   'desktop:window-state',
   'desktop:update-status',
@@ -129,7 +115,6 @@ const WINDOW_ACTIONS = ['minimize', 'maximize', 'close', 'fullscreen'] as const;
 const ZOOM_STEP = 0.5;
 const ZOOM_MIN = -3;
 const ZOOM_MAX = 4;
-// Screenshot for the feedback dialog: keep it well under the backend's 5 MB per-image limit.
 const CAPTURE_MAX_WIDTH = 1600;
 
 function fromAppFrame(e: IpcMainInvokeEvent): boolean {
@@ -154,7 +139,6 @@ export function windowState(win: BrowserWindow): {
   return { maximized: win.isMaximized(), fullscreen: win.isFullScreen() };
 }
 
-/** Push maximise / full-screen changes to the renderer so it can swap the maximise / restore glyph. */
 export function forwardWindowState(win: BrowserWindow): void {
   const push = () => {
     if (!win.isDestroyed())
@@ -194,7 +178,6 @@ export function installIpc(
     })),
   );
 
-  // Edit menu: the same webContents roles a native Edit menu would call; they act on the focused element.
   ipcMain.handle(
     'desktop:edit',
     guard((e, action: unknown) => {
@@ -269,8 +252,6 @@ export function installIpc(
     guard((e) => windowState(senderWindow(e))),
   );
 
-  // "Open in system browser" from the preview pane. window.open is always denied by the window-open
-  // handler (it returns null), which the renderer used to report as a blocked popup.
   ipcMain.handle(
     'desktop:openExternal',
     guard(async (_e, url: unknown) => {
@@ -281,7 +262,6 @@ export function installIpc(
     }),
   );
 
-  // Feedback dialog thumbnail: a PNG of the current window, taken before the dialog is shown.
   ipcMain.handle(
     'desktop:capture',
     guard(async (e) => {
@@ -300,9 +280,6 @@ export function installIpc(
     }),
   );
 
-  // 附件：调用系统文件选择器。properties 与 Electron dialog.showOpenDialog 一致。
-  // 全局唤起快捷键：读当前 / 设新的（空串 = 取消）。
-  // 组合合法性由 Electron 判，我们只把它的结论原样带回去，好让界面说人话。
   ipcMain.handle(
     'desktop:globalShortcut',
     guard((_e, action: unknown, accelerator: unknown) => {

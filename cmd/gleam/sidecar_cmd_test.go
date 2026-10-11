@@ -14,13 +14,11 @@ import (
 	"gleam/internal/webui"
 )
 
-// startSidecar 在随机回环端口上跑 runSidecar，返回就绪行、stdin 写端与退出通道。
 func startSidecar(t *testing.T, h http.Handler) (sidecarReady, *io.PipeWriter, <-chan error) {
 	t.Helper()
 	return startSidecarFor(t, func(string) http.Handler { return h })
 }
 
-// startSidecarFor 先开监听，再用实际地址构造 handler（真实 Web UI 的 Host 校验要知道 BindAddr）。
 func startSidecarFor(t *testing.T, mk func(addr string) http.Handler) (sidecarReady, *io.PipeWriter, <-chan error) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -70,7 +68,6 @@ func waitExit(t *testing.T, done <-chan error, within time.Duration) {
 	}
 }
 
-// stdin 关闭（父进程退出/被杀）→ 优雅退出，并且挂着的 SSE 长连接不会拖住关闭。
 func TestRunSidecar_ExitsWhenStdinCloses(t *testing.T) {
 	streaming := make(chan struct{})
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +97,6 @@ func TestRunSidecar_ExitsWhenStdinCloses(t *testing.T) {
 	}
 }
 
-// {"cmd":"shutdown"} → 优雅退出；其它行被忽略。
 func TestRunSidecar_ShutdownCommand(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	ready, stdin, done := startSidecar(t, h)
@@ -121,7 +117,6 @@ func TestRunSidecar_ShutdownCommand(t *testing.T) {
 	waitExit(t, done, 2*time.Second)
 }
 
-// 用真实 Web UI handler：父进程预置的口令能用，不带口令的请求被拒。
 func TestRunSidecar_RealHandlerUsesPresetToken(t *testing.T) {
 	const tok = "sidecar-test-token-0123456789"
 	t.Setenv(webui.TokenEnv, tok)

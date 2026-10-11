@@ -10,7 +10,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// TestBudget_ZeroMeansUnlimited 三项预算都是 0 时不限制，任务照常跑完。
 func TestBudget_ZeroMeansUnlimited(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"ok"}}]}`),
@@ -26,14 +25,13 @@ func TestBudget_ZeroMeansUnlimited(t *testing.T) {
 	}
 }
 
-// TestBudget_StopsOnCallLimit 模型调用次数超预算时，任务应停下并征求用户确认。
 func TestBudget_StopsOnCallLimit(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"ok"}}]}`),
 		reflectScript(92, "done", "完成"),
 	})
 	f.a.Cfg.Agent.MaxLLMCallsPerTask = 1
-	f.notify.approveAll = false // 用户拒绝继续
+	f.notify.approveAll = false
 
 	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "统计一下目录", Mode: "auto"})
 	if res.Status != types.GoalFailed {
@@ -53,7 +51,6 @@ func TestBudget_StopsOnCallLimit(t *testing.T) {
 	}
 }
 
-// TestBudget_GrantExtendsLimit 用户批准后追加一倍额度，任务可以继续。
 func TestBudget_GrantExtendsLimit(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.MaxLLMCallsPerTask = 2
@@ -74,7 +71,6 @@ func TestBudget_GrantExtendsLimit(t *testing.T) {
 	}
 }
 
-// TestBudget_TokenLimit token 预算应按累计消耗判定。
 func TestBudget_TokenLimit(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.MaxTokensPerTask = 100
@@ -89,7 +85,6 @@ func TestBudget_TokenLimit(t *testing.T) {
 	}
 }
 
-// TestBudget_DurationLimit 运行时长超过预算也应熔断。
 func TestBudget_DurationLimit(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.MaxTaskDurationSecs = 1
@@ -102,7 +97,6 @@ func TestBudget_DurationLimit(t *testing.T) {
 	}
 }
 
-// TestBudget_ClearedWithTask 任务淘汰时预算记录应一并释放，避免内存泄漏。
 func TestBudget_ClearedWithTask(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.MaxLLMCallsPerTask = 1

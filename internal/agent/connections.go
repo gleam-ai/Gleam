@@ -1,8 +1,3 @@
-// Package agent 里的这一管负责一件事：把"这台机器上有哪些边界"列成一张台账。
-//
-// 为什么不做成"连接器市场"：别的桌面 Agent 那一屏回答的是"我还能连什么"，
-// 而 Gleam 早已把实体散在 MCP / 工具 / 技能三层里——再加一屏画廊只是给同一批事实找第二个家，
-// 而且那个家的朝向是"劝你多装"。这一层反过来回答：**这条线通了之后，谁被允许动我的什么**。
 package agent
 
 import (
@@ -13,56 +8,32 @@ import (
 	"gleam/internal/llm"
 )
 
-// egressKinds 出网落点清单，**这一份是 owner**。
-//
-// 闸门 scripts/check-egress-owner.py 拿它与全仓所有 RecordEgress 调用点的 kind 字面量
-// 双向对账（读源码前会先剥掉注释，免得注释里提一句这个函数就凭空多出一个落点）：
-// 新接一条出网路径忘了在这里交代 → 红；在这里列了一条代码里没人记的出网 → 也红。
-// 之所以值得为它写一道闸门：本地优先的产品最坏的失效不是"连得少"，而是
-// **"连了而没交代"**——那句话在界面上看起来和"没连"一模一样。
-//
-// 台账行的 kind 与本清单必须一致，这条由 TestConnections_EveryEgressKindHasARow 在运行时判
-// （闸门只能读源码，读不出"这一行今天到底画没画出来"）。
 var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}
 
-// EgressKinds 出网落点清单（供测试与自述用；改这份的同时必须改台账行）。
 func EgressKinds() []string { return append([]string(nil), egressKinds...) }
 
-// ConnectionRow 台账上的一条边界。
-//
-// 字段全是**已存在的事实**：目标来自配置与注册表，读数来自门控留痕，状态来自运行时。
-// 这里没有任何一个手写的"能力宣传语"——一张会自己长出新行的表才有资格说"这就是全部"。
-// 文案字段由 bi 给出中英两份（见 bilingual.go）：口径（什么时候说这句话）归这里，
-// 两种语言的说法也归这里——前端拿到的就是成品，不再查表、不再拼装。
 type ConnectionRow struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Kind     string `json:"kind"`     // out | in | local
-	KindText string `json:"kindText"` // 出网 | 入网 | 本机（显示口径也归这里，前端不再各写一份映射）
-	Target   string `json:"target"`   // 通到哪
-	Status   string `json:"status"`   // 现在到底是不是通的
-	Trigger  string `json:"trigger"`  // 谁能让它发生
-	Leaves   string `json:"leaves"`   // 会离开本机（或被它触及）的东西
-	Trace    string `json:"trace"`    // 留痕在哪、怎么回看
-	Untraced bool   `json:"untraced"` // 关键动作没有留痕：界面必须把它渲染成警示，而不是沉默
-	Off      string `json:"off"`      // 想关掉或收紧，动哪里
-	Stats    string `json:"stats"`    // 实测读数（有留痕的出网行才有）
-	Alert    string `json:"alert"`    // 这一行现在值得警惕的一件事
+	Kind     string `json:"kind"`
+	KindText string `json:"kindText"`
+	Target   string `json:"target"`
+	Status   string `json:"status"`
+	Trigger  string `json:"trigger"`
+	Leaves   string `json:"leaves"`
+	Trace    string `json:"trace"`
+	Untraced bool   `json:"untraced"`
+	Off      string `json:"off"`
+	Stats    string `json:"stats"`
+	Alert    string `json:"alert"`
 }
 
-// ConnectionLedger 一张台账 + 它的覆盖范围。
 type ConnectionLedger struct {
 	Rows        []ConnectionRow `json:"rows"`
 	Scope       string          `json:"scope"`
 	EgressScope string          `json:"egressScope"`
 }
 
-// ConnectionView 从真实运行状态派生台账。完全只读：不发模型请求、不写文件、不联网探测。
-//
-// bindAddr 由接入层给（引擎不知道自己在监听哪个端口，这是宿主的事实）。
-// 传空串表示"本机服务这一行拿不到监听地址"——那一行会如实说"未知"，不会假装是回环。
-// en 表示界面语言：true 给英文说法，false（默认）给中文。每句文案的两份说法都在本文件里，
-// 由这一个参数挑——前端只传语言，不翻句子。
 func (a *Agent) ConnectionView(bindAddr string, en bool) ConnectionLedger {
 	rep := a.Gate.EgressStats()
 	scope := egressScopeText(rep, a.Gate.AuditPath(), en)
@@ -89,14 +60,6 @@ func (a *Agent) ConnectionView(bindAddr string, en bool) ConnectionLedger {
 	}
 }
 
-// egressScopeText 读数覆盖范围必须跟着读数走。
-//
-// 内存环只有最近若干条、重启即清零。界面若只印"N 次 / M 字节"，读者会理解成
-// "这台机器上一共发出去多少"——那是把"我不知道"讲成答案（同 §4.6.33 那一类错）。
-// 环被写满时（Scanned == Cap）说法必须变，且容量这个数字不许前端自己记。
-//
-// 第二层：指路只能指向真实存在的东西。没开审计落盘时让人去 `pending --audit`，
-// 他查到的"没有记录"会被读成"确实没出过网"，而事实是"这台机器压根没记"。
 func egressScopeText(rep safety.EgressReport, auditPath string, en bool) string {
 	back := bi{
 		"更早的记录在落盘审计里，`gleam pending --audit --egress` 可只看这一类",
@@ -127,7 +90,6 @@ func egressScopeText(rep safety.EgressReport, auditPath string, en bool) string 
 	}
 }
 
-// egressStat 取某一类出网落点的实测读数。
 func egressStat(rep safety.EgressReport, kind string) (safety.EgressStat, bool) {
 	for _, s := range rep.Stats {
 		if s.Kind == kind {
@@ -137,8 +99,6 @@ func egressStat(rep safety.EgressReport, kind string) (safety.EgressStat, bool) 
 	return safety.EgressStat{}, false
 }
 
-// egressStatsText 一行出网读数的说法。没有记录要说成"没有记录"，不能留空——
-// 空白格子在界面上的读法是"这行不归我管"，而事实是"这台机器至今没往它发过东西"。
 func egressStatsText(rep safety.EgressReport, kind string, en bool) string {
 	st, ok := egressStat(rep, kind)
 	if !ok {
@@ -157,7 +117,6 @@ func egressStatsText(rep safety.EgressReport, kind string, en bool) string {
 	}.pick(en), st.Count, len(st.Hosts), hosts, humanBytes(st.Bytes, en))
 }
 
-// humanBytes 读数要说人话；这是显示口径，归后端一处（前端再写一份就会有两个"1.2 KB"）。
 func humanBytes(n int, en bool) string {
 	byteWord := bi{"字节", "B"}.pick(en)
 	switch {
@@ -170,10 +129,6 @@ func humanBytes(n int, en bool) string {
 	}
 }
 
-// llmRow 模型服务这一行：本机唯一会把**提示词全文**送出去的边界。
-//
-// 目标主机取 `llm.KeyScope(cfg.LLM.BaseURL)`——那正是密钥绑定的那把尺（见 §4.6.26），
-// 台账与它读同一个数，才不会出现"密钥说是 A、台账写着 B"。
 func (a *Agent) llmRow(rep safety.EgressReport, en bool) ConnectionRow {
 	base := strings.TrimSpace(a.Cfg.LLM.BaseURL)
 	host := llm.KeyScope(base)
@@ -230,8 +185,6 @@ func (a *Agent) llmRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return r
 }
 
-// webFetchRow 网页抓取：这是**唯一一处目标不由用户配置**的出网边界——
-// 网址是模型自己挑的，所以这一行的重点在"自动放行"这件事本身。
 func (a *Agent) webFetchRow(rep safety.EgressReport, en bool) ConnectionRow {
 	r := ConnectionRow{
 		ID: "web.fetch", Title: bi{"网页抓取", "Web fetch"}.pick(en), Kind: "out",
@@ -278,12 +231,6 @@ func (a *Agent) webFetchRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return r
 }
 
-// inboundRow 本机服务端口：台账里唯一一条"入"的方向。
-//
-// 这一行值得单独存在，是因为它常被当成"这是本机所以安全"。/api 现在要每次启动随机生成的口令
-// （internal/webui/guard.go），还校验 Host 与跨站来源，浏览器里的网页替你发请求这条路已经堵上；
-// 但口令文件就在数据目录里，**同一用户下的本机进程读得到它**，拿到口令就能提交目标、裁决审批、读你的会话。
-// 默认只绑回环；**风险在有人手改 --addr 之后变大**（明文 HTTP，口令在网络上可见），所以状态必须如实印出来。
 func inboundRow(bindAddr string, en bool) *ConnectionRow {
 	if strings.TrimSpace(bindAddr) == "" {
 		return nil
@@ -327,8 +274,6 @@ func inboundRow(bindAddr string, en bool) *ConnectionRow {
 	return &r
 }
 
-// isLoopbackAddr 只看地址前缀：回环的判定归这里，不引 net 包做多一次解析——
-// 台账这一层的职责是"如实交代"，把 net 的判定借来反而多一处会漂的地方。
 func isLoopbackAddr(addr string) bool {
 	a := strings.TrimSpace(addr)
 	host := a
@@ -339,11 +284,6 @@ func isLoopbackAddr(addr string) bool {
 	return host == "127.0.0.1" || host == "localhost" || host == "::1" || strings.HasPrefix(host, "127.")
 }
 
-// mcpRows 一台 MCP 服务器一行。
-//
-// **为什么它不是"连接器"**：MCP 在 Gleam 里不通网络，而是**在你机器上起一个进程**。
-// 于是它的爆炸半径不是"我能不能访问某个云"，而是"那个进程拿你的文件当自己的文件"。
-// 这一层的留痕只到"谁被调用、批没批"，进程自己又连了什么，本机不知道——所以 Untraced 必须为真。
 func (a *Agent) mcpRows(en bool) []ConnectionRow {
 	out := []ConnectionRow{}
 	for _, m := range a.MCPList() {
@@ -387,7 +327,6 @@ func (a *Agent) mcpRows(en bool) []ConnectionRow {
 	return out
 }
 
-// cloudRow 云端账号：只有配了项目地址才存在，所以这一行会说"没配"。
 func (a *Agent) cloudRow(rep safety.EgressReport, en bool) ConnectionRow {
 	r := ConnectionRow{
 		ID: "cloud", Title: bi{"云端账号", "Cloud account"}.pick(en), Kind: "out",
@@ -433,7 +372,6 @@ func (a *Agent) cloudRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return r
 }
 
-// feedbackRow 反馈投递：用户交出去的是他写的那段话，所以这一行必须写清发出去前动了什么。
 func (a *Agent) feedbackRow(rep safety.EgressReport, en bool) ConnectionRow {
 	r := ConnectionRow{
 		ID: "feedback", Title: bi{"反馈投递", "Feedback delivery"}.pick(en), Kind: "out",
@@ -465,8 +403,6 @@ func (a *Agent) feedbackRow(rep safety.EgressReport, en bool) ConnectionRow {
 		return r
 	}
 	c := a.Creds.GetCloudConfig()
-	// 地址与 key 两件都齐才算配好投递：只有地址的请求一定 401，
-	// 那种时候这一行说"已配置"就是骗人（判定与 feedback.Configured 同一把尺）。
 	if strings.TrimSpace(c.SupabaseURL) == "" || strings.TrimSpace(c.SupabaseAnonKey) == "" {
 		r.Status = bi{
 			"未配置：反馈只落本机",
@@ -484,11 +420,6 @@ func (a *Agent) feedbackRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return r
 }
 
-// updateRow 自我更新：这条线只在用户点了「更新」那一下才通。
-//
-// 它和「市场」那一行正好相反：市场是"你以为是连接、其实不是"，更新是
-// "你以为是本机操作、其实在往 GitHub 拉一个可执行文件"。自替换是这台机器上
-// 动作最大的一次出网，所以它必须有一行，且必须写清下载地址只认官方 release。
 func updateRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return ConnectionRow{
 		ID: "update", Title: bi{"自我更新", "Self-update"}.pick(en), Kind: "out",
@@ -521,12 +452,6 @@ func updateRow(rep safety.EgressReport, en bool) ConnectionRow {
 	}
 }
 
-// goToolchainRow Go 工具链安装：这条线只在设置页点「安装 Go」那一下才通。
-//
-// 为什么它必须进台账：这是一条**用户不会想到的**出网路径——他以为在装开发工具，
-// 机器却在往镜像站拉一个 80MB 的压缩包。落的落点、装到哪里、怎么校验，都要写明白。
-// 目标主机写"镜像站"而不是某一个域名：按顺序试阿里云、官方国内镜像、官方站，
-// 真发了包的那一个由留痕读数回答（这一行有 Stats）。
 func goToolchainRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return ConnectionRow{
 		ID: "go.toolchain", Title: bi{"Go 工具链安装", "Go toolchain install"}.pick(en), Kind: "out",
@@ -559,11 +484,6 @@ func goToolchainRow(rep safety.EgressReport, en bool) ConnectionRow {
 	}
 }
 
-// marketRemoteRow 市场远端目录：查 MCP 官方注册表这条路。
-//
-// 为什么它必须单独有一行：台账下面那行（market）说的是"内置目录一次请求都不发"，
-// 那句话在接了远端目录之后只对内置那一半成立。把两条分开列，读者才不会读到一句
-// 已经被自己推翻了一半的话——含混的对账比不做对账更坏。
 func marketRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return ConnectionRow{
 		ID: "market.remote", Title: bi{"市场远端目录", "Market remote catalog"}.pick(en), Kind: "out",
@@ -596,14 +516,6 @@ func marketRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 	}
 }
 
-// gitRemoteRow 建任务副本之前那一次 fetch。
-//
-// 为什么它必须有一行：这是**设置页一个开关**造出来的出网——「创建前先 fetch」打开之后，
-// 每建一个任务副本就往远端问一次。而 worktree 这一页其余内容讲的都是本机动作（建目录、删目录），
-// 读者不会自然想到"隔离"这件事会连网。
-//
-// 与 git.push 的关系：push 也出网，但它是模型在任务里主动调 git.push 触发的，
-// 不属于"配置里就存在、随时可能被动用"这一类；这一行只交代 fetch。
 func (a *Agent) gitRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 	r := ConnectionRow{
 		ID: "git.remote", Title: bi{
@@ -651,8 +563,6 @@ func (a *Agent) gitRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return r
 }
 
-// gitFetchStatsText fetch 的读数不说字节：git 不报传输量，写"累计 0 字节"会被读成
-// "什么都没发出去"，而事实是"发了多少这里数不出来"——把不知道说成答案，比不说更坏。
 func gitFetchStatsText(rep safety.EgressReport, en bool) string {
 	st, ok := egressStat(rep, "git.remote")
 	if !ok {
@@ -671,11 +581,6 @@ func gitFetchStatsText(rep safety.EgressReport, en bool) string {
 	}.pick(en), st.Count, len(st.Hosts), hosts)
 }
 
-// marketRow 内置模板目录：市场随程序一起装好的那部分，装它本身不出网。
-//
-// 为什么值得单独占一行：别的桌面 Agent 把"市场"当成入口，用户默认那里在联网。
-// 这一行是这张表里唯一一条"你以为是连接、其实不是"——把这件事写在台账上，
-// 比在功能介绍里说一遍"我们本地优先"更可核查。
 func marketRow(en bool) ConnectionRow {
 	return ConnectionRow{
 		ID: "market", Title: bi{
@@ -712,10 +617,6 @@ func marketRow(en bool) ConnectionRow {
 	}
 }
 
-// mcpRemoteRow 远端 MCP：用户从市场装的那几个 streamable-http 服务器。
-//
-// 为什么它和下面每条 MCP 服务器各占一行、而不是合并：这一行回答的是"这一类动作会不会出网"，
-// 下面那些行回答的是"这台机器上装了哪几个、各自通到哪"。两个问题，两行；合并了任一个都答不全。
 func mcpRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 	return ConnectionRow{
 		ID: "mcp.remote", Title: bi{"远端 MCP 服务器", "Remote MCP servers"}.pick(en), Kind: "out",

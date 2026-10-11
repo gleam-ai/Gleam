@@ -6,11 +6,6 @@ import (
 	"gleam/internal/buildinfo"
 )
 
-// TestInfo_CarriesMemoryCount 现场栏「记忆条目」这一格的数据线。
-//
-// 为什么要为一个小数字单独立测：`Agent.MemoryCount()` 写对了不等于 `/api/info`
-// 把它带出来了，更不等于前端拿到的就是它。本仓库栽过的全是这一类——
-// 判据对、线没接。走真实路由（而不是直接调门面）才能证明这条线是通的。
 func TestInfo_CarriesMemoryCount(t *testing.T) {
 	f := newFixture(t, nil)
 
@@ -29,12 +24,6 @@ func TestInfo_CarriesMemoryCount(t *testing.T) {
 	}
 }
 
-// TestInfo_VersionIsBuildinfo 「这是哪个版本」这条线：owner 是 internal/buildinfo，出口必须**等于**它。
-//
-// 只断"字段在不在"不够：写死一份字面量时字段照旧在，值也恰好对得上，要等下次升版本才腐坏，
-// 而腐坏的方向是界面报旧号。断言等于 owner，抄字面量这件事当场就红。
-// 也断在真路由上而不是直接调 handler——本仓库栽过的全是"判据对、线没接"这一类。
-// 前端那两处字面量已摘掉（判据见 scripts/check-version-owner.py），这条线一断就是三处读数一起变旧。
 func TestInfo_VersionIsBuildinfo(t *testing.T) {
 	f := newFixture(t, nil)
 	info := f.call("GET", "/api/info", nil)
@@ -44,10 +33,6 @@ func TestInfo_VersionIsBuildinfo(t *testing.T) {
 	}
 }
 
-// infoMemoryCount 读一次 /api/info 并断言 memory 是个数字。
-//
-// 断言类型而不是只取值：字段漏发时 JSON 里根本没有这个键，前端会显示 0，
-// 而 0 恰好是"看起来合理"的值——静默错成"你还没有记忆"。
 func infoMemoryCount(t *testing.T, f *fixture) int64 {
 	t.Helper()
 	info := f.call("GET", "/api/info", nil)

@@ -43,8 +43,6 @@ func TestScheduler_AddJobValidation(t *testing.T) {
 	}
 }
 
-// TestScheduler_DuplicateNameRejected 任务名是主键：同名再次创建必须报错，
-// 而不是静默覆盖已有任务（2026-09-24 接口走查 L1）。
 func TestScheduler_DuplicateNameRejected(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "schedules.json"), nil)
 	if err != nil {
@@ -62,11 +60,6 @@ func TestScheduler_DuplicateNameRejected(t *testing.T) {
 	}
 }
 
-// TestScheduler_JobNameMustStayAddressable 任务名是 REST 路径参数，写入口就得把它钉住。
-//
-// 反例是真实存在的：名字里带 `/` 的任务能按时跑，但 `/api/schedules/{name}/enabled`
-// 在**解码后**的路径上匹配，`a%2Fb` 也会还原成两个 segment，路由不命中返回纯文本 404
-// ——于是它既停不掉也删不掉，只能手动改 jobs 文件。
 func TestScheduler_JobNameMustStayAddressable(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "schedules.json"), nil)
 	if err != nil {
@@ -76,11 +69,11 @@ func TestScheduler_JobNameMustStayAddressable(t *testing.T) {
 		name    string
 		wantErr bool
 	}{
-		{"每日巡检 9 点", false}, // 中文、数字、空格都是正常说法
+		{"每日巡检 9 点", false},
 		{"check.disk", false},
 		{"backup_2026-09", false},
-		{"每日巡检 09:00", true}, // 冒号不在允许集合里：宁可写清楚，也不要两套口径
-		{"巡检：每日", true},      // 全角冒号同理，它也不算 \p{Han}
+		{"每日巡检 09:00", true},
+		{"巡检：每日", true},
 		{"巡检/每日", true},
 		{"a/b", true},
 		{"a\\b", true},
@@ -88,7 +81,7 @@ func TestScheduler_JobNameMustStayAddressable(t *testing.T) {
 		{"带?查询", true},
 		{"带#锚点", true},
 		{"带\x00控制符", true},
-		{strings.Repeat("巡检", 33), true}, // 66 字，超长
+		{strings.Repeat("巡检", 33), true},
 	}
 	for _, c := range cases {
 		_, err := s.AddJob(c.name, "0 9 * * *", 0, "目标", "auto")
@@ -96,7 +89,6 @@ func TestScheduler_JobNameMustStayAddressable(t *testing.T) {
 			t.Errorf("名字 %q: err=%v wantErr=%v", c.name, err, c.wantErr)
 		}
 	}
-	// 只统计合法的那几条：被拒的不该在列表里留下半个影子
 	if got := s.Count(); got != 3 {
 		t.Errorf("被拒名字不该入库，Count = %d，期望 3", got)
 	}
@@ -150,9 +142,8 @@ func TestScheduler_FireOnTick(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := s.ListJobs()[0]
-	// 直接推进时钟调用 tick（NextRun = now+5s）
 	s.tick(time.Now().Add(6 * time.Second))
-	time.Sleep(100 * time.Millisecond) // fire 在独立 goroutine 中执行
+	time.Sleep(100 * time.Millisecond)
 	mu.Lock()
 	defer mu.Unlock()
 	if len(fired) != 1 {
@@ -161,7 +152,6 @@ func TestScheduler_FireOnTick(t *testing.T) {
 	if fired[0].Goal != "每5秒目标" {
 		t.Errorf("触发目标 = %q", fired[0].Goal)
 	}
-	// OneShot 触发后自动停用
 	if _, err := s.AddJob("once", "0 9 * * *", 0, "一次性", "auto"); err != nil {
 		t.Fatal(err)
 	}
@@ -196,10 +186,10 @@ func TestScheduler_WatchTrigger(t *testing.T) {
 	s.jobs["watcher"] = &Job{Name: "watcher", WatchPath: file, Goal: "文件变了", Enabled: true}
 	s.mu.Unlock()
 
-	s.tick(time.Now()) // 建立快照
+	s.tick(time.Now())
 	time.Sleep(10 * time.Millisecond)
 	os.WriteFile(file, []byte("v2 longer"), 0o644)
-	s.tick(time.Now().Add(1 * time.Second)) // 检测变化 → 触发
+	s.tick(time.Now().Add(1 * time.Second))
 	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
@@ -208,7 +198,6 @@ func TestScheduler_WatchTrigger(t *testing.T) {
 	if n != 1 {
 		t.Errorf("监听触发次数 = %d", n)
 	}
-	// 10 秒去抖内不重复触发
 	s.tick(time.Now().Add(2 * time.Second))
 	time.Sleep(100 * time.Millisecond)
 	mu.Lock()

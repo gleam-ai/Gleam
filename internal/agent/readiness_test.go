@@ -19,12 +19,10 @@ import (
 	"gleam/pkg/types"
 )
 
-// bareTool 声明不出 schema 的工具：用来验证"裸工具"会被体检抓出来。
 type bareTool struct{ funcTool }
 
 func (b *bareTool) Schema() map[string]any { return nil }
 
-// testNotifier 非 Nop 的审批通道（体检据此判断高风险动作有没有人接）。
 type testNotifier struct{}
 
 func (testNotifier) OnProgress(types.ProgressEvent) {}
@@ -35,7 +33,6 @@ func (testNotifier) OnSuggestion(string, string)             {}
 func (testNotifier) OnSuggestSkill(string, types.SkillDraft) {}
 func (testNotifier) OnTaskDone(types.TaskDoneEvent)          {}
 
-// readyItem 按 key 取体检项。
 func readyItem(t *testing.T, rep ReadinessReport, key string) ReadinessItem {
 	t.Helper()
 	for _, it := range rep.Items {
@@ -47,7 +44,6 @@ func readyItem(t *testing.T, rep ReadinessReport, key string) ReadinessItem {
 	return ReadinessItem{}
 }
 
-// fullKitAgent 装配一套完整的子系统：这是"九项全过"的基准样本。
 func fullKitAgent(t *testing.T) *Agent {
 	t.Helper()
 	dir := t.TempDir()
@@ -102,8 +98,6 @@ func fullKitAgent(t *testing.T) *Agent {
 	}
 }
 
-// TestReadiness_NineItemsInArticleOrder 报告必须严格对应文章里的九个坑，顺序与编号一致。
-// 顺序错了，对照原文就成了体力活。
 func TestReadiness_NineItemsInArticleOrder(t *testing.T) {
 	a := &Agent{Cfg: config.Default()}
 	rep := a.Readiness()
@@ -135,7 +129,6 @@ func TestReadiness_NineItemsInArticleOrder(t *testing.T) {
 			t.Errorf("第 %d 项不是 pass 却没有给补齐建议：%s", i+1, it.Summary)
 		}
 	}
-	// 计数必须自洽
 	if rep.Passed+rep.Warned+rep.Failed != 9 {
 		t.Errorf("计数不自洽：%d+%d+%d != 9", rep.Passed, rep.Warned, rep.Failed)
 	}
@@ -144,7 +137,6 @@ func TestReadiness_NineItemsInArticleOrder(t *testing.T) {
 	}
 }
 
-// TestReadiness_FullKitIsReady 子系统齐备、档位配好、工作区已设置、有任务历史 → 九项全过。
 func TestReadiness_FullKitIsReady(t *testing.T) {
 	a := fullKitAgent(t)
 	rep := a.Readiness()
@@ -162,8 +154,6 @@ func TestReadiness_FullKitIsReady(t *testing.T) {
 	}
 }
 
-// TestReadiness_BareAgentIsNotReady 只有配置、什么都没装配时，
-// 结构性缺口必须报 fail，而不是给一堆绿勾。
 func TestReadiness_BareAgentIsNotReady(t *testing.T) {
 	a := &Agent{Cfg: config.Default()}
 	rep := a.Readiness()
@@ -178,8 +168,6 @@ func TestReadiness_BareAgentIsNotReady(t *testing.T) {
 	}
 }
 
-// TestReadiness_NoSchemaToolFailsKernel 没声明 schema 的工具会让模型靠猜参数，
-// 属于内核层的结构性缺口，必须 fail 而不是 warn。
 func TestReadiness_NoSchemaToolFailsKernel(t *testing.T) {
 	reg := registry.New()
 	reg.MustRegister(&funcTool{name: "file.read", perm: types.PermissionReadOnly})
@@ -202,8 +190,6 @@ func TestReadiness_NoSchemaToolFailsKernel(t *testing.T) {
 	}
 }
 
-// TestReadiness_ReadonlyOnlyWarnsDelivery 只有只读工具时能查不能改，
-// 交付能力打折——这是 warn 不是 fail，因为工具确实存在。
 func TestReadiness_ReadonlyOnlyWarnsDelivery(t *testing.T) {
 	reg := registry.New()
 	reg.MustRegister(&funcTool{name: "file.read", perm: types.PermissionReadOnly})
@@ -220,8 +206,6 @@ func TestReadiness_ReadonlyOnlyWarnsDelivery(t *testing.T) {
 	}
 }
 
-// TestReadiness_SingleTierWarnsModelLock 档位是"可以挑"的接口；
-// 机制在但一个都没配，说明所有场景还在共用一个模型。
 func TestReadiness_SingleTierWarnsModelLock(t *testing.T) {
 	cfg := config.Default()
 	cfg.LLM.Tiers = nil
@@ -237,8 +221,6 @@ func TestReadiness_SingleTierWarnsModelLock(t *testing.T) {
 	}
 }
 
-// TestReadiness_HighRiskWithoutApprovalChannelWarns 完全放行的工具始终需要人工批准；
-// 没有审批通道时它们会被自动拒绝——这是能提前发现的坑。
 func TestReadiness_HighRiskWithoutApprovalChannelWarns(t *testing.T) {
 	reg := registry.New()
 	reg.MustRegister(&funcTool{name: "file.read", perm: types.PermissionReadOnly})
@@ -264,8 +246,6 @@ func TestReadiness_HighRiskWithoutApprovalChannelWarns(t *testing.T) {
 	}
 }
 
-// TestReadiness_NoSkillsWarnsPracticeReuse 场景模板齐备但一个技能都没沉淀，
-// 说明最佳实践还没有变成可复制的资产。
 func TestReadiness_NoSkillsWarnsPracticeReuse(t *testing.T) {
 	dir := t.TempDir()
 	skills, err := skill.Open(filepath.Join(dir, "skills"))
@@ -283,8 +263,6 @@ func TestReadiness_NoSkillsWarnsPracticeReuse(t *testing.T) {
 	}
 }
 
-// TestReadiness_UnsetWorkspaceWarnsBusinessGap 工作区没设置时，
-// Agent 看不到业务文件，上下文只能靠对话里说。
 func TestReadiness_UnsetWorkspaceWarnsBusinessGap(t *testing.T) {
 	cfg := config.Default()
 	cfg.Workspace = ""
@@ -301,10 +279,8 @@ func TestReadiness_UnsetWorkspaceWarnsBusinessGap(t *testing.T) {
 	}
 }
 
-// TestReadiness_CacheUnmeasurableIsNotMisattributed 注册表未装配时构建不出提示词，
-// 这一项要如实说"测不了"，而不是把它算成"布局退化"——归因错了比不报更糟。
 func TestReadiness_CacheUnmeasurableIsNotMisattributed(t *testing.T) {
-	a := &Agent{Cfg: config.Default(), LLM: llm.NewMock()} // Reg 为 nil
+	a := &Agent{Cfg: config.Default(), LLM: llm.NewMock()}
 	it := readyItem(t, a.Readiness(), "cache_control")
 
 	if it.Status != ReadyFail {
@@ -321,8 +297,6 @@ func TestReadiness_CacheUnmeasurableIsNotMisattributed(t *testing.T) {
 	}
 }
 
-// TestReadiness_CacheLayoutMeasured 缓存项的判定必须基于实测的公共前缀，
-// 而不是"代码里写了稳定段在前"这种自说自话。
 func TestReadiness_CacheLayoutMeasured(t *testing.T) {
 	cfg := config.Default()
 	cfg.Workspace = "D:/ws"
@@ -346,16 +320,12 @@ func TestReadiness_CacheLayoutMeasured(t *testing.T) {
 	if it.Status != ReadyPass {
 		t.Fatalf("当前布局应 pass，实际 %s：%s", it.Status, it.Summary)
 	}
-	// 结论里要带实测数字，而不是一句"已优化"
 	if !strings.Contains(it.Summary, "%") {
 		t.Errorf("结论应给出实测占比，实际：%s", it.Summary)
 	}
 }
 
-// TestReadiness_CacheLayoutDetectsBreak 布局一旦退化（易变内容被塞到稳定段之前），
-// 公共前缀会被立刻截断，体检必须报 fail 而不是"占比略低"。
 func TestReadiness_CacheLayoutDetectsBreak(t *testing.T) {
-	// 模拟退化后的提示词：工作目录（易变）排到了能力菜单（稳定）之前。
 	brokenA := "你是助手。\n\n## 上下文\n- 工作目录: D:/ws\n\n## 能力菜单\n- file.read\n\n## 输出格式\n只输出 JSON。"
 	brokenB := "你是助手。\n\n## 上下文\n- 工作目录: D:/ws/sub\n\n## 能力菜单\n- file.read\n\n## 输出格式\n只输出 JSON。"
 
@@ -368,10 +338,6 @@ func TestReadiness_CacheLayoutDetectsBreak(t *testing.T) {
 	}
 }
 
-// TestCacheStatus_Precedence 判定优先级：布局 > 稳定段大小 > 占比。
-//
-// 这里固定住一个修正过的错判：布局正确、稳定段足够大时，
-// 即使占比偏低（易变尾巴很长）也只算"收益有限"，不能判成机制失效。
 func TestCacheStatus_Precedence(t *testing.T) {
 	big := llm.CacheFriendlyMinChars * 3
 	cases := []struct {
@@ -397,8 +363,6 @@ func TestCacheStatus_Precedence(t *testing.T) {
 	}
 }
 
-// TestReadiness_IsReadOnlyAndIdempotent 体检必须是只读且可重复的：
-// 不改配置、不产生副作用，连跑两次结果一致。
 func TestReadiness_IsReadOnlyAndIdempotent(t *testing.T) {
 	a := fullKitAgent(t)
 	before := *a.Cfg
@@ -421,7 +385,6 @@ func TestReadiness_IsReadOnlyAndIdempotent(t *testing.T) {
 	}
 }
 
-// TestReadiness_AggregateUsage 缓存证据来自用量归集：只统计当前保留的任务。
 func TestReadiness_AggregateUsage(t *testing.T) {
 	a := fullKitAgent(t)
 	a.initUsage("t1")
@@ -444,8 +407,6 @@ func TestReadiness_AggregateUsage(t *testing.T) {
 	}
 }
 
-// TestReadiness_UsageNoCacheReportedIsNotALie 厂商不返回缓存字段时，
-// 证据要如实说"未报告"，而不是编一个 0% 命中率。
 func TestReadiness_UsageNoCacheReportedIsNotALie(t *testing.T) {
 	a := fullKitAgent(t)
 	a.initUsage("t1")
@@ -460,7 +421,6 @@ func TestReadiness_UsageNoCacheReportedIsNotALie(t *testing.T) {
 	}
 }
 
-// TestReadiness_DoesNotTouchNetworkOrDisk 体检在完全没有数据目录的环境下也要能跑完。
 func TestReadiness_DoesNotTouchNetworkOrDisk(t *testing.T) {
 	a := &Agent{Cfg: config.Default(), LLM: llm.NewMock()}
 	done := make(chan ReadinessReport, 1)
@@ -474,5 +434,3 @@ func TestReadiness_DoesNotTouchNetworkOrDisk(t *testing.T) {
 		t.Fatal("体检超时：说明它在做网络或磁盘等待，而它应该是纯内存的")
 	}
 }
-
-// 保证 funcTool 的 schema 默认非空——体检据此区分"裸工具"。

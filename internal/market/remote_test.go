@@ -16,10 +16,6 @@ const remoteFixture = `{"servers":[
    "version":"1.0.0","remotes":[{"type":"sse","url":"https://old.invalid/sse"}]}}
 ]}`
 
-// TestParseRegistryMarksStreamableHTTPInstallable 远端 streamable-http 条目要成为可安装项。
-//
-// 这是「一大类装不了」的正面判据：Figma / Notion 这类条目在注册表里**只有 remotes、
-// 没有本机包**，把它们标成装不了等于市场里一大半点不动。
 func TestParseRegistryMarksStreamableHTTPInstallable(t *testing.T) {
 	presets, err := ParseRegistry([]byte(remoteFixture), "official-mcp")
 	if err != nil {
@@ -38,7 +34,6 @@ func TestParseRegistryMarksStreamableHTTPInstallable(t *testing.T) {
 		t.Errorf("远端条目不该有命令：%q", figma.Command)
 	}
 
-	// 带鉴权的远端：请求头模板里的占位符要变成一条必填、且标记为凭据的参数
 	notion := byID["ai.smithery/smithery-notion"]
 	if !notion.Installable || notion.Kind != "http" {
 		t.Fatalf("带鉴权的远端也应可安装：%+v", notion)
@@ -57,7 +52,6 @@ func TestParseRegistryMarksStreamableHTTPInstallable(t *testing.T) {
 		t.Errorf("标签该用注册表给的描述（它更懂要填什么）：%q", pm.Label)
 	}
 
-	// 旧版 sse：本版没实现，必须如实说不支持、并点名差别
 	legacy := byID["legacy/sse-only"]
 	if legacy.Installable {
 		t.Errorf("只有 sse 的条目不该标成可安装：%+v", legacy)
@@ -67,7 +61,6 @@ func TestParseRegistryMarksStreamableHTTPInstallable(t *testing.T) {
 	}
 }
 
-// TestBuildHeadersSubstitutesPlaceholders 占位符替换与必填校验。
 func TestBuildHeadersSubstitutesPlaceholders(t *testing.T) {
 	p := RemotePreset{Headers: []RemoteHeader{
 		{Name: "Authorization", Value: "Bearer {key}", Required: true, Secret: true},
@@ -84,8 +77,6 @@ func TestBuildHeadersSubstitutesPlaceholders(t *testing.T) {
 		t.Errorf("没有占位符的固定头也要带上：%q", got["X-Tenant"])
 	}
 
-	// 必填没填：必须报错，且点名缺哪个——带着 "Bearer {key}" 去请求只会得到一个 401，
-	// 而 401 看不出"你没填"。
 	if _, err := BuildHeaders(p, map[string]string{}); err == nil {
 		t.Fatal("必填占位符没填应报错")
 	} else if !strings.Contains(err.Error(), "key") {
@@ -93,7 +84,6 @@ func TestBuildHeadersSubstitutesPlaceholders(t *testing.T) {
 	}
 }
 
-// TestPickStreamableRemoteSkipsLegacySSE 只认 streamable-http，别把 sse 当成能用。
 func TestPickStreamableRemoteSkipsLegacySSE(t *testing.T) {
 	if _, ok := pickStreamableRemote([]registryRemote{{Type: "sse", URL: "https://x.invalid"}}); ok {
 		t.Error("sse 不该被选中")

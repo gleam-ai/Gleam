@@ -12,12 +12,6 @@ import (
 	"gleam/internal/tools/std"
 )
 
-// ---------- 可重复性：通过率回答"对不对"，这里回答"稳不稳" ----------
-
-// planLLM 规划阶段的可控桩：vary=true 时每次规划换一个步数，用来构造"重跑不一致"。
-//
-// 为什么不用 MockClient 的脚本队列：队列用尽后会掉回默认响应，
-// 第三遍就"自己变稳"了——那测的是队列长度，不是可重复性。
 type planLLM struct {
 	vary bool
 	n    int
@@ -41,12 +35,9 @@ func (m *planLLM) ChatStream(ctx context.Context, req llm.ChatRequest, _ func(st
 
 func (m *planLLM) Name() string { return "plan-stub" }
 
-// planDepthRunner 装一个最小可跑的 plan 深度评测器。
-// plan 深度只用到规划器（Reg / Cfg / LLM），所以记忆、安全闸门、技能、调度都可以为 nil。
 func planDepthRunner(t *testing.T, client llm.Client, repeat int) *Runner {
 	t.Helper()
 	cfg := config.Default()
-	// mock provider：避免档位逻辑去建真实客户端（离线测试不该产生网络调用）
 	cfg.LLM.Provider = "mock"
 	reg := registry.New()
 	reg.MustRegister(std.NewReply())
@@ -54,11 +45,6 @@ func planDepthRunner(t *testing.T, client llm.Client, repeat int) *Runner {
 	return &Runner{Agent: a, Depth: DepthPlan, CWD: t.TempDir(), Repeat: repeat}
 }
 
-// TestRepeatFlagsUnstableCase 重跑得到不同结果时必须标出来——这是 P1-1 的核心。
-//
-// 不标出来的后果很具体：一条 Stable=false 的用例，它这次的绿可能只是掷硬币掷出来的，
-// 而人会拿它当"改动有效"的证据。上一轮减法实验正是栽在这里
-// （噪声基线 3.00/5.67 > 处理效应 4.83，结论根本不可归因）。
 func TestRepeatFlagsUnstableCase(t *testing.T) {
 	r := planDepthRunner(t, &planLLM{vary: true}, 3)
 	rep := r.Run(context.Background(), []Case{{ID: "u1", Goal: "随便做点什么"}})
@@ -88,13 +74,11 @@ func TestRepeatFlagsUnstableCase(t *testing.T) {
 	if len(rep.UnstableCases) != 1 || rep.UnstableCases[0] != "u1" {
 		t.Errorf("应报出不稳的用例 ID，实际 %v", rep.UnstableCases)
 	}
-	// 口径必须落在摘要里：两个数不能互相替代，所以得同时出现
 	if !strings.Contains(rep.SummaryLine(), "可重复性") {
 		t.Errorf("一行摘要里也要有可重复性，实际 %q", rep.SummaryLine())
 	}
 }
 
-// TestRepeatStableCase 每次结果相同时一致率 100%，且不误报不稳。
 func TestRepeatStableCase(t *testing.T) {
 	r := planDepthRunner(t, &planLLM{}, 3)
 	rep := r.Run(context.Background(), []Case{{ID: "s1", Goal: "随便做点什么"}})
@@ -114,8 +98,6 @@ func TestRepeatStableCase(t *testing.T) {
 	}
 }
 
-// TestRepeatOffKeepsOldShape 默认（不重复采样）时报告形态与从前一致：
-// 不出现一致率字段，通过率口径也不变——否则基线全部失效。
 func TestRepeatOffKeepsOldShape(t *testing.T) {
 	for _, n := range []int{0, 1} {
 		r := planDepthRunner(t, &planLLM{}, n)
@@ -129,10 +111,6 @@ func TestRepeatOffKeepsOldShape(t *testing.T) {
 	}
 }
 
-// TestRunSignatureOnlyCountsRealDifferences 指纹的判据：什么算"不同"。
-//
-// 工具顺序不算（模型换个排列只是措辞），工具集合、步数、通过与否才算。
-// 判据写宽了会把噪声算成不稳定，写窄了会漏掉真差异——两边都会让这个指标失去意义。
 func TestRunSignatureOnlyCountsRealDifferences(t *testing.T) {
 	base := runSignature(true, 3, []string{"file.read", "file.list"})
 
@@ -150,8 +128,6 @@ func TestRunSignatureOnlyCountsRealDifferences(t *testing.T) {
 	}
 }
 
-// TestDescribeVariantsOrdersByCount 差异明细按出现次数从多到少，
-// 并列时保持首次出现顺序（保证同一份输入永远输出同一份报告）。
 func TestDescribeVariantsOrdersByCount(t *testing.T) {
 	got := describeVariants([]string{"b", "a", "b", "c", "b", "a"})
 	want := []string{"b ×3", "a ×2", "c ×1"}

@@ -11,10 +11,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// maxGEOAnalyzeRunes 单次手动分析的输入上限，避免把整本书塞进一次请求。
 const maxGEOAnalyzeRunes = 20000
 
-// handleGEOHistory 返回 GEO 准则、历史记录与汇总统计（GEO 板块首屏）。
 func (s *Server) handleGEOHistory(w http.ResponseWriter, r *http.Request) {
 	n := 0
 	if v := strings.TrimSpace(r.URL.Query().Get("n")); v != "" {
@@ -45,7 +43,6 @@ func (s *Server) handleGEOHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleGEOAnalyze 手动分析一段内容：返回结构化建议并留档到历史。
 func (s *Server) handleGEOAnalyze(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Content string `json:"content"`
@@ -97,7 +94,6 @@ func (s *Server) handleGEOAnalyze(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleGEOClear 清空 GEO 历史。
 func (s *Server) handleGEOClear(w http.ResponseWriter, _ *http.Request) {
 	if s.Agent.GEO != nil {
 		s.Agent.GEO.Clear()

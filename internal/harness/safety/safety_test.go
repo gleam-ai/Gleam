@@ -12,7 +12,7 @@ import (
 type fakeTool struct {
 	name    string
 	perm    types.Permission
-	pathKey bool // 是否实现 PathAware
+	pathKey bool
 }
 
 func (f *fakeTool) Name() string                                         { return f.name }
@@ -40,7 +40,6 @@ func TestGate_ReadOnlyAlwaysAllowed(t *testing.T) {
 
 func TestGate_HighRiskAlwaysNeedsApproval(t *testing.T) {
 	g := New("auto", []string{"shell.exec"}, nil, []string{`D:\ws`}, time.Minute)
-	// 即便列入信任工具，高风险工具仍要求批准？
 	d := g.Evaluate(&fakeTool{name: "shell.exec", perm: types.PermissionFullAccess}, nil)
 	if !d.NeedApproval || d.Risk != "high" {
 		t.Errorf("高风险必须审批: %+v", d)
@@ -65,15 +64,11 @@ func TestGate_MediumPathCheck(t *testing.T) {
 	if d := g.Evaluate(tool, map[string]any{"path": `D:\other\a.txt`}); !d.NeedApproval {
 		t.Errorf("工作区外应审批: %+v", d)
 	}
-	// 相对路径视为工作区内
 	if d := g.Evaluate(tool, map[string]any{"path": "a.txt"}); d.NeedApproval {
 		t.Errorf("相对路径应放行: %+v", d)
 	}
 }
 
-// 任务自己的边界（在副本里跑时那一份）算信任范围，而这份边界是 **per-task** 的：
-// 同一个绝对路径在别的任务的 ctx 下仍然要被拦——不然"信任范围"就成了一个全局开关，
-// 任务 A 的副本会在任务 B 跑的时候也算可信，那正是引入副本要消掉的串味。
 func TestGate_TaskRootsAreTrustedPerTask(t *testing.T) {
 	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
 	tool := &fakeTool{name: "file.write", perm: types.PermissionUserApproved}
@@ -119,7 +114,6 @@ func TestGate_EvaluateStep_PreApproved(t *testing.T) {
 func TestGate_NoPathAware(t *testing.T) {
 	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
 	tool := &fakeTool{name: "mystery.write", perm: types.PermissionUserApproved, pathKey: true}
-	// 未实现 PathAware 的中风险工具：无法确认范围 → 审批
 	if d := g.Evaluate(tool, nil); !d.NeedApproval {
 		t.Errorf("未知范围应审批: %+v", d)
 	}

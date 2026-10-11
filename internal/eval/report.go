@@ -9,7 +9,6 @@ import (
 	"gleam/internal/atomicfile"
 )
 
-// SaveBaseline 把一次评测报告写成基线文件。
 func SaveBaseline(path string, rep Report) error {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -20,14 +19,12 @@ func SaveBaseline(path string, rep Report) error {
 	if err != nil {
 		return fmt.Errorf("序列化基线失败: %w", err)
 	}
-	// 原子写：基线是回归比较的分母，写成半截等于把整份基线丢掉
 	if err := atomicfile.Write(path, append(b, '\n'), 0o644); err != nil {
 		return fmt.Errorf("写入基线失败: %w", err)
 	}
 	return nil
 }
 
-// LoadBaseline 读取基线文件。
 func LoadBaseline(path string) (Report, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -40,17 +37,10 @@ func LoadBaseline(path string) (Report, error) {
 	return rep, nil
 }
 
-// Compare 把当前报告与基线对比。
-//
-// 深度不一致时直接报错而不是硬比：select 与 plan 的可判项不同，
-// 跨深度对比会把"深度换了"误报成一片回归，那比不比更糟。
 func Compare(now, base Report) (*Diff, error) {
 	if now.Depth != base.Depth {
 		return nil, fmt.Errorf("深度不一致：基线是 %s，本次是 %s（换深度请另存一份基线）", base.Depth, now.Depth)
 	}
-	// 模拟档位同理：档位会改变提示词（按档位条件化的规则），
-	// 拿一份"未模拟档位"的基线去比"模拟了 coding 档"的结果，会把规则措辞差异
-	// 报成一片莫名其妙的回归。
 	if now.Tier != base.Tier {
 		return nil, fmt.Errorf("模拟档位不一致：基线是 %q，本次是 %q（换档位请另存一份基线）", base.Tier, now.Tier)
 	}
@@ -58,9 +48,6 @@ func Compare(now, base Report) (*Diff, error) {
 		BaselineAt:  base.GeneratedAt,
 		PromptDelta: now.PromptChars - base.PromptChars,
 	}
-	// 规则集版本变了就记下来。刻意**不**让它影响门禁：改规则是正常动作，
-	// 因为改规则而让门禁变红，只会逼人去掉 --strict。
-	// 但它必须出现在报告里——有回归时第一条该怀疑的是"规则改了"，不是"代码改坏了"。
 	if now.RuleSet != base.RuleSet {
 		d.RuleSetFrom, d.RuleSetTo = base.RuleSet, now.RuleSet
 	}
@@ -75,8 +62,6 @@ func Compare(now, base Report) (*Diff, error) {
 	}
 
 	for _, c := range now.Cases {
-		// 已知问题不参与回归判定：它们本来预期就是红的，拿它判回归只会让门禁常红。
-		// 但它们仍出现在 Added / Removed 里——那是覆盖面的变化，与红绿无关。
 		if c.Known {
 			continue
 		}
@@ -85,7 +70,6 @@ func Compare(now, base Report) (*Diff, error) {
 		case !existed:
 			d.Added = append(d.Added, c.ID)
 		case was && !c.Passed:
-			// 基线绿、现在红 —— 这才是回归。
 			d.Broke = append(d.Broke, c.ID)
 		case !was && c.Passed:
 			d.Fixed = append(d.Fixed, c.ID)
@@ -99,12 +83,10 @@ func Compare(now, base Report) (*Diff, error) {
 	return d, nil
 }
 
-// Regressed 本次是否出现回归（决定退出码）。
 func (d *Diff) Regressed() bool {
 	return d != nil && len(d.Broke) > 0
 }
 
-// Describe 把对比结果写成给人看的一行行说明。
 func (d *Diff) Describe() []string {
 	if d == nil {
 		return nil
@@ -120,7 +102,6 @@ func (d *Diff) Describe() []string {
 		out = append(out, fmt.Sprintf("+ 新增用例 %d 条：%s", len(d.Added), join(d.Added)))
 	}
 	if len(d.Removed) > 0 {
-		// 删用例会让通过率变好看，必须显式报出来。
 		out = append(out, fmt.Sprintf("− 基线里有、本次没跑 %d 条：%s（用例被删会让通过率虚高，确认是有意为之）",
 			len(d.Removed), join(d.Removed)))
 	}
@@ -137,8 +118,6 @@ func (d *Diff) Describe() []string {
 	return out
 }
 
-// orUnknown 老基线里没有规则集字段时，如实说"未知"而不是显示空串——
-// 空串会被读成"没有规则"。
 func orUnknown(s string) string {
 	if s == "" {
 		return "未知"

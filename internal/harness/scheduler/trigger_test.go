@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// 设计文档 §4.2.5：事件触发之 HTTP 回调——TriggerNow 立即执行指定任务。
-
 func TestScheduler_TriggerNow(t *testing.T) {
 	var mu sync.Mutex
 	fired := []string{}

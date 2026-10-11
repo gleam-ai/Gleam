@@ -13,11 +13,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// handleSSHHosts 列出 ~/.ssh/config（Windows 为 %USERPROFILE%\.ssh\config）里声明的主机别名。
-//
-// 只读 Host 行，只回别名：HostName / User / IdentityFile 等一概不解析、不回传，
-// 更不会去碰 ~/.ssh 下的任何密钥文件。带通配符（* ?）或取反（!）的 Host 模式不是
-// 一台具体的主机，跳过。Include 指令不跟进——跟进意味着去读别的文件，这里只看一个文件。
 func (s *Server) handleSSHHosts(w http.ResponseWriter, _ *http.Request) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -35,7 +30,6 @@ func (s *Server) handleSSHHosts(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "exists": true, "hosts": hosts})
 }
 
-// parseSSHHostNames 从 ssh_config 文本里挑出具体的 Host 别名（去重、保持出现顺序）。
 func parseSSHHostNames(sc *bufio.Scanner) []string {
 	seen := map[string]bool{}
 	out := []string{}
@@ -44,7 +38,6 @@ func parseSSHHostNames(sc *bufio.Scanner) []string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		// 关键字与参数之间可以是空白，也可以是 "="（ssh_config(5)）
 		key, rest := line, ""
 		if i := strings.IndexAny(line, " \t="); i >= 0 {
 			key, rest = line[:i], strings.TrimLeft(line[i:], " \t=")
@@ -67,9 +60,6 @@ func parseSSHHostNames(sc *bufio.Scanner) []string {
 	return out
 }
 
-// handleNetworkInfo 回答「Gleam 的出网走不走代理」：Go 的默认传输层按
-// HTTPS_PROXY / HTTP_PROXY / NO_PROXY 环境变量选代理，这里如实报出进程看到的值。
-// 代理地址里可能带账号口令，回传前去掉 userinfo。
 func (s *Server) handleNetworkInfo(w http.ResponseWriter, _ *http.Request) {
 	env := map[string]string{}
 	for _, k := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"} {
@@ -94,7 +84,6 @@ func (s *Server) handleNetworkInfo(w http.ResponseWriter, _ *http.Request) {
 	if u, err := url.Parse(s.Agent.Cfg.LLM.BaseURL); err == nil {
 		host = u.Host
 	}
-	// 生效方式：设置页选的那一项优先于环境变量，所以要说清楚"当前到底按哪个走"
 	netw := s.Agent.Cfg.Network
 	mode := netw.ProxyModeOrDefault()
 	manual := ""
@@ -122,8 +111,6 @@ func redactProxy(v string) string {
 	return u.String()
 }
 
-// handleGoalDelete 删除一条已结束任务的记录：内存表里那份 + 盘上 tasks/<id>.json。
-// 还在跑的任务不许删（先取消）；id 过不了归档名字规则的一律 400，不拼路径。
 func (s *Server) handleGoalDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	path := agent.TaskArchivePath(s.Agent.Cfg.DataDir, id)

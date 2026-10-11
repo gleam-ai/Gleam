@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// TestProbeAddr_RecognizesGuardedGleam 新版 /api/info 要口令：探测方拿不到口令，
-// 只能靠守卫挂在每个响应上的 X-Gleam-Server 认出「端口上是 Gleam」，单实例才不会退化成另起一个。
 func TestProbeAddr_RecognizesGuardedGleam(t *testing.T) {
 	guarded := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-Gleam-Server", "gleam")

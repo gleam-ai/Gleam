@@ -19,26 +19,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// cmdReplay 回放一条历史任务：读 tasks/<taskID>.json，把"当时到底发生了什么"排给人看。
-//
-// 为什么要有它：GoalResult 一直有 ExecutedPlan 字段，注释写着"供技能固化与复现"，
-// 但"复现"从未实现——结果落了盘，计划没落盘，复盘的人只能看着结果猜计划。
-// 现在 ExecutedPlan 随 GoalResult 一起进 tasks/<id>.json，回放才有了凭据。
-//
-// **同一份记录，四种问法**（审计的四种用法）：
-//   - 回放（默认）：打印当时的计划、每步的结果（含 attempt 与归因）、用量与归因分布。
-//   - 重跑（--rerun）：用当时的计划原样再执行一遍，输出逐项对比。
-//   - 恢复（--from <stepID>）：该步**之前**沿用当时结果、不重新执行，从该步往下跑。
-//     恢复不只是省时间——从头重跑会把前面每一步的副作用（写文件、发请求）再做一遍。
-//   - 分叉（--from <stepID> --tool/--args）：同一前提换一种走法，落成一条新记录。
-//   - 比较（--diff <A> <B>）：两条记录逐步对比——分叉与原来的差异、两次重跑之间的差异。
-//
-// **重跑/恢复/分叉的产物落 replays/，不进 tasks/**：那条目录是任务列表与质量统计
-// （完成率、用户重试率、首次验收通过率）的分母来源，把回放混进去，指标就会被复盘
-// 动作本身污染——用户重放一次历史任务，统计里就多一个"用户提交过的任务"。
-//
-// 重跑会真实调用工具（有副作用的会真的做），所以必须显式指定，不提供静默重跑。
-// 读取不装配运行时以外的任何东西：任务文件是自包含的 JSON，看历史不需要模型与网络。
 func cmdReplay(args []string) error {
 	fs := flag.NewFlagSet("replay", flag.ContinueOnError)
 	configPath := fs.String("config", "", "配置文件路径")
@@ -122,9 +102,6 @@ func cmdReplay(args []string) error {
 			return fmt.Errorf("计划里没有步骤 %q；可用：%s", *from, strings.Join(stepIDs(plan), "、"))
 		}
 		kind = types.ReplayResume
-		// 之前的步骤沿用当时的结果：不执行、不重复副作用。
-		// 缺一条记录就拒绝，而不是"缺了就当没这回事、顺手跑一遍"——
-		// 那会把恢复悄悄变成重跑，而重跑是有副作用的。
 		carried = map[string]types.StepResult{}
 		for i := 0; i < idx; i++ {
 			st := plan.Steps[i]
@@ -191,18 +168,10 @@ func cmdReplay(args []string) error {
 	return nil
 }
 
-// ---------- 记录的读取 ----------
-
-// loadedRun 一条读出来的运行记录。
-//
-// 三种来源只会命中一个，而且**它们是三件不同的事**：跑完的任务（有完整计划）、
-// 一次回放的产物（有结果、也有原计划）、只跑了一半的运行（只有步骤日志，没有计划）。
-// 用一个结构显式表达"有几种入口"，比在调用点各写一遍 if 更不容易漏。
 type loadedRun struct {
-	Ref    string
-	Task   *types.GoalResult
-	Replay *types.ReplayRecord
-	// LogSteps 只在 RunLogOnly 时非空。
+	Ref        string
+	Task       *types.GoalResult
+	Replay     *types.ReplayRecord
 	LogSteps   []types.StepResult
 	RunLogOnly bool
 }
@@ -262,7 +231,6 @@ func (l loadedRun) resultOf(stepID string) (types.StepResult, bool) {
 	return types.StepResult{}, false
 }
 
-// view 归一成可比较视图（比较逻辑只认这一种形状）。
 func (l loadedRun) view() runView {
 	switch {
 	case l.Task != nil:
@@ -285,7 +253,6 @@ func (l loadedRun) view() runView {
 
 func loadRun(dataDir, ref string) (loadedRun, error) {
 	ref = strings.TrimSuffix(ref, ".json")
-	// 显式前缀是"两个目录里都存在"时的出口；不给前缀就按 tasks → replays → runs 找。
 	switch {
 	case strings.HasPrefix(ref, "task:"):
 		return loadRunFrom(dataDir, strings.TrimPrefix(ref, "task:"), "task")
@@ -304,9 +271,6 @@ func loadRun(dataDir, ref string) (loadedRun, error) {
 	if replayOK {
 		return loadRunFrom(dataDir, ref, "replay")
 	}
-	// 运行日志是最后一条线索：任务跑完了就会被删，所以"有内容"才说明这次运行
-	// 是半途没了的。有内容就当成一条可读的记录，而不是继续报"找不到"——
-	// 那正是最需要它的场合（没有终态记录，日志是唯一凭据）。
 	if steps, err := agent.ReadRunLog(dataDir, ref); err == nil && len(steps) > 0 {
 		return loadedRun{Ref: ref, LogSteps: steps, RunLogOnly: true}, nil
 	}
@@ -316,8 +280,6 @@ func loadRun(dataDir, ref string) (loadedRun, error) {
 
 func loadRunFrom(dataDir, id, kind string) (loadedRun, error) {
 	if kind != "replay" {
-		// 任务归档的读法只有一个 owner（agent.ReadTaskResult）：路径形状、
-		// "没有这条"与"文件坏了"怎么分，写侧与读侧必须给同一个答案。
 		g, err := agent.ReadTaskResult(dataDir, id)
 		if err != nil {
 			return loadedRun{}, err
@@ -342,8 +304,6 @@ func loadRunFrom(dataDir, id, kind string) (loadedRun, error) {
 	return loadedRun{Ref: r.ReplayID, Replay: &r}, nil
 }
 
-// replayFile 回放产物的落点（replays/<id>.json）；id 不能作文件名时返回空。
-// 名字规则与任务归档共用 agent.SafeTaskName——两套形状迟早漂移成"写得出去读不回来"。
 func replayFile(dataDir, id string) string {
 	if agent.SafeTaskName(id) == "" {
 		return ""
@@ -356,7 +316,6 @@ func fileExists(path string) bool {
 	return err == nil && !st.IsDir()
 }
 
-// saveReplay 把一次回放落进 replays/（**不是 tasks/**，回放不是任务）。
 func saveReplay(dataDir string, rec *types.ReplayRecord) (string, error) {
 	path := replayFile(dataDir, rec.ReplayID)
 	if path == "" {
@@ -375,9 +334,6 @@ func saveReplay(dataDir string, rec *types.ReplayRecord) (string, error) {
 	return path, nil
 }
 
-// replayRecordOf 由执行结果构造回放记录。计数走 countSteps 这**一份**实现——
-// 记录里写的数与比较时算出的数必须同源，否则"记录说成功 3 步、对比说成功 2 步"
-// 这种自相矛盾迟早会出现，而读的人只会更不信这张表。
 func replayRecordOf(kind types.ReplayKind, srcTaskID, from, tool string, args map[string]any,
 	exec *agent.Result, wallMS int64, params *rerunParams) *types.ReplayRecord {
 	rec := &types.ReplayRecord{
@@ -396,19 +352,11 @@ func replayRecordOf(kind types.ReplayKind, srcTaskID, from, tool string, args ma
 	return rec
 }
 
-// ---------- 归一视图与比较 ----------
-
-// runView 两条记录归一后的可比较视图。
-//
-// 任务记录与回放记录的字段不同，但回答同一批问题：做了哪几步、每步结果如何、
-// 耗时多少、当时用什么配置跑的。**比较逻辑只写一份**——两份实现迟早会给出两个
-// 不同的"差异"，而复盘的人只会看到其中一个。
 type runView struct {
-	Ref    string
-	Label  string
-	TaskID string
-	Goal   string
-	// Status 回放记录没有整体状态（它是执行结果，不是任务判定），留空。
+	Ref        string
+	Label      string
+	TaskID     string
+	Goal       string
 	Status     types.GoalStatus
 	Steps      []types.StepResult
 	Plan       *types.Plan
@@ -426,10 +374,6 @@ func (v *runView) count() {
 	v.Succeeded, v.Failed, v.Skipped, v.Empty, v.Carried = countSteps(v.Steps)
 }
 
-// countSteps 由步骤结果算出五项计数。
-//
-// 判据与执行器汇总时**逐字一致**：Outcome=failed 的步骤计入 Failed，
-// 不因为 Status=succeeded 就算成功——否则"跑完了但没做成"会被回放报告洗白。
 func countSteps(steps []types.StepResult) (succeeded, failed, skipped, empty, carried int) {
 	for _, r := range steps {
 		if r.Carried {
@@ -462,11 +406,6 @@ func viewOfReplay(r *types.ReplayRecord) runView {
 	return v
 }
 
-// ---------- 渲染 ----------
-
-// renderLoaded 按记录来源选渲染方式。三种来源的内容本就不同（任务有提示词分段与
-// 归因分布，回放只有执行结果，半截运行只有步骤），所以不强行合并成一个渲染器——
-// 把没有的东西印成空，比不印更容易被读成"当时是空的"。
 func renderLoaded(l loadedRun) string {
 	switch {
 	case l.Task != nil:
@@ -486,15 +425,12 @@ func renderLoaded(l loadedRun) string {
 	}
 }
 
-// renderTrace 把一条历史任务排成人能读的文本。
 func renderTrace(g *types.GoalResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "任务回放  %s\n", g.TaskID)
 	fmt.Fprintf(&b, "目标：%s\n", g.Goal)
 	fmt.Fprintf(&b, "trace_id：%s（同输入+同模型重复出现时相同，可据此聚类）\n", g.TraceID)
 	fmt.Fprintf(&b, "状态：%s  完成度 %d/100  规则集 %s\n", g.Status, g.Score, g.RuleSet)
-	// 快照与规则集是同一类东西的两个半边：规则集回答"提示词是哪一版"，
-	// 快照回答"模型与阈值是哪一套"。缺了后一半，两条历史结果之间就不可比。
 	if g.ConfigSnapshot != nil {
 		fmt.Fprintf(&b, "配置快照：%s\n", describeSnapshot(g.ConfigSnapshot))
 	} else {
@@ -528,8 +464,6 @@ func renderTrace(g *types.GoalResult) string {
 		fmt.Fprintln(&b)
 	}
 
-	// 交付侧的一次性。三种情形都要能区分：一次通过 / 返工 N 轮 / 没走到验收
-	// （两个字段都为零值，例如对话模式）——只印其中一种，另两种就混进来看不见了。
 	switch {
 	case g.FirstPass:
 		fmt.Fprintf(&b, "\n返工：0 轮（一次通过）\n")
@@ -550,10 +484,6 @@ func renderTrace(g *types.GoalResult) string {
 	return b.String()
 }
 
-// renderReplayTrace 打印一条回放记录。
-//
-// 与任务回放刻意不同：回放记录里**没有**提示词分段、规则集与交付口径——它不是一次
-// 任务判定，是一次执行。
 func renderReplayTrace(r *types.ReplayRecord) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "回放记录  %s（%s）\n", r.ReplayID, replayKindLabel(r.Kind))
@@ -585,8 +515,6 @@ func renderReplayTrace(r *types.ReplayRecord) string {
 	return b.String()
 }
 
-// stepLine 一行步骤结果。三种"没真跑"的原因必须分得开：
-// 沿用（这次没执行）/ 复用（去重省下的调用）/ 重试（第几次才成）。
 func stepLine(st types.StepResult) string {
 	line := fmt.Sprintf("[%s] %s (%s)", st.Status, st.StepID, st.Tool)
 	if st.Outcome != "" && st.Outcome != types.OutcomeOK {
@@ -637,10 +565,6 @@ func forkSummary(tool string, args map[string]any) string {
 	return strings.Join(parts, " · ")
 }
 
-// renderDiff 逐步对比两条记录。
-//
-// 这是"并行比较"的落地：分叉与原来的差异、两次重跑之间的差异、原任务与恢复后的差异，
-// 都走这**一份**实现——两处各写一份 diff，迟早会出现两边对同一个变化给出不同判断。
 func renderDiff(a, b runView) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "\n对比（%s → %s）：\n", describeView(a), describeView(b))
@@ -651,14 +575,11 @@ func renderDiff(a, b runView) string {
 		a.Succeeded, a.Failed, a.Skipped, a.Empty, len(a.Steps),
 		b.Succeeded, b.Failed, b.Skipped, b.Empty, len(b.Steps))
 	if a.Carried > 0 || b.Carried > 0 {
-		// 沿用步数必须印：不印的话，"这次成功 3 步"会被读成"这次跑了 3 步"，
-		// 而实际上可能只有 1 步是这次跑的。
 		fmt.Fprintf(&out, "  沿用：  %d 步 → %d 步（沿用=这次没有执行，结果取自上一次）\n", a.Carried, b.Carried)
 	}
 	fmt.Fprintf(&out, "  重试：  %d → %d 个步骤经历重试\n", retriedCount(a.Steps), retriedCount(b.Steps))
 	fmt.Fprintf(&out, "  耗时：  %dms → %dms\n", a.DurationMs, b.DurationMs)
 
-	// 逐步差异：计划相同、结果不同的步骤，就是环境、数据或走法变了的证据。
 	fmt.Fprintf(&out, "  逐步：\n")
 	old := map[string]types.StepResult{}
 	for _, st := range a.Steps {
@@ -731,10 +652,6 @@ func stepIDs(plan types.Plan) []string {
 	return out
 }
 
-// carriedWarning 在恢复/分叉之前提醒：沿用下来的步骤里有没成功的。
-//
-// 那种情况下目标步大概率会因"依赖未满足"被跳过——**那正是当时的前提，不是 bug**。
-// 不说的话，用户会以为 --from 坏了，然后改用 --rerun 把副作用又跑一遍。
 func carriedWarning(carried map[string]types.StepResult, plan types.Plan, target string) string {
 	var bad []string
 	for _, st := range plan.Steps {
@@ -757,12 +674,6 @@ func carriedWarning(carried map[string]types.StepResult, plan types.Plan, target
 		"这是当时的前提，不是恢复失败。要改这个前提，请把起点提前到那一步。", strings.Join(bad, "、"))
 }
 
-// rerunExecutor 组装重跑用的执行器，并把"这套参数从哪来"一起交出来。
-//
-// 单独成函数是为了让"用快照"这件事本身可被测试钉住：口径算对了不等于接上了——
-// 把 resolveRerunParams 写对、却在这里传 nil 或活配置，单元测试照样全绿，
-// 而每一次重跑都会用今天的配置去比昨天的结果（这是 P4-2b 栽过的同一个坑）。
-// runID 是这次回放自己的 ID（与源任务区分开），dataDir 为空则不落运行日志。
 func rerunExecutor(goal string, snap *types.ConfigSnapshot, live *config.Config, reg *registry.Registry,
 	gate *safety.Gate, dataDir, runID string) (*agent.Executor, rerunParams) {
 	params := resolveRerunParams(snap, live)
@@ -777,40 +688,22 @@ func rerunExecutor(goal string, snap *types.ConfigSnapshot, live *config.Config,
 		MaxOutputRunes: params.MaxOutputRunes,
 		Goal:           goal,
 	}
-	// 运行日志也在这里接：回放同样可能跑到一半就没了（用户关窗口、强杀），
-	// 而回放记录是**跑完才写**的。少了这根线，一次没跑完的恢复在事后什么都查不到。
-	//
-	// 接在这里而不是调用点，是为了让这根线可被测试钉住——写在调用点，
-	// 单测照样全绿，而每次回放都没留下任何运行中的凭据（接线断言的老坑）。
 	if dataDir != "" {
 		e.Sink = agent.NewRunLog(dataDir)
 	}
 	return e, params
 }
 
-// rerunParams 是重跑真正喂给执行器的参数。
-//
-// 单独拎成一个类型，是因为这几项有一个必须做对的选择：**用哪一套**。
-// 复现实验的前提是只动一个变量；拿当前配置重跑，比出来的差异分不清是环境变了还是配置变了。
 type rerunParams struct {
 	MaxConcurrency int
 	StepTimeout    time.Duration
 	StepRetries    int
 	Dedupe         bool
 	MaxOutputRunes int
-	// Snapshot 本次回放实际生效的配置快照：与 GoalResult 的那一份同源，
-	// 落进回放记录后，两次回放之间的差异也能归因到"是不是换了配置"。
-	Snapshot *types.ConfigSnapshot
-	// FromSnapshot 记录这套参数是取自任务启动时的快照，还是回退的当前配置。
-	// 不记的话，回退会被读成复现——"以为在复现、其实变量变了两个"是最坏的复盘姿势。
-	FromSnapshot bool
+	Snapshot       *types.ConfigSnapshot
+	FromSnapshot   bool
 }
 
-// resolveRerunParams 优先用任务启动时的快照，快照缺失才回退当前配置。
-//
-// 为什么要留回退：本字段落地之前产出的任务文件里没有 config_snapshot，
-// 直接拒绝重跑会让所有历史任务失去重跑能力——那是比"参数不精确"更差的取舍。
-// 但回退必须被说出来（见 FromSnapshot / Origin），否则读的人会把结果当成可复现的对比。
 func resolveRerunParams(snap *types.ConfigSnapshot, live *config.Config) rerunParams {
 	if snap != nil {
 		return rerunParams{
@@ -833,13 +726,10 @@ func resolveRerunParams(snap *types.ConfigSnapshot, live *config.Config) rerunPa
 		StepRetries:    live.Agent.StepRetries,
 		Dedupe:         live.Agent.DedupeCalls,
 		MaxOutputRunes: live.Agent.MaxOutputRunes,
-		// 回退时也把实际用的那套记下来：只写"回退了"而不写"回退成什么"，
-		// 事后仍然答不上来这次到底是用什么跑的。
-		Snapshot: &fallback,
+		Snapshot:       &fallback,
 	}
 }
 
-// Origin 用一句话说明这套参数从哪来。这句话必须印出来：不说，回退就会被当成复现。
 func (p rerunParams) Origin() string {
 	if p.FromSnapshot {
 		return "参数取自任务启动时的快照（本次只动\"环境\"这一个变量）"
@@ -847,8 +737,6 @@ func (p rerunParams) Origin() string {
 	return "参数回退当前配置（该任务没有快照）——差异里混着配置变化，不能全归给环境"
 }
 
-// describeSnapshot 把快照压成一行。快照里本来就只有"影响行为的关键项"，
-// 但逐字段平铺仍看不出哪几项决定了结果，所以按用途分三段：模型 → 停止条件 → 单步执行。
 func describeSnapshot(s *types.ConfigSnapshot) string {
 	model := s.Model
 	if model == "" {
@@ -866,8 +754,6 @@ func describeSnapshot(s *types.ConfigSnapshot) string {
 		for k := range s.Tiers {
 			keys = append(keys, k)
 		}
-		// map 遍历顺序随机：不排序，同一份快照每次印出来的顺序都不一样，
-		// 而"这次和上次印得不一样"会被误读成"配置变了"。
 		sort.Strings(keys)
 		pairs := make([]string, 0, len(keys))
 		for _, k := range keys {
@@ -895,7 +781,6 @@ func describeSnapshot(s *types.ConfigSnapshot) string {
 	return strings.Join(parts, " · ")
 }
 
-// onOff 把布尔印成开/关——"去重 false"要读的人自己翻译一次。
 func onOff(v bool) string {
 	if v {
 		return "开"
@@ -903,8 +788,6 @@ func onOff(v bool) string {
 	return "关"
 }
 
-// limitLabel 把"0 表示不限"的预算印成不限。直接印 0 会被读成"零预算"，
-// 与真实语义正好相反——这种字段印错比不印更坏。
 func limitLabel(n int, unit string) string {
 	if n <= 0 {
 		return "不限"

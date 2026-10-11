@@ -112,7 +112,6 @@ func (f *fixture) call(method, path string, body any) map[string]any {
 	return out
 }
 
-// waitTask 轮询直到任务结束或超时。
 func (f *fixture) waitTask(id string, timeout time.Duration) map[string]any {
 	f.t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -126,8 +125,6 @@ func (f *fixture) waitTask(id string, timeout time.Duration) map[string]any {
 	f.t.Fatal("等待任务结束超时")
 	return nil
 }
-
-// ---------- 基础 ----------
 
 func TestWebUI_InfoAndStatic(t *testing.T) {
 	f := newFixture(t, nil)
@@ -145,8 +142,6 @@ func TestWebUI_InfoAndStatic(t *testing.T) {
 	}
 	var buf [96]byte
 	n, _ := resp.Body.Read(buf[:])
-	// 大小写无关：prettier 会把 doctype 规范成小写（`<!doctype html>`），而
-	// desktop/src/main/splash.ts 本来发的就是小写。doctype 本身大小写不敏感。
 	if !strings.Contains(strings.ToLower(string(buf[:n])), "<!doctype html>") {
 		t.Errorf("首页内容异常: %q", string(buf[:n]))
 	}
@@ -208,8 +203,6 @@ func TestWebUI_GoalRejectsInvalidReference(t *testing.T) {
 	}
 }
 
-// ---------- 目标全流程（无审批） ----------
-
 func TestWebUI_GoalFullFlow(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[
@@ -238,7 +231,6 @@ func TestWebUI_GoalFullFlow(t *testing.T) {
 	if err != nil || string(data) != "来自 Web UI" {
 		t.Errorf("产物错误: %v %q", err, data)
 	}
-	// 事件日志已持久在任务上
 	detail := f.call("GET", "/api/goals/"+id, nil)
 	events := detail["events"].([]any)
 	if len(events) == 0 {
@@ -256,8 +248,6 @@ func TestWebUI_GoalFullFlow(t *testing.T) {
 	}
 }
 
-// ---------- 审批回路 ----------
-
 func TestWebUI_ApprovalRoundTrip(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[{"id":"s1","description":"删除","tool":"file.delete","args":{"path":"victim.txt","recursive":false}}]}`}},
@@ -270,7 +260,6 @@ func TestWebUI_ApprovalRoundTrip(t *testing.T) {
 	out := f.call("POST", "/api/goals", map[string]any{"goal": "删除 victim.txt"})
 	id, _ := out["task_id"].(string)
 
-	// 轮询待决审批
 	var approvals []any
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
@@ -297,7 +286,6 @@ func TestWebUI_ApprovalRoundTrip(t *testing.T) {
 	if _, err := os.Stat(victim); !os.IsNotExist(err) {
 		t.Error("批准后文件应被删除")
 	}
-	// 审批事件留在任务日志
 	detail := f.call("GET", "/api/goals/"+id, nil)
 	found := false
 	for _, e := range detail["events"].([]any) {
@@ -310,14 +298,11 @@ func TestWebUI_ApprovalRoundTrip(t *testing.T) {
 	}
 }
 
-// ---------- SSE ----------
-
 func TestWebUI_SSEStream(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"sse ok"}}]}`}},
 		{Kind: "reflect", Texts: []string{`{"score":90,"verdict":"done","reason":"ok"}`}},
 	})
-	// 先订阅 SSE 再提交目标，保证能收到事件
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", f.ts.URL+"/api/events", nil)
@@ -336,7 +321,7 @@ func TestWebUI_SSEStream(t *testing.T) {
 			}
 		}
 	}()
-	time.Sleep(200 * time.Millisecond) // 等 SSE 握手
+	time.Sleep(200 * time.Millisecond)
 
 	f.call("POST", "/api/goals", map[string]any{"goal": "sse 测试目标"})
 	sawProgress, sawCompleted := false, false
@@ -356,8 +341,6 @@ func TestWebUI_SSEStream(t *testing.T) {
 	}
 }
 
-// ---------- 工具 / 记忆 / 技能 / 调度 ----------
-
 func TestWebUI_ToolsMemorySkillsSchedules(t *testing.T) {
 	f := newFixture(t, nil)
 
@@ -366,19 +349,16 @@ func TestWebUI_ToolsMemorySkillsSchedules(t *testing.T) {
 		t.Error("工具列表为空")
 	}
 
-	// 工具直调（只读）
 	out := f.call("POST", "/api/tools/call", map[string]any{"name": "reply", "args": map[string]any{"text": "直调"}})
 	if out["name"] != "reply" {
 		t.Errorf("tools/call = %v", out)
 	}
 
-	// 记忆
 	f.call("POST", "/api/memory", map[string]any{"content": "用户偏好深色界面", "tags": []string{"偏好"}})
 	hits := f.call("GET", "/api/memory?q=%E6%B7%B1%E8%89%B2%E7%95%8C%E9%9D%A2&k=3", nil)
 	if hits["count"] == float64(0) {
 		t.Error("记忆检索无命中")
 	}
-	// L3（2026-09-23 QA）：单条软删——删后检索不再命中，误删不存在的要 404
 	firstHit := hits["hits"].([]any)[0].(map[string]any)
 	memID, _ := firstHit["id"].(string)
 	if memID == "" {
@@ -395,7 +375,6 @@ func TestWebUI_ToolsMemorySkillsSchedules(t *testing.T) {
 		t.Errorf("删除不存在的记忆应 404，实际 %d", code)
 	}
 
-	// 技能
 	f.call("POST", "/api/skills", map[string]any{
 		"name": "web-skill", "description": "d",
 		"steps": []map[string]any{
@@ -417,7 +396,6 @@ func TestWebUI_ToolsMemorySkillsSchedules(t *testing.T) {
 	}
 	f.call("DELETE", "/api/skills/web-skill", nil)
 
-	// 调度
 	f.call("POST", "/api/schedules", map[string]any{"name": "web-job", "goal": "g", "cron": "0 9 * * *"})
 	jobs := f.call("GET", "/api/schedules", nil)
 	if jobs["count"] == float64(0) {
@@ -425,7 +403,6 @@ func TestWebUI_ToolsMemorySkillsSchedules(t *testing.T) {
 	}
 	f.call("DELETE", "/api/schedules/web-job", nil)
 
-	// 自然语言时间：后端解析为 cron 并记录人读说明。
 	nl := f.call("POST", "/api/schedules", map[string]any{"name": "nl-job", "goal": "整理下载目录", "when": "工作日18:30"})
 	if nl["cron"] != "30 18 * * 1-5" {
 		t.Errorf("自然语言 cron = %v", nl["cron"])
@@ -435,8 +412,6 @@ func TestWebUI_ToolsMemorySkillsSchedules(t *testing.T) {
 	}
 	f.call("DELETE", "/api/schedules/nl-job", nil)
 }
-
-// ---------- 取消 ----------
 
 func TestWebUI_Cancel(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
@@ -464,7 +439,6 @@ func (slowTool) Execute(ctx context.Context, _ map[string]any) (any, error) {
 	return nil, ctx.Err()
 }
 
-// waitApproval 等到该任务出现一条未决审批，返回它；超时即失败（不静默跳过）。
 func (f *fixture) waitApproval(taskID string) map[string]any {
 	f.t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
@@ -489,11 +463,8 @@ func (f *fixture) pendingApprovals() int {
 	return -1
 }
 
-// ---------- 多会话 ----------
-
 func TestWebUI_ConversationsCRUD(t *testing.T) {
 	f := newFixture(t, nil)
-	// 新建
 	created := f.call("POST", "/api/conversations", nil)
 	id, _ := created["id"].(string)
 	if id == "" {
@@ -502,23 +473,19 @@ func TestWebUI_ConversationsCRUD(t *testing.T) {
 	if msgs, _ := created["messages"].([]any); len(msgs) != 0 {
 		t.Fatalf("新会话不应含消息: %v", msgs)
 	}
-	// 列表
 	list := f.call("GET", "/api/conversations", nil)
 	items, _ := list["conversations"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("列表数量=%d", len(items))
 	}
-	// 重命名
 	renamed := f.call("PATCH", "/api/conversations/"+id, map[string]any{"title": "我的测试对话"})
 	if renamed["title"] != "我的测试对话" {
 		t.Fatalf("重命名失败: %v", renamed["title"])
 	}
-	// 激活（载入上下文）
 	act := f.call("POST", "/api/conversations/"+id+"/activate", nil)
 	if act["id"] != id {
 		t.Fatalf("激活返回异常: %v", act)
 	}
-	// 删除
 	f.call("DELETE", "/api/conversations/"+id, nil)
 	items2, _ := f.call("GET", "/api/conversations", nil)["conversations"].([]any)
 	if len(items2) != 0 {

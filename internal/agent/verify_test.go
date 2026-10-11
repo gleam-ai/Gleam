@@ -10,17 +10,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 独立验收：验收不能与执行者同源同档 ----------
-//
-// 原先 reflector 直接吃 TierLLM(req.Role)，于是"独立验收"只体现在
-// "独立调用 + 独立上下文"上——干活的和打分的仍是同一个模型，盲区相同，
-// 自评偏差没有任何东西去抵消（资料 A16）。
-//
-// 这里守两件事：① 该换的时候真换了；② **不该假装的时候不假装**——
-// 换不成必须如实回退，而不是随便挑个模型顶上充数。
-
-// verifyAgent 造一个只够测验收模型解析的 Agent：只用到 Cfg / LLM / 档位缓存。
-// 一律预置档位客户端缓存，既避免建真连接，也让"到底用了哪个客户端"变成可断言的对象。
 func verifyAgent(provider, mainModel string, tiers map[string]string) (*Agent, *llm.MockClient) {
 	cfg := config.Default()
 	cfg.LLM.Provider = provider
@@ -65,8 +54,6 @@ func TestVerifyLLM_SwitchesToReasoningTier(t *testing.T) {
 	}
 }
 
-// TestVerifyLLM_SameModelIsNotIndependent 判据是**模型 ID 不同**，不是"档位名不同"。
-// 两个档位名指向同一个模型 ID 并不构成独立。
 func TestVerifyLLM_SameModelIsNotIndependent(t *testing.T) {
 	a, _ := verifyAgent("openai", "main-model", map[string]string{TierReasoning: "main-model"})
 
@@ -78,11 +65,6 @@ func TestVerifyLLM_SameModelIsNotIndependent(t *testing.T) {
 	}
 }
 
-// TestVerifyLLM_ExecutorAlreadyOnReasoningFallsBack 已知限制，如实守在这里：
-// analyst 这类角色自己就声明 reasoning 档，执行者与候选验收模型是同一个 → 换不成。
-//
-// 这里刻意**不**退而求其次去挑别的档或主模型顶上——那只会得到一个"看起来独立"的
-// 橡皮图章，比同源自评更难发现。所以断言的是"回退"，不是"换了个别的模型"。
 func TestVerifyLLM_ExecutorAlreadyOnReasoningFallsBack(t *testing.T) {
 	a, _ := verifyAgent("openai", "main-model", map[string]string{
 		TierReasoning: "judge-model",
@@ -97,8 +79,6 @@ func TestVerifyLLM_ExecutorAlreadyOnReasoningFallsBack(t *testing.T) {
 	}
 }
 
-// TestVerifyLLM_VerifyTierPointingAtMainModelStillIndependent 角色跑 coding 档、
-// 验收档指向主模型：两个模型 ID 不同，仍然算独立（验收复用主客户端，执行者用的是 coding 客户端）。
 func TestVerifyLLM_VerifyTierPointingAtMainModelStillIndependent(t *testing.T) {
 	a, main := verifyAgent("openai", "main-model", map[string]string{
 		TierReasoning: "main-model",
@@ -116,8 +96,6 @@ func TestVerifyLLM_VerifyTierPointingAtMainModelStillIndependent(t *testing.T) {
 	}
 }
 
-// TestVerifyLLM_MockSessionNeverSwitches mock 会话下档位本就失效（与 TierLLM / EffectiveTier 同款约定）：
-// 离线自测不该产生网络调用，也不该声称独立。
 func TestVerifyLLM_MockSessionNeverSwitches(t *testing.T) {
 	a, main := verifyAgent("mock", "main-model", map[string]string{TierReasoning: "judge-model"})
 
@@ -129,15 +107,11 @@ func TestVerifyLLM_MockSessionNeverSwitches(t *testing.T) {
 	}
 }
 
-// TestRunGoal_ReflectorUsesIndependentVerifyModel 是**接线**断言，不是函数断言：
-// VerifyLLM 本身正确，不代表它被接进了主循环——原先反思器直接吃 mainLLM。
 func TestRunGoal_ReflectorUsesIndependentVerifyModel(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","tool":"reply","args":{"text":"好"}}]}`),
-		// 执行者这边的反思脚本故意给低分：它**不该**被用到。
 		reflectScript(10, "replan", "执行者的反思不该被调用"),
 	})
-	// 非 mock 的 provider 才会让档位机制生效；执行者客户端仍是那个脚本化假模型。
 	f.a.Cfg.LLM.Provider = "openai"
 	f.a.Cfg.LLM.Model = "main-model"
 	f.a.Cfg.LLM.Tiers = map[string]string{TierReasoning: "judge-model"}
@@ -161,9 +135,6 @@ func TestRunGoal_ReflectorUsesIndependentVerifyModel(t *testing.T) {
 	}
 }
 
-// TestReadiness_ReportsVerifyIndependence "独立验收"必须是**可核对的事实**：
-// 换成了要说，没换成也要说清楚——光看"有没有客户端"是看不出区别的，
-// 回退和换成功都会返回一个可用客户端。
 func TestReadiness_ReportsVerifyIndependence(t *testing.T) {
 	cfg := config.Default()
 	cfg.LLM.Provider = "openai"

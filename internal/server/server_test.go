@@ -40,8 +40,6 @@ func TestConnCallRemovesPendingOnEncodeError(t *testing.T) {
 	}
 }
 
-// ---------- 测试用 JSON-RPC 客户端 ----------
-
 type rpcClient struct {
 	t       *testing.T
 	r       *bufio.Reader
@@ -110,7 +108,6 @@ func (c *rpcClient) loop(approveAll bool) {
 		}
 		switch {
 		case msg.Method == "goal/ask_approval":
-			// 模拟宿主应答审批
 			var resp any
 			if approveAll {
 				resp = map[string]any{"approved": true}
@@ -164,7 +161,6 @@ func (c *rpcClient) call(method string, params any) (json.RawMessage, *RPCError,
 	}
 }
 
-// waitNotification 等待指定方法的通知（跳过其他通知）。
 func (c *rpcClient) waitNotification(method string, timeout time.Duration, filter func(incoming) bool) (incoming, error) {
 	deadline := time.After(timeout)
 	for {
@@ -178,8 +174,6 @@ func (c *rpcClient) waitNotification(method string, timeout time.Duration, filte
 		}
 	}
 }
-
-// ---------- 测试 ----------
 
 func TestRPC_InitializeAndPing(t *testing.T) {
 	cl, _, _ := startServer(t, nil, false)
@@ -202,7 +196,6 @@ func TestRPC_InitializeAndPing(t *testing.T) {
 	if err != nil || !jsonContains(res, "pong") {
 		t.Errorf("ping: %v %s", err, res)
 	}
-	// 未知方法
 	_, rpcErr, _ = cl.call("no/such", nil)
 	if rpcErr == nil || rpcErr.Code != CodeMethodNotFound {
 		t.Errorf("未知方法应返回 -32601: %v", rpcErr)
@@ -234,7 +227,6 @@ func TestRPC_GoalSubmitFullFlow(t *testing.T) {
 		t.Fatalf("submit 结果 = %s", subRes)
 	}
 
-	// 收集通知直到 completed（保留全部，供后续断言）
 	gotProgress := 0
 	var suggestionText string
 	var completed incoming
@@ -270,15 +262,12 @@ func TestRPC_GoalSubmitFullFlow(t *testing.T) {
 	if result.Summary != "RPC 流程完成" {
 		t.Errorf("summary = %q", result.Summary)
 	}
-	// 文件确实生成
 	if data, err := os.ReadFile(filepath.Join(ws, "rpc-out.txt")); err != nil || string(data) != "rpc 内容" {
 		t.Errorf("产物错误: %v %q", err, data)
 	}
-	// 主动提议通知（在 completed 之前发出，已在上面的循环中捕获）
 	if !containsStr(suggestionText, "记得提交代码") {
 		t.Errorf("suggestion = %q", suggestionText)
 	}
-	// goal/status 查询
 	statusRes, _, err := cl.call("goal/status", map[string]any{"task_id": sub.TaskID})
 	if err != nil || !jsonContains(statusRes, "success") {
 		t.Errorf("goal/status: %v %s", err, statusRes)
@@ -299,8 +288,6 @@ func TestRPC_GoalRejectsInvalidReference(t *testing.T) {
 	}
 }
 
-// task_id 会成为归档文件名（tasks/<id>.json），所以越界形状要在**入口**拦住：
-// 放过去的话任务照跑、token 照花，最后一步归档才失败，人要等到回放时才看到"读不到"。
 func TestRPC_GoalSubmitRejectsUnsafeTaskID(t *testing.T) {
 	cl, _, _ := startServer(t, nil, false)
 	_, rpcErr, err := cl.call("goal/submit", map[string]any{"goal": "测试目标", "task_id": "abc/../def"})
@@ -347,7 +334,6 @@ func TestRPC_GoalSubmitApprovalRoundTrip(t *testing.T) {
 	victim := filepath.Join(ws, "victim.txt")
 	os.WriteFile(victim, []byte("x"), 0o644)
 
-	// 客户端 loop 中 approveAll=false → 拒绝
 	_, rpcErr, err := cl.call("goal/submit", map[string]any{"goal": "删除 victim.txt"})
 	if err != nil || rpcErr != nil {
 		t.Fatalf("submit: %v %v", err, rpcErr)
@@ -362,7 +348,6 @@ func TestRPC_GoalSubmitApprovalRoundTrip(t *testing.T) {
 	if _, err := os.Stat(victim); err != nil {
 		t.Error("拒绝后文件不应被删除")
 	}
-	// 批准路径：删除成功且反思直接判定完成
 	approveScripts := []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[
 			{"id":"s1","description":"删除文件","tool":"file.delete","args":{"path":"victim.txt","recursive":false}}
@@ -387,12 +372,10 @@ func TestRPC_GoalSubmitApprovalRoundTrip(t *testing.T) {
 
 func TestRPC_ToolsAndMemoryAndSkills(t *testing.T) {
 	cl, _, ws0 := startServer(t, nil, false)
-	// tools/list
 	res, _, err := cl.call("tools/list", nil)
 	if err != nil || !jsonContains(res, "file.write") {
 		t.Fatalf("tools/list: %v %s", err, res)
 	}
-	// tools/call（只读直调）
 	if err := os.WriteFile(filepath.Join(ws0, "callme.txt"), []byte("直调目标"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +384,6 @@ func TestRPC_ToolsAndMemoryAndSkills(t *testing.T) {
 	if err != nil || rpcErr2 != nil || !jsonContains(res, "直调目标") {
 		t.Errorf("tools/call: %v %v %s", err, rpcErr2, res)
 	}
-	// memory/save + search
 	_, _, err = cl.call("memory/save", map[string]any{"content": "用户偏好：简洁回复", "tags": []string{"偏好"}})
 	if err != nil {
 		t.Fatalf("memory/save: %v", err)
@@ -410,7 +392,6 @@ func TestRPC_ToolsAndMemoryAndSkills(t *testing.T) {
 	if err != nil || !jsonContains(res, "简洁回复") {
 		t.Errorf("memory/search: %v %s", err, res)
 	}
-	// skills/save + run
 	steps := `[
 		{"id":"s1","tool":"file.write","args":{"path":"sk.txt","content":"技能产出"}},
 		{"id":"s2","tool":"file.read","args":{"path":"sk.txt"},"depends_on":["s1"]}
@@ -427,7 +408,6 @@ func TestRPC_ToolsAndMemoryAndSkills(t *testing.T) {
 	if err != nil || !jsonContains(res, "rpc-skill") {
 		t.Errorf("skills/list: %v %s", err, res)
 	}
-	// schedule create/list/delete
 	res, _, err = cl.call("schedule/create", map[string]any{"name": "daily-dust", "goal": "打扫", "cron": "0 9 * * *"})
 	if err != nil || !jsonContains(res, "daily-dust") {
 		t.Errorf("schedule/create: %v %s", err, res)
@@ -444,17 +424,14 @@ func TestRPC_ToolsAndMemoryAndSkills(t *testing.T) {
 
 func TestRPC_GoalCancelAndErrors(t *testing.T) {
 	cl, _, _ := startServer(t, nil, false)
-	// 参数错误
 	_, rpcErr, err := cl.call("goal/submit", map[string]any{"goal": ""})
 	if err != nil || rpcErr == nil || rpcErr.Code != CodeInvalidParams {
 		t.Errorf("空 goal 应返回 -32602: %v %v", err, rpcErr)
 	}
-	// 不存在的任务
 	_, rpcErr, err = cl.call("goal/status", map[string]any{"task_id": "nope"})
 	if err != nil || rpcErr == nil {
 		t.Errorf("不存在任务应报错: %v %v", err, rpcErr)
 	}
-	// cancel 不存在的任务（幂等返回）
 	res, _, err := cl.call("goal/cancel", map[string]any{"task_id": "nope"})
 	if err != nil {
 		t.Fatalf("cancel: %v", err)
@@ -462,14 +439,11 @@ func TestRPC_GoalCancelAndErrors(t *testing.T) {
 	if !jsonContains(res, "cancelled") {
 		t.Errorf("cancel = %s", res)
 	}
-	// goal/list
 	res, _, err = cl.call("goal/list", nil)
 	if err != nil || !jsonContains(res, "tasks") {
 		t.Errorf("goal/list: %v %s", err, res)
 	}
 }
-
-// ---------- helpers ----------
 
 func jsonContains(raw json.RawMessage, sub string) bool {
 	return raw != nil && len(raw) > 0 && containsStr(string(raw), sub)

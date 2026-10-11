@@ -18,7 +18,6 @@ func TestFileTools_WriteReadList(t *testing.T) {
 	tools, ws := newTools(t)
 	ctx := context.Background()
 
-	// write（含子目录自动创建）
 	out, err := tools.requireResolve(ctx, map[string]any{}, "path")
 	_ = out
 	if err == nil {
@@ -29,16 +28,14 @@ func TestFileTools_WriteReadList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if w.(map[string]any)["bytes_written"] != int(12) { // "你好 Gleam" = 12 字节 UTF-8
+	if w.(map[string]any)["bytes_written"] != int(12) {
 		t.Errorf("bytes_written = %v", w)
 	}
 
-	// append 追加
 	if _, err := wt.Execute(ctx, map[string]any{"path": filepath.Join("sub", "a.txt"), "content": "+", "append": true}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 
-	// read
 	rt := &readTool{tools}
 	r, err := rt.Execute(ctx, map[string]any{"path": filepath.Join("sub", "a.txt")})
 	if err != nil {
@@ -52,7 +49,6 @@ func TestFileTools_WriteReadList(t *testing.T) {
 		t.Errorf("truncated = %v", rm["truncated"])
 	}
 
-	// list
 	lt := &listTool{tools}
 	l, err := lt.Execute(ctx, map[string]any{"path": "sub"})
 	if err != nil {
@@ -69,15 +65,12 @@ func TestFileTools_WorkspaceBoundary(t *testing.T) {
 	tools, _ := newTools(t)
 	ctx := context.Background()
 	wt := &writeTool{tools}
-	// 绝对路径越界
 	if _, err := wt.Execute(ctx, map[string]any{"path": filepath.Join(os.TempDir(), "outside.txt"), "content": "x"}); err == nil {
 		t.Error("越界写入应报错")
 	}
-	// 相对路径穿越
 	if _, err := wt.Execute(ctx, map[string]any{"path": "../outside.txt", "content": "x"}); err == nil {
 		t.Error("目录穿越应报错")
 	}
-	// 越界读取同样拒绝
 	rt := &readTool{tools}
 	if _, err := rt.Execute(ctx, map[string]any{"path": "../etc/passwd"}); err == nil {
 		t.Error("越界读取应报错")
@@ -103,7 +96,6 @@ func TestFileTools_MkdirMoveDelete(t *testing.T) {
 	if _, err := mt.Execute(ctx, map[string]any{"path": "d1/d2"}); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// 已存在时 created=false
 	if r, _ := mt.Execute(ctx, map[string]any{"path": "d1/d2"}); r.(map[string]any)["created"] != false {
 		t.Error("重复 mkdir 应返回 created=false")
 	}
@@ -121,7 +113,6 @@ func TestFileTools_MkdirMoveDelete(t *testing.T) {
 	}
 
 	dt := &deleteTool{tools}
-	// 目录不带 recursive 应报错
 	if _, err := dt.Execute(ctx, map[string]any{"path": "d1"}); err == nil {
 		t.Error("删目录缺 recursive 应报错")
 	}

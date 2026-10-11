@@ -1,4 +1,3 @@
-// Package shell 实现命令执行工具（高风险，始终需要人工批准）。
 package shell
 
 import (
@@ -16,19 +15,15 @@ import (
 	"gleam/pkg/types"
 )
 
-const maxOutput = 64 * 1024 // 输出截断上限
+const maxOutput = 64 * 1024
 
-// Tool shell.exec 工具。
 type Tool struct {
 	DefaultTimeout time.Duration
-	// Roots 允许作为工作目录的根（与文件工具同一套边界）。
-	// 为空时**拒绝任何 cwd 参数**——失败要朝着安全的方向失败。
-	Roots []string
+	Roots          []string
 }
 
 func New(defaultTimeout time.Duration) *Tool { return &Tool{DefaultTimeout: defaultTimeout} }
 
-// NewWithRoots 带工作区边界创建：cwd 必须落在 roots 之内。
 func NewWithRoots(defaultTimeout time.Duration, roots ...string) *Tool {
 	return &Tool{DefaultTimeout: defaultTimeout, Roots: roots}
 }
@@ -59,8 +54,6 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// cwd 走与文件工具同一套边界校验（P5-1）：命令的工作目录不能是"任何地方"，
-	// 否则模型可以用 `cd /` 把后续相对路径操作带到工作区之外。
 	cwd, err := t.resolveCWD(ctx, toolutil.Str(args, "cwd"))
 	if err != nil {
 		return nil, err
@@ -72,48 +65,31 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	} else {
 		cmd = exec.Command("sh", "-c", command)
 	}
-	// 设置进程组/Job Object，确保可以杀死整棵进程树
 	setProcessGroup(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	// 子进程环境：剔除凭证类变量（P5-1）。
-	// 模型可以把任何命令的输出读回来，所以凭证只要进了子进程环境就等于可能进了上下文——
-	// 这是一条"把凭证从模型的射程里拿开"的隔离，不是沙箱。
 	cmd.Env = sanitizedEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	// WaitDelay：进程退出后，等 I/O 管道关闭的**上限**。
-	//
-	// 为什么必须有：`Stdout`/`Stderr` 不是 `*os.File` 时，`os/exec` 会另起 goroutine
-	// 把管道内容拷进 buffer，而 `Wait` 要等这些 goroutine 结束。管道写端只要还有
-	// **任何**进程持有，这个拷贝就永远不返回——即使我们杀了进程树，也可能有漏网之鱼。
-	// WaitDelay 是最后一道防线，确保即使有孤儿进程也不会无限挂起。
 	cmd.WaitDelay = 5 * time.Second
 
-	// 启动命令
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("命令启动失败: %w", err)
 	}
 
-	// 监控 context 取消，杀死整棵进程树
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
 	select {
 	case <-cctx.Done():
-		// context 超时或取消，杀死整棵进程树
 		_ = killProcessTree(cmd)
-		// 等待 Wait 返回（受 WaitDelay 保护）
 		<-done
 	case err = <-done:
-		// 命令正常结束
 	}
 
-	// 超时/取消优先于退出码判定：进程被杀在 Windows 上表现为普通 ExitError（exit 1），
-	// 若先判 ExitError 会把超时误报成普通失败。
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("命令被取消: %w", ctx.Err())
 	}
@@ -129,12 +105,8 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 		case asExit(err, &exitErr):
 			exitCode = exitErr.ExitCode()
 		case errors.Is(err, exec.ErrWaitDelay):
-			// 命令本身结束了，但有子进程仍持有输出管道。**必须说出来**：
-			// 这时 stdout/stderr 很可能是不完整的，把它当完整输出用就是"静默截断"——
-			// 读的人会以为命令只输出了这些，然后照着残缺的输出下结论。
 			pipeStuck = true
 		default:
-			// 进程未能启动等非退出类错误（原实现会被静默吞掉）
 			return nil, fmt.Errorf("命令执行失败: %w", err)
 		}
 	}
@@ -152,9 +124,6 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	return out, nil
 }
 
-// resolveCWD 校验工作目录：空值放行（继承进程当前目录）；非空必须落在工作区内。
-//
-// 边界优先取 ctx 里那份（本次任务的边界，例如它自己的 worktree），没有才回落构造时的 Roots。
 func (t *Tool) resolveCWD(ctx context.Context, cwd string) (string, error) {
 	if strings.TrimSpace(cwd) == "" {
 		return "", nil
@@ -166,16 +135,11 @@ func (t *Tool) resolveCWD(ctx context.Context, cwd string) (string, error) {
 	return abs, nil
 }
 
-// credentialSuffixes 凭证类环境变量的后缀/子串特征（大小写不敏感）。
-// 只拦"几乎确定是凭证"的模式：宽到把 PATH 也拦了，命令就跑不起来了。
 var credentialMarkers = []string{
 	"_API_KEY", "_APIKEY", "API_KEY", "_TOKEN", "ACCESS_TOKEN", "_SECRET",
 	"PASSWORD", "PASSWD", "CREDENTIAL", "_PRIVATE_KEY",
 }
 
-// sanitizedEnv 从环境变量里剔除凭证类条目。
-// 保留其余全部变量：这是个"拿开凭证"的动作，不是"清空环境"——
-// 后者会让用户的命令在一个陌生的环境里运行，故障排查成本远高于收益。
 func sanitizedEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
@@ -209,11 +173,6 @@ func asExit(err error, target **exec.ExitError) bool {
 	return ok
 }
 
-// Outcome 实现 types.OutcomeReporter：命令以非零码退出是「跑完了但没做成」，不是成功。
-//
-// 为什么必须由工具自己报：exit_code 与 error 只存在于返回的 payload 里，
-// 执行器拿到的 err 是 nil，于是 `exit 1` 的步骤被标成 succeeded、整个任务被判成 success。
-// 「完成率」这个指标失真，根因就在这里——不是统计口径问题，是数据源头不对。
 func (t *Tool) Outcome(args map[string]any, out any) (types.StepOutcome, string) {
 	m, ok := out.(map[string]any)
 	if !ok {

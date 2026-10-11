@@ -12,8 +12,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 旁白层（自研人格化叙述） ----------
-
 func TestNarrator_StyleVariants(t *testing.T) {
 	for _, style := range []string{"rigorous", "gentle", "efficient", ""} {
 		n := Narrator{Style: style}
@@ -27,7 +25,6 @@ func TestNarrator_StyleVariants(t *testing.T) {
 			t.Errorf("风格 %s 旁白未包含步骤数", style)
 		}
 	}
-	// 三种风格在规划完成上应产出不同文案（人格差异可见）
 	got := map[string]bool{}
 	for _, style := range []string{"rigorous", "gentle", "efficient"} {
 		got[Narrator{Style: style}.PlanDone(3)] = true
@@ -37,9 +34,6 @@ func TestNarrator_StyleVariants(t *testing.T) {
 	}
 }
 
-// ---------- 执行器丝滑：审批等待不占用并发槽位 ----------
-
-// blockingApprovalNotifier 审批请求到达即通知并阻塞，直到测试放行。
 type blockingApprovalNotifier struct {
 	approveReq chan struct{}
 	release    chan struct{}
@@ -58,7 +52,6 @@ func (b *blockingApprovalNotifier) OnTaskDone(types.TaskDoneEvent)          {}
 func TestExecute_ApprovalWaitDoesNotBlockOtherSteps(t *testing.T) {
 	r := registry.New()
 
-	// s2 的工具：执行即发出完成信号
 	var once sync.Once
 	s2Done := make(chan struct{})
 	r.MustRegister(&funcTool{name: "signal", perm: types.PermissionReadOnly, fn: func(ctx context.Context, args map[string]any) (any, error) {
@@ -71,7 +64,7 @@ func TestExecute_ApprovalWaitDoesNotBlockOtherSteps(t *testing.T) {
 
 	n := &blockingApprovalNotifier{approveReq: make(chan struct{}, 1), release: make(chan struct{})}
 	e := &Executor{Reg: r, Gate: safety.New("auto", nil, nil, nil, 5*time.Second),
-		MaxConcurrency: 1, Notifier: n} // 并发=1：旧行为下 s2 会被 s1 的审批等待完全卡死
+		MaxConcurrency: 1, Notifier: n}
 
 	plan := types.Plan{Steps: []types.Step{
 		{ID: "s1", Tool: "needs-approval", Args: map[string]any{}},
@@ -80,14 +73,12 @@ func TestExecute_ApprovalWaitDoesNotBlockOtherSteps(t *testing.T) {
 	done := make(chan *Result, 1)
 	go func() { done <- e.Execute(context.Background(), plan, "t", "auto", false) }()
 
-	// 等待审批请求出现（说明 s1 正在等待用户裁决）
 	select {
 	case <-n.approveReq:
 	case <-time.After(3 * time.Second):
 		t.Fatal("未收到审批请求")
 	}
 
-	// 审批仍挂着：并发=1 时 s2 也必须能完成（不被审批等待阻塞）
 	select {
 	case <-s2Done:
 	case <-time.After(3 * time.Second):

@@ -10,36 +10,26 @@ import (
 	"time"
 )
 
-// ---------- 厂商预设与套餐解析 ----------
-
-// KeyScope 决定"这把密钥允许发给谁"，判错一边就是两种事故：
-// 按整条 URL 绑 → 用户改路径就"密钥丢了"；绑得太松 → 换厂商把上一家的发出去。
 func TestKeyScope(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"https://open.bigmodel.cn/api/paas/v4", "open.bigmodel.cn"},
-		{"https://open.bigmodel.cn/api/coding/paas/v4", "open.bigmodel.cn"}, // 同厂不同套餐 = 同一把 key
-		{"  http://127.0.0.1:8000/v1/  ", "127.0.0.1:8000"},                 // 端口是主机的一部分
-		{"https://API.OpenAI.com/v1", "api.openai.com"},                     // 主机大小写不敏感
+		{"https://open.bigmodel.cn/api/coding/paas/v4", "open.bigmodel.cn"},
+		{"  http://127.0.0.1:8000/v1/  ", "127.0.0.1:8000"},
+		{"https://API.OpenAI.com/v1", "api.openai.com"},
 		{"https://a.com", "a.com"},
 		{"", ""},
-		{"not-a-url", "not-a-url"}, // 解析不出来就按原值当独立主机，绝不当成"和谁都一样"
+		{"not-a-url", "not-a-url"},
 	}
 	for _, c := range cases {
 		if got := KeyScope(c.in); got != c.want {
 			t.Errorf("KeyScope(%q) = %q，want %q", c.in, got, c.want)
 		}
 	}
-	// 不同厂商必须算出不同 scope，否则绑定形同虚设
 	if KeyScope("https://api.deepseek.com/v1") == KeyScope("https://open.bigmodel.cn/v1") {
 		t.Error("两家厂商算出了同一个 scope")
 	}
 }
 
-// ResolveTarget 是三处调用（启动装配 / 设置保存 / 连接自测）共用的归一化，
-// 这里钉住它的兜底链：预设协议覆盖已配协议，非法协议回落 openai_chat。
-//
-// **默认模型已被刻意移除**（7683701：让用户去拉真实列表，而不是依赖可能过时的默认名），
-// 所以没填 model 时留空才是正确结果——这条断言跟着契约一起改，不是放宽。
 func TestResolveTarget(t *testing.T) {
 	base, model, protocol := ResolveTarget("zhipu", PlanCoding, "", "", "")
 	if protocol != ProtocolOpenAIChat || base == "" {
@@ -64,21 +54,17 @@ func TestResolvePreset_ZhipuCoding(t *testing.T) {
 	if protocol != ProtocolOpenAIChat {
 		t.Errorf("protocol=%s", protocol)
 	}
-	// 同上：预设不再带默认模型，留空是预期结果
 	if model != "" {
 		t.Errorf("没填模型时应留空（预设不再带默认模型），得到 %q", model)
 	}
-	// 显式填写优先于预设
 	base2, model2, _ := ResolvePreset("zhipu", PlanToken, "https://custom.example/v4", "my-model")
 	if base2 != "https://custom.example/v4" || model2 != "my-model" {
 		t.Errorf("显式值应优先: %s %s", base2, model2)
 	}
-	// 未知厂商回落原值
 	base3, _, _ := ResolvePreset("nope", "token", "https://x/v1", "m")
 	if base3 != "https://x/v1" {
 		t.Errorf("未知厂商 = %s", base3)
 	}
-	// 各厂商都有 token 套餐与合法协议
 	for _, p := range Providers {
 		if FindProvider(p.ID) == nil {
 			t.Errorf("FindProvider(%s) 失败", p.ID)
@@ -97,8 +83,6 @@ func TestResolvePreset_ZhipuCoding(t *testing.T) {
 		}
 	}
 }
-
-// ---------- OpenAI Responses 协议 ----------
 
 func TestResponsesClient_Chat(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,8 +135,6 @@ func TestResponsesClient_ChatStream(t *testing.T) {
 		t.Errorf("out=%q delta=%q", out, sb.String())
 	}
 }
-
-// ---------- Anthropic 协议 ----------
 
 func TestAnthropicClient_Chat(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -217,10 +199,6 @@ func TestFactory_ProtocolSelection(t *testing.T) {
 	}
 }
 
-// TestProvidersCatalogInvariants 盯住内置目录的结构不变量。
-//
-// 为什么值这些：界面的模型下拉直接吃这个目录——某家漏了清单，用户在没填 key 时
-// 就选不到任何东西，而编译与既有测试全绿（它们只看 base_url/protocol）。
 func TestProvidersCatalogInvariants(t *testing.T) {
 	seen := map[string]bool{}
 	for _, p := range Providers {
@@ -247,8 +225,6 @@ func TestProvidersCatalogInvariants(t *testing.T) {
 				t.Errorf("%s 有两条 %s 套餐（ResolvePreset 只认第一个，第二条既选不到也解析不到）", p.ID, pl.Kind)
 			}
 			seenKinds[pl.Kind] = true
-			// 这里**不要求** pl.Model 非空：默认模型已被刻意移除（让用户去拉真实列表，
-			// 而不是依赖可能过时的默认名）。要求它非空就是与那个决定对立。
 		}
 
 		if len(p.Models) == 0 {
@@ -262,8 +238,6 @@ func TestProvidersCatalogInvariants(t *testing.T) {
 	}
 }
 
-// TestProvidersOverseasLast 盯住目录的排序规则：海外平台一律排在国产厂商（含其国际站）之后。
-// 这是用户定的展示顺序——下拉里先看到国内能直接用的，海外平台垫底。
 func TestProvidersOverseasLast(t *testing.T) {
 	overseas := map[string]bool{
 		"openai":     true,
@@ -292,8 +266,6 @@ func TestProvidersOverseasLast(t *testing.T) {
 	}
 }
 
-// TestProvidersCatalogExpected 钉住目录的成员资格：2026-10-11 批次新增的九家必须在，
-// 已停服的「腾讯混元」不许复活（旧平台 2026-09-30 停服，留着就是一条指向死地址的预设）。
 func TestProvidersCatalogExpected(t *testing.T) {
 	for _, id := range []string{
 		"zhipu-intl", "moonshot-intl", "qianwen", "byteplus", "stepfun-intl",

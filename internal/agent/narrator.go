@@ -2,12 +2,8 @@ package agent
 
 import "fmt"
 
-// Narrator 人格化旁白层（自研，对应设计文档 §4.3 一致的协作风格）：
-// 按协作风格为各阶段生成有温度、语气一致的进度叙述——像同事说话，不像日志刷屏。
-// 纯模板实现：零 LLM 调用、零延迟、零 token、完全确定。
-// 步骤级消息（✅/❌ 前缀）不经过旁白：前端以其判定时间线状态，测试断言也依赖原文。
 type Narrator struct {
-	Style string // rigorous | gentle | efficient（空视为 efficient）
+	Style string
 }
 
 func (n Narrator) style() string {
@@ -19,7 +15,6 @@ func (n Narrator) style() string {
 	}
 }
 
-// PlanStart 规划开始。
 func (n Narrator) PlanStart() string {
 	switch n.style() {
 	case "gentle":
@@ -31,7 +26,6 @@ func (n Narrator) PlanStart() string {
 	}
 }
 
-// PlanDone 计划完成。
 func (n Narrator) PlanDone(steps int) string {
 	switch n.style() {
 	case "gentle":
@@ -43,7 +37,6 @@ func (n Narrator) PlanDone(steps int) string {
 	}
 }
 
-// Compressed 上下文压缩完成。
 func (n Narrator) Compressed() string {
 	switch n.style() {
 	case "gentle":
@@ -55,7 +48,6 @@ func (n Narrator) Compressed() string {
 	}
 }
 
-// ReflectStart 反思开始。
 func (n Narrator) ReflectStart() string {
 	switch n.style() {
 	case "gentle":
@@ -67,7 +59,6 @@ func (n Narrator) ReflectStart() string {
 	}
 }
 
-// Replan 触发重规划。
 func (n Narrator) Replan(score int) string {
 	switch n.style() {
 	case "gentle":

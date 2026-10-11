@@ -1,4 +1,3 @@
-// models_test.go 在线模型列表拉取：端点拼接 / 响应形态兼容 / 鉴权头 / 错误分类。
 package llm
 
 import (
@@ -29,25 +28,21 @@ func TestModelEndpoint(t *testing.T) {
 }
 
 func TestParseModelsResponse(t *testing.T) {
-	// OpenAI 风格 data[]
 	openai := []byte(`{"data":[{"id":"gpt-a","owned_by":"openai"},{"id":"gpt-b","owned_by":"openai"},{"id":"gpt-a","owned_by":"dup"}]}`)
 	ms, err := parseModelsResponse(openai)
 	if err != nil || len(ms) != 2 || ms[0].ID != "gpt-a" || ms[0].OwnedBy != "openai" {
 		t.Fatalf("data 形态 = %v, %v", ms, err)
 	}
-	// 智谱 v4 风格 models[]
 	zhipu := []byte(`{"models":[{"id":"glm-5.3-flash"},{"id":"glm-5.3"}]}`)
 	ms, err = parseModelsResponse(zhipu)
 	if err != nil || len(ms) != 2 || ms[1].ID != "glm-5.3" {
 		t.Fatalf("models 形态 = %v, %v", ms, err)
 	}
-	// Anthropic 风格带 display_name + 坏条目跳过
 	anth := []byte(`{"data":[{"type":"model","id":"claude-x","display_name":"Claude X"},"string-junk",{"no_id":1}]}`)
 	ms, err = parseModelsResponse(anth)
 	if err != nil || len(ms) != 1 || ms[0].DisplayName != "Claude X" {
 		t.Fatalf("anthropic 形态 = %v, %v", ms, err)
 	}
-	// 顶层 error
 	if _, err := parseModelsResponse([]byte(`{"error":{"message":"quota exceeded"}}`)); err == nil || !strings.Contains(err.Error(), "quota") {
 		t.Fatalf("error 应冒泡，得到 %v", err)
 	}
@@ -80,14 +75,12 @@ func TestListModels_HTTP(t *testing.T) {
 	if gotAuth != "Bearer k1" {
 		t.Errorf("Authorization = %q", gotAuth)
 	}
-	// 空密钥：省略鉴权头（空头会被网关判格式错误），拿到 401 分类
 	if _, err := ListModels(context.Background(), ProtocolOpenAIChat, srv.URL+"/v1", "", 5*time.Second); StatusCode(err) != 401 {
 		t.Errorf("空 key 应得 401，得到 %v", err)
 	}
 	if gotAuth != "" {
 		t.Errorf("空 key 不应再发 Authorization，得到 %q", gotAuth)
 	}
-	// anthropic 协议：x-api-key + version 头
 	if _, err := ListModels(context.Background(), ProtocolAnthropic, srv.URL+"/v1", "k1", 5*time.Second); err != nil {
 		t.Errorf("anthropic 拉取失败: %v", err)
 	}

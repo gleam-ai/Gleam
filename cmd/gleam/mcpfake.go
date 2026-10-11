@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// runMCPFakeServer 内置 MCP 测试服务器：供 MCP 连接器测试与端到端自测使用。
-// 提供三个工具：echo（回显）、add（求和）、fail（模拟错误）。
 func runMCPFakeServer() error {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)

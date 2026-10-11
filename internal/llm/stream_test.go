@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// withShortWatchdog 把看门狗压到毫秒级并返回还原函数。
-// 时限是包级 var 就是为了这个：不改生产默认值也能测出超时路径。
 func withShortWatchdog(t *testing.T, ttfb, stall time.Duration) {
 	t.Helper()
 	oldTTFB, oldStall := StreamTTFBTimeout, StreamStallTimeout
@@ -18,11 +16,10 @@ func withShortWatchdog(t *testing.T, ttfb, stall time.Duration) {
 	t.Cleanup(func() { StreamTTFBTimeout, StreamStallTimeout = oldTTFB, oldStall })
 }
 
-// 一级超时：连接建了、一个字都不吐——总超时 60 秒下这种会被判成功，体验却是卡死。
 func TestScanStream_TTFBTimeout(t *testing.T) {
 	withShortWatchdog(t, 40*time.Millisecond, time.Second)
 	pr, pw := io.Pipe()
-	defer pw.Close() // 永不写入
+	defer pw.Close()
 
 	err := scanStream(context.Background(), pr, func(string) bool { return true })
 	if !errors.Is(err, ErrStreamTTFB) {
@@ -31,20 +28,17 @@ func TestScanStream_TTFBTimeout(t *testing.T) {
 	if !IsStreamTimeout(err) {
 		t.Error("IsStreamTimeout 应识别首字节超时")
 	}
-	// 错误文本必须能让上层按「可重试」分类：ClassifyError 认"超时"关键词
 	if !strings.Contains(err.Error(), "超时") {
 		t.Errorf("错误文本应含「超时」以便归类为可重试: %q", err.Error())
 	}
 }
 
-// 二级超时：吐了一块之后停了——比"从没开始"更常见的卡死形态。
 func TestScanStream_StallTimeout(t *testing.T) {
 	withShortWatchdog(t, time.Second, 40*time.Millisecond)
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	go func() {
 		_, _ = pw.Write([]byte("data: 第一块\n"))
-		// 之后不再写：模拟服务端吐到一半卡住
 	}()
 
 	var got []string
@@ -63,7 +57,6 @@ func TestScanStream_StallTimeout(t *testing.T) {
 	}
 }
 
-// 正常路径：读尽返回 nil，不因看门狗误伤。
 func TestScanStream_NormalCompletion(t *testing.T) {
 	withShortWatchdog(t, time.Second, time.Second)
 	var got []string
@@ -79,7 +72,6 @@ func TestScanStream_NormalCompletion(t *testing.T) {
 	}
 }
 
-// onLine 返回 false = 处理者要求停止（收到 [DONE]），这是正常结束而非错误。
 func TestScanStream_StopByHandler(t *testing.T) {
 	withShortWatchdog(t, time.Second, time.Second)
 	var got []string
@@ -98,7 +90,6 @@ func TestScanStream_StopByHandler(t *testing.T) {
 	}
 }
 
-// ctx 取消优先于看门狗：取消是用户意图，不该被报成超时。
 func TestScanStream_ContextCancel(t *testing.T) {
 	withShortWatchdog(t, time.Second, time.Second)
 	ctx, cancel := context.WithCancel(context.Background())

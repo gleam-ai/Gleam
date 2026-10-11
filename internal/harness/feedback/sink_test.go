@@ -31,10 +31,6 @@ func sampleFeedback() *types.Feedback {
 	}
 }
 
-// TestRedact_KeepsLocalOriginalAndMarksOutbound 脱敏只动**外发的那份副本**。
-//
-// 本地归档必须保留原文：那是用户自己写的、也是他要复查的东西；
-// 而发出去的那一份里，已知的机密片段一处不留。
 func TestRedact_KeepsLocalOriginalAndMarksOutbound(t *testing.T) {
 	f := sampleFeedback()
 	f.Text = `报错：cannot open C:\Users\宁\Desktop\proj\a.txt，key=sk-abcdef123456`
@@ -58,9 +54,6 @@ func TestRedact_KeepsLocalOriginalAndMarksOutbound(t *testing.T) {
 	}
 }
 
-// TestRedact_ScrubsContextFields 上下文字段也过一道：白名单挡的是"我们主动放什么"，
-// 挡不住以后有人往这些字段里塞带路径的值。闸门已经在整份副本上生效，
-// 加字段的人不必先记住这条规矩。
 func TestRedact_ScrubsContextFields(t *testing.T) {
 	f := sampleFeedback()
 	f.Context.TaskID = `task-C:\Users\宁\x`
@@ -76,10 +69,6 @@ func TestRedact_ScrubsContextFields(t *testing.T) {
 	}
 }
 
-// TestFeedbackRow_FlattenedAndNoImageBytes 投递的行形状：可筛的列 + 截图**只有元数据**。
-//
-// 断言"字节内容不在行里"是这条测试的全部意义：截图截到什么不由我们事先决定，
-// 一旦投递层开始带上图片，"先脱敏再出门"这条线就形同虚设了。
 func TestFeedbackRow_FlattenedAndNoImageBytes(t *testing.T) {
 	f := sampleFeedback()
 	row := feedbackRow(f)
@@ -99,14 +88,11 @@ func TestFeedbackRow_FlattenedAndNoImageBytes(t *testing.T) {
 	if strings.Contains(string(b), "iVBOR") || strings.Contains(string(b), "base64") {
 		t.Errorf("行里出现了图片内容：%s", b)
 	}
-	// 截图名字留在 attachments 元数据里——它是"本机有这张图"的凭据
 	if !strings.Contains(string(b), "fb-20260924-120000-ab12-1.png") {
 		t.Errorf("attachments 元数据没带上：%s", b)
 	}
 }
 
-// TestSupabaseSink_SendPostsRow 真实走一次 HTTP：请求形状（表路径、apikey 头、
-// 最小回读偏好）与行内容都要对得上 PostgREST 的要求。
 func TestSupabaseSink_SendPostsRow(t *testing.T) {
 	var gotReq *http.Request
 	var gotBody map[string]any
@@ -145,8 +131,6 @@ func TestSupabaseSink_SendPostsRow(t *testing.T) {
 	}
 }
 
-// TestSupabaseSink_MissingTableSaysCreateIt 404 / 42P01 要说"去建表"，不是含糊的"投递失败"：
-// 前者用户看完就知道该干什么，后者只会让他反复点重试。
 func TestSupabaseSink_MissingTableSaysCreateIt(t *testing.T) {
 	cases := []struct {
 		name string
@@ -173,8 +157,6 @@ func TestSupabaseSink_MissingTableSaysCreateIt(t *testing.T) {
 	}
 }
 
-// TestSupabaseSink_OtherFailureKeepsReason 别的失败（这里是 500）要把状态码与原因带回来，
-// 但只带一句——云端回的一整页 HTML 不该进用户机器的归档。
 func TestSupabaseSink_OtherFailureKeepsReason(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -193,8 +175,6 @@ func TestSupabaseSink_OtherFailureKeepsReason(t *testing.T) {
 	}
 }
 
-// TestSupabaseTargetConfigured 只有地址、没有 key 也算没配：那种请求一定 401，
-// 送出去只会得到一条看不出原因的"投递失败"。
 func TestSupabaseTargetConfigured(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -212,10 +192,6 @@ func TestSupabaseTargetConfigured(t *testing.T) {
 	}
 }
 
-// TestSupabaseSinkRecordsEgress 反馈投递必须能自证"发去了哪个主机、多大"。
-//
-// 用户点的是"提交反馈"，交出去的是他写的那段话加一份上下文快照。台账上那一行
-// 若指不出留痕，就等于宣称了一条本机证明不了的出网——比不列更坏。
 func TestSupabaseSinkRecordsEgress(t *testing.T) {
 	var gotHost string
 	var gotBytes int
@@ -238,15 +214,11 @@ func TestSupabaseSinkRecordsEgress(t *testing.T) {
 	}
 }
 
-// TestSupabaseSinkRecordsEgressOnFailure 连不上也要记：留痕发生在发包之前。
-//
-// 反过来（成功才记）会得到一个最坏的口径——"这台机器没往那个主机发过东西"，
-// 而事实是发了、只是没成。在审计里"少记一笔"与"没发生过"长得一模一样。
 func TestSupabaseSinkRecordsEgressOnFailure(t *testing.T) {
 	var calls int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	dead := ts.URL
-	ts.Close() // 服务已经关了，这一次发包一定失败
+	ts.Close()
 
 	sink := NewSupabase(SupabaseTarget{URL: dead, AnonKey: "k"}, func(string, int) { calls++ })
 	if err := sink.Send(context.Background(), sampleFeedback()); err == nil {

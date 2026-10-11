@@ -46,7 +46,6 @@ func TestParseToleratesCodeFence(t *testing.T) {
 	if s.Score != 42 {
 		t.Fatalf("分数解析错误: %d", s.Score)
 	}
-	// 非法优先级应收敛为 medium，缺省类别应补默认值
 	if s.Actionables[0].Priority != "medium" {
 		t.Fatalf("优先级未归一化: %s", s.Actionables[0].Priority)
 	}
@@ -67,7 +66,6 @@ func TestStorePersistAndTrim(t *testing.T) {
 	if got := len(st.List(0)); got != maxRecords {
 		t.Fatalf("历史应裁剪到 %d 条，实际 %d", maxRecords, got)
 	}
-	// 重新打开应读回持久化内容
 	reopened, err := Open(path)
 	if err != nil {
 		t.Fatalf("重新打开: %v", err)
@@ -75,7 +73,6 @@ func TestStorePersistAndTrim(t *testing.T) {
 	if got := len(reopened.List(0)); got != maxRecords {
 		t.Fatalf("持久化后条数错误: %d", got)
 	}
-	// 最新在前
 	if reopened.List(1)[0].Score != (maxRecords+9)%100 {
 		t.Fatalf("排序应为最新在前: %+v", reopened.List(1)[0])
 	}
@@ -119,14 +116,14 @@ func TestIsCreative(t *testing.T) {
 		role string
 		want bool
 	}{
-		{"整理一下", "writer", true},               // 创作者角色：始终创作
-		{"写一篇关于远程办公的文章", "", true},             // 强信号
-		{"帮我润色这段产品介绍", "general", true},        // 弱信号
-		{"把代码里的 bug 修一下", "coder", false},      // 工程任务不是创作
-		{"给这个项目写单元测试", "coder", false},         // 工程角色 + 无强信号
-		{"给这个项目写个 README 介绍文案", "coder", true}, // 工程角色但命中强信号
-		{"把这份报告的数据整理成 Excel 表格", "", false},    // 反向信号压过弱信号
-		{"", "", false}, // 空目标
+		{"整理一下", "writer", true},
+		{"写一篇关于远程办公的文章", "", true},
+		{"帮我润色这段产品介绍", "general", true},
+		{"把代码里的 bug 修一下", "coder", false},
+		{"给这个项目写单元测试", "coder", false},
+		{"给这个项目写个 README 介绍文案", "coder", true},
+		{"把这份报告的数据整理成 Excel 表格", "", false},
+		{"", "", false},
 	}
 	for _, c := range cases {
 		if got := IsCreative(c.goal, c.role); got != c.want {

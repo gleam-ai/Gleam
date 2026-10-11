@@ -10,11 +10,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 任务模式：chat 直聊 / work / code ----------
-
 func TestRunGoal_ChatModeDirectAnswer(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
-		// 对话模式只走 chat 管线：不消耗 plan/reflect 脚本
 		{Kind: "chat_mode", Texts: []string{"你好呀！我是 Gleam，你的桌面智能体。"}},
 	})
 	res := f.a.RunGoal(context.Background(), types.GoalRequest{
@@ -48,7 +45,6 @@ func TestRunGoal_ChatModeDirectAnswer(t *testing.T) {
 
 func TestRunGoal_WorkModeChatFallbackOnPlanFailures(t *testing.T) {
 	f := newFixture(t, nil)
-	// 三次规划全部非法（MaxReplans=2 → 共 3 次尝试），模拟纯聊天目标误入工作模式
 	for i := 0; i < 3; i++ {
 		f.llm.Enqueue("plan", "抱歉，这不是 JSON")
 	}
@@ -70,7 +66,6 @@ func TestRunGoal_WorkModeChatFallbackOnPlanFailures(t *testing.T) {
 }
 
 func TestRunGoal_PlannedFailureDoesNotFallback(t *testing.T) {
-	// 计划有效但工具必然失败且反思判 failed → 属真实失败，不应回落直聊
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"失败","tool":"fail"}]}`),
 		reflectScript(10, "failed", "工具必然失败"),
@@ -91,7 +86,6 @@ func TestPlanner_CodeModeGuidance(t *testing.T) {
 	if len(m.Calls) == 0 || !strings.Contains(m.Calls[0].System, "编程模式准则") {
 		t.Error("code 模式提示词应包含编程准则")
 	}
-	// work 模式不注入
 	m2 := llm.NewMock()
 	m2.Enqueue("plan", `{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"ok"}}]}`)
 	p2 := &Planner{LLM: m2, Reg: newTestRegistry()}
@@ -113,8 +107,6 @@ func TestNormalizeTaskMode(t *testing.T) {
 }
 
 func TestRunGoal_LLMCallFailureFallsBackWithRealError(t *testing.T) {
-	// 鉴权失败（401）：规划调用失败不应伪装成校验失败重试，而是立即回落直聊；
-	// 直聊同样 401 → 失败且错误信息可见。
 	f := newFixture(t, nil)
 	f.llm.FailNextN(3, errors.New("llm: HTTP 401: {\"error\":{\"code\":\"1001\"}}"))
 	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "你好"})
@@ -124,7 +116,6 @@ func TestRunGoal_LLMCallFailureFallsBackWithRealError(t *testing.T) {
 	if !strings.Contains(res.Error, "401") {
 		t.Errorf("错误应保留真实原因: %q", res.Error)
 	}
-	// 只有 1 次规划调用（不重试），+1 次 chat 调用
 	planCalls := 0
 	for _, c := range f.llm.Calls {
 		if strings.Contains(c.System, llm.MarkerPlan) {
@@ -137,8 +128,6 @@ func TestRunGoal_LLMCallFailureFallsBackWithRealError(t *testing.T) {
 }
 
 func TestRunGoal_LLMRecoverFallsBackSuccess(t *testing.T) {
-	// 规划调用失败 1 次后恢复？这里验证：失败一次即回落（新策略），
-	// chat 管线正常出答案。
 	f := newFixture(t, nil)
 	f.llm.FailNext(errors.New("llm: 网络抖动"))
 	f.llm.Enqueue("chat_mode", "（回落）直接回答")

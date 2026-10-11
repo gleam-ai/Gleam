@@ -10,13 +10,6 @@ import (
 	"unsafe"
 )
 
-// 本文件实现 Windows 系统托盘：
-// - Shell_NotifyIcon 注册/删除托盘图标
-// - 自定义隐藏窗口接收回调消息
-// - TrackPopupMenu 显示右键菜单
-// - 左键单击/双击触发 OnActivate
-// - 支持运行时更新 tooltip、图标、菜单
-
 var (
 	shell32              = syscall.NewLazyDLL("shell32.dll")
 	user32               = syscall.NewLazyDLL("user32.dll")
@@ -32,7 +25,7 @@ var (
 	pPostMessageW        = user32.NewProc("PostMessageW")
 	pRegisterClassExW    = user32.NewProc("RegisterClassExW")
 	pTranslateMessage    = user32.NewProc("TranslateMessage")
-	pLoadIconMetric      = user32.NewProc("LoadIconMetric") // Win7+，兜底失败时用默认
+	pLoadIconMetric      = user32.NewProc("LoadIconMetric")
 	pLoadCursorW         = user32.NewProc("LoadCursorW")
 	pCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
 	pAppendMenuW         = user32.NewProc("AppendMenuW")
@@ -47,7 +40,7 @@ var (
 )
 
 const (
-	imageIcon     = 1 // LoadImage 类型：ICON
+	imageIcon     = 1
 	lrDefaultSize = 0x00000040
 	lrShared      = 0x00008000
 )
@@ -162,9 +155,6 @@ func runPlatform(cfg Config) error {
 	theRunner = &Runner{cfg: cfg, quit: make(chan struct{})}
 	runnerMu.Unlock()
 
-	// 关键：Win32 消息按「创建窗口的线程」分发，GetMessage 只取当前线程队列。
-	// 因此窗口注册、托盘图标添加、消息循环必须在同一个线程上执行。
-	// 用 runtime.LockOSThread 把这条 goroutine 固定在同一个 OS 线程。
 	startErr := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
@@ -178,17 +168,14 @@ func runPlatform(cfg Config) error {
 		addNotifyIcon(cfg)
 		startErr <- nil
 
-		// 在同一线程内跑消息循环（阻塞直到 WM_QUIT）
 		messageLoop()
 
-		// 线程退出前移除图标
 		removeNotifyIcon()
 	}()
 	if err := <-startErr; err != nil {
 		return err
 	}
 
-	// 阻塞直到 Quit
 	<-theRunner.quit
 	destroyMenuCmds()
 	return nil
@@ -320,13 +307,11 @@ func modifyIcon(b []byte) {
 }
 
 func loadIconFromBytes(_ []byte) uintptr {
-	// 优先加载 exe 内嵌的自定义图标资源（rsrc 嵌入，ID=1）
 	if h, _, _ := pGetModuleHandleW.Call(0); h != 0 {
 		if icon, _, _ := pLoadImageW.Call(h, uintptr(1), imageIcon, 0, 0, lrDefaultSize|lrShared); icon != 0 {
 			return icon
 		}
 	}
-	// 回退：系统默认应用图标
 	h, _, _ := pLoadIconW.Call(0, uintptr(32512))
 	return h
 }
@@ -375,8 +360,6 @@ func buildMenu(hMenu uintptr, items []MenuItem) {
 }
 
 func rebuildMenuItems(items []MenuItem) {
-	// TrackPopupMenu 是临时菜单，无需重建；菜单由 showMenu 动态构造。
-	// 这里仅存储到配置。
 	runnerMu.Lock()
 	theRunner.cfg.MenuItems = items
 	runnerMu.Unlock()

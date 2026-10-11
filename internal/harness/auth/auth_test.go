@@ -26,8 +26,6 @@ func newTestManager(t *testing.T) *Manager {
 	return New(creds)
 }
 
-// TestCallbackPageEscapesMessage 回调页会把 provider 回传的 error_description
-// 原样显示，若不转义就是本地回环上的 HTML 注入。
 func TestCallbackPageEscapesMessage(t *testing.T) {
 	payload := `<script>alert(1)</script>`
 	page := callbackPage(false, payload)
@@ -39,7 +37,6 @@ func TestCallbackPageEscapesMessage(t *testing.T) {
 	}
 }
 
-// TestStartOAuthCarriesState authorize URL 必须带随机 state（CSRF/session-fixation 防护）。
 func TestStartOAuthCarriesState(t *testing.T) {
 	m := newTestManager(t)
 	authURL, err := m.StartOAuth("github")
@@ -59,7 +56,6 @@ func TestStartOAuthCarriesState(t *testing.T) {
 	}
 }
 
-// TestOAuthCallbackRejectsStateMismatch 缺少/错误的 state 一律拒绝，绝不把 code 交给换令牌流程。
 func TestOAuthCallbackRejectsStateMismatch(t *testing.T) {
 	m := newTestManager(t)
 	authURL, err := m.StartOAuth("github")
@@ -72,9 +68,7 @@ func TestOAuthCallbackRejectsStateMismatch(t *testing.T) {
 	}
 	waitForListener(t, base)
 
-	// 1) 缺少 state：拒绝，且不得有 code 进入 codeCh
 	get(t, base+"?code=SHOULD_NOT_BE_USED")
-	// 2) 错误 state：同样拒绝
 	get(t, base+"?code=SHOULD_NOT_BE_USED&state=forged")
 	if len(m.pending.codeCh) != 0 {
 		t.Fatal("state 不匹配的回调不应把 code 送入换令牌流程")
@@ -112,12 +106,6 @@ func get(t *testing.T, full string) string {
 	return string(b)
 }
 
-// TestSignInRecordsEgress 云端登录必须留下出网痕迹。
-//
-// 这一条此前是缺的：注册/登录/续期/登出都会出网，而审计里查不到——
-// 「连接与出网」台账要么少一行，要么列了那一行却指不出留痕在哪。
-// 断言只收两件事：**主机对得上、字节数不为 0**。"密码没被记进审计"这件事由回调签名
-// 保证（它压根没有能装正文的参数位），不需要也不该靠在这里查字符串来证明。
 func TestSignInRecordsEgress(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"access_token":"a","refresh_token":"b","expires_in":3600,`+
@@ -148,8 +136,6 @@ func TestSignInRecordsEgress(t *testing.T) {
 	}
 }
 
-// TestSignInWithoutHookStillWorks 没装配留痕回调时照常能登录：审计是旁路，
-// 不能因为它缺席就把账号功能判死。
 func TestSignInWithoutHookStillWorks(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"access_token":"a","expires_in":3600,"user":{"id":"u1"}}`)

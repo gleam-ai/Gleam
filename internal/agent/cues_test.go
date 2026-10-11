@@ -13,16 +13,11 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 候补目标：三条线索浮不浮得出卡、处置记不记得住 ----------
-
-// cueAgent 造一个只带数据目录的 Agent：算候补卡不需要模型、不需要 Notifier。
-// 这本身就是这一层的验收点——**它只读历史**，所以能这样一行装配起来测。
 func cueAgent(t *testing.T) *Agent {
 	t.Helper()
 	return &Agent{Cfg: &config.Config{DataDir: t.TempDir()}}
 }
 
-// archive 落一份任务归档。TraceID 由调用方给定，因为「同一个目标反复出现」正是它的全部意义。
 func archive(t *testing.T, a *Agent, g *types.GoalResult) {
 	t.Helper()
 	if g.StartedAt.IsZero() {
@@ -43,15 +38,10 @@ func failedRun(taskID, goal, trace string, kinds map[types.ErrorKind]int) *types
 	}
 }
 
-// quietFailedRun 只留下状态，不带错误文本也不带归因：只想数「同一个目标失败几次」时用它的。
 func quietFailedRun(taskID, goal, trace string) *types.GoalResult {
 	return &types.GoalResult{TaskID: taskID, Goal: goal, Status: types.GoalFailed, TraceID: trace, Score: 10}
 }
 
-// TestCues_EverySignalProducesARow 每条登记的信号都必须**造得出卡**。
-//
-// 闸门 check-cue-owner.py 只能读源码，判不出「今天到底浮没浮出一张卡」——分支可能写在
-// 那里却永远进不去（阈值算错、聚合漏填字段），而界面只会显示「目前没有候补目标」。
 func TestCues_EverySignalProducesARow(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "把报告转成表格", "traceFail", map[types.ErrorKind]int{types.ErrUpstream: 1}))
@@ -64,7 +54,6 @@ func TestCues_EverySignalProducesARow(t *testing.T) {
 		TaskID: "t4", Goal: "整理这一周的剪辑素材", Status: types.GoalPartial,
 		TraceID: "traceHalf", Score: 60,
 	})
-	// 第三条线索要跨任务：同一个任务里连错三步只是这一次坏了，两个任务各错两次才是同一层在坏。
 	archive(t, a, failedRun("t5", "另一个目标", "traceOther", map[types.ErrorKind]int{types.ErrTimeout: 2}))
 	archive(t, a, failedRun("t6", "又一个目标", "traceOther2", map[types.ErrorKind]int{types.ErrTimeout: 2}))
 
@@ -79,7 +68,6 @@ func TestCues_EverySignalProducesARow(t *testing.T) {
 	}
 }
 
-// TestCues_RepeatedFailureWinsOverHalfDone 同一条 TraceID 上两种线索都够格时只出一张。
 func TestCues_RepeatedFailureWinsOverHalfDone(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "同一个目标", "traceX", nil))
@@ -96,7 +84,6 @@ func TestCues_RepeatedFailureWinsOverHalfDone(t *testing.T) {
 	}
 }
 
-// TestCues_HalfDoneSkipsTraceThatOnceWon 中间成功过一次就不提：这条路走得通。
 func TestCues_HalfDoneSkipsTraceThatOnceWon(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, &types.GoalResult{TaskID: "t1", Goal: "写周报", Status: types.GoalSuccess, TraceID: "traceY", Score: 100})
@@ -108,10 +95,6 @@ func TestCues_HalfDoneSkipsTraceThatOnceWon(t *testing.T) {
 	}
 }
 
-// TestCues_ReadOnlyAndStable 算一次卡不许写盘，也不许两次算出两个样子。
-//
-// 这两条是「不调模型」那口径的可执行版本：同一段历史必须每次给出同一页，
-// 否则用户照着做的决定是靠不住的。
 func TestCues_ReadOnlyAndStable(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "反复失败的目标", "traceZ", map[types.ErrorKind]int{types.ErrPermission: 1}))
@@ -133,7 +116,6 @@ func TestCues_ReadOnlyAndStable(t *testing.T) {
 	}
 }
 
-// TestCues_DismissSurvivesRestart 「别再提」是唯一要落盘的东西，它必须跨视图、跨进程生效。
 func TestCues_DismissSurvivesRestart(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "别再提我已知晓", "traceD", nil))
@@ -147,7 +129,6 @@ func TestCues_DismissSurvivesRestart(t *testing.T) {
 	if err := a.CueDismiss(id); err != nil {
 		t.Fatalf("记处置失败：%v", err)
 	}
-	// 换一个 Agent 实例（同数据目录）＝重启
 	b := &Agent{Cfg: &config.Config{DataDir: a.Cfg.DataDir}}
 	if got := b.CueView(false); len(got.Rows) != 0 {
 		t.Errorf("记了别再提之后仍浮出 %d 张卡", len(got.Rows))
@@ -163,7 +144,6 @@ func TestCues_DismissSurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestCues_AdoptRecordsStateWithoutRunningAnything 采纳只是把话交给用户，**不是执行**。
 func TestCues_AdoptRecordsStateWithoutRunningAnything(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "采纳但不该跑起来", "traceA", nil))
@@ -189,7 +169,6 @@ func TestCues_AdoptRecordsStateWithoutRunningAnything(t *testing.T) {
 	}
 }
 
-// TestCues_RespectsLimit 配额要说得出「还有几条没挤进来」，不许静默截断。
 func TestCues_RespectsLimit(t *testing.T) {
 	a := cueAgent(t)
 	for i := 0; i < 5; i++ {
@@ -205,7 +184,6 @@ func TestCues_RespectsLimit(t *testing.T) {
 	if led.Overflow != 2 {
 		t.Errorf("没挤进来的条数应报 2，实得 %d", led.Overflow)
 	}
-	// 截断这句话由后端写：界面只印字段。两处各写一版就会漂成"数字对、说法不承认截断"。
 	if !strings.Contains(led.Truncated, "2 条") {
 		t.Errorf("截断要交代没挤进来的条数，实得 %q", led.Truncated)
 	}
@@ -214,7 +192,6 @@ func TestCues_RespectsLimit(t *testing.T) {
 	}
 }
 
-// TestCues_CoverageIsHonestAboutTrim 空历史要说成「读了 0 条」，不能糊成「一切正常」。
 func TestCues_CoverageIsHonestAboutTrim(t *testing.T) {
 	a := cueAgent(t)
 	led := a.CueView(false)
@@ -228,10 +205,8 @@ func TestCues_CoverageIsHonestAboutTrim(t *testing.T) {
 	}
 }
 
-// TestCues_UnreadableArchiveSaysSo 归档目录坏了不是「没有线索」，两者在界面上必须分得开。
 func TestCues_UnreadableArchiveSaysSo(t *testing.T) {
 	a := cueAgent(t)
-	// tasks 位置放一个同名文件，让 ReadDir 之后按目录读的路径失败。
 	p := filepath.Join(a.Cfg.DataDir, "tasks")
 	if err := os.WriteFile(p, []byte("not a dir"), 0o644); err != nil {
 		t.Fatal(err)
@@ -242,7 +217,6 @@ func TestCues_UnreadableArchiveSaysSo(t *testing.T) {
 	}
 }
 
-// TestCues_KindTextCoversEveryEnum 失败归因不许裸奔成英文（M3 那条口径在这层同样生效）。
 func TestCues_KindTextCoversEveryEnum(t *testing.T) {
 	for _, k := range []types.ErrorKind{
 		types.ErrParam, types.ErrFormat, types.ErrBusiness, types.ErrPermission,
@@ -254,11 +228,6 @@ func TestCues_KindTextCoversEveryEnum(t *testing.T) {
 	}
 }
 
-// TestCues_LabelsCoverEveryEnumValue 信号与处置原因都不许裸奔成英文。
-//
-// 为什么连「已按下」列表一起测：那张列表里唯一的取值来源就是 signal 与 reason，
-// 界面只印 signal_text / reason_text。少一条映射，那一行就写成 dismissed / tool_failure，
-// 而它是用户找回被自己按掉的卡片的唯一路径——M3 那条老坑在这层同样成立。
 func TestCues_LabelsCoverEveryEnumValue(t *testing.T) {
 	for _, sig := range cueSignals {
 		if got := cueSignalText(sig, false); got == sig || got == "" {
@@ -289,10 +258,6 @@ func TestCues_LabelsCoverEveryEnumValue(t *testing.T) {
 	}
 }
 
-// TestCues_AuthoredCopyHasNoMarkdown 卡片走 textContent，星号会原样上界面。
-//
-// 只判我们自己写的那几句（SignalText / Why）：目标原文是用户打出来的，
-// 他打了星号就该看见星号——那不是我加了 markdown。
 func TestCues_AuthoredCopyHasNoMarkdown(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, failedRun("t1", "带**强调**的目标", "traceM", map[types.ErrorKind]int{types.ErrTimeout: 3}))
@@ -315,14 +280,12 @@ func TestCues_AuthoredCopyHasNoMarkdown(t *testing.T) {
 	}
 }
 
-// ---------- helpers ----------
-
 func tree(t *testing.T, root string) []string {
 	t.Helper()
 	var out []string
 	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
-			return nil // 读不动的位置不参与对照，它们不是这次动作产生的
+			return nil
 		}
 		rel, e := filepath.Rel(root, p)
 		if e != nil {
@@ -351,8 +314,6 @@ func fileSetDiff(before, after []string) []string {
 	return out
 }
 
-// TestCues_EnglishViewHasNoCJK 英文候补视图零中文（卡片、处置行、覆盖交代全算）。
-// 夹具目标用英文：目标原文是用户数据，本来就不该被翻——要翻的是这一层自己写的句子。
 func TestCues_EnglishViewHasNoCJK(t *testing.T) {
 	a := cueAgent(t)
 	archive(t, a, &types.GoalResult{
@@ -370,7 +331,6 @@ func TestCues_EnglishViewHasNoCJK(t *testing.T) {
 		t.Fatal("英文视图一张卡都浮不出来，没有可判的对象")
 	}
 	assertNoCJK(t, "cues", led)
-	// 处置行也走同一套人话：记一条「别再提」，suppressed 里的 signal_text/reason_text 必须跟着翻。
 	if err := a.CueDismiss(led.Rows[0].ID); err != nil {
 		t.Fatalf("记处置失败：%v", err)
 	}

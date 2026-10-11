@@ -13,7 +13,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// Store 长期记忆持久化存储（JSON 文件 + 原子写入）。
 type Store struct {
 	mu       sync.Mutex
 	path     string
@@ -24,7 +23,6 @@ type Store struct {
 	dirty    bool
 }
 
-// OpenStore 加载长期记忆存储；文件不存在则创建空库。
 func OpenStore(path string, dim, maxItems int) (*Store, error) {
 	if dim <= 0 {
 		dim = 256
@@ -42,7 +40,6 @@ func OpenStore(path string, dim, maxItems int) (*Store, error) {
 	}
 	var items []Item
 	if err := json.Unmarshal(data, &items); err != nil {
-		// 损坏文件不阻断启动：备份后重建
 		_ = os.Rename(path, path+".corrupt")
 		return s, nil
 	}
@@ -60,22 +57,14 @@ func (s *Store) appendItem(it Item) {
 	s.items = append(s.items, it)
 }
 
-// Remember 新增记忆（返回条目 ID）。写入前先按内容相似度判重：
-// 余弦达到 DupThreshold 视为同一条记忆，更新原条目（内容/标签/时间/向量）而不是新增。
-// 没有去重时，同一目标跑 10 次会产生 10 条几乎相同的任务记录，
-// top-k 检索时互相挤占，把真正有用的记忆挤出上下文。
 func (s *Store) Remember(content string, tags []string) (string, error) {
 	return s.RememberWithSource(content, "", tags)
 }
 
-// RememberWithSource 同 Remember，并记录条目来源（"task" = 任务收尾自动沉淀，"user" = memory.save 写入）。
 func (s *Store) RememberWithSource(content, source string, tags []string) (string, error) {
 	return s.RememberScoped(content, source, "", tags)
 }
 
-// RememberScoped 同 RememberWithSource，并带上归属工作区（空串 = 全局）。
-// 去重只在**同一个 scope** 内判：两个项目里各存一条同样的句子，是两条记忆，
-// 不该因为字面一样就互相覆盖。
 func (s *Store) RememberScoped(content, source, scope string, tags []string) (string, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", fmt.Errorf("记忆内容为空")
@@ -85,13 +74,11 @@ func (s *Store) RememberScoped(content, source, scope string, tags []string) (st
 	newVec := embed(content, s.dim)
 	now := time.Now()
 
-	// 去重：只在未软删的条目里判（软删条目对检索隐身，但内容若回来写应另起一条）
 	dupIdx := -1
 	for i := range s.items {
 		if s.items[i].Deleted {
 			continue
 		}
-		// 跨 scope 不算重复：A 项目写过的话，不该被 B 项目的同一句话顶掉
 		if s.items[i].Scope != scope {
 			continue
 		}
@@ -123,7 +110,6 @@ func (s *Store) RememberScoped(content, source, scope string, tags []string) (st
 		Source:    source,
 		Scope:     scope,
 	}
-	// 容量淘汰：超出上限移除最旧条目
 	if len(s.items) >= s.maxItems {
 		oldest := 0
 		for i := 1; i < len(s.items); i++ {
@@ -140,13 +126,10 @@ func (s *Store) RememberScoped(content, source, scope string, tags []string) (st
 	return id, nil
 }
 
-// Search 词法检索 top-k（哈希向量余弦，同义不同形的词不相关）。
 func (s *Store) Search(query string, k int) []Hit {
 	return s.SearchScoped(query, k, "")
 }
 
-// SearchScoped 同上，但只看本工作区与全局的条目。
-// scope 为空 = 不筛（全局模式，也是老行为）。
 func (s *Store) SearchScoped(query string, k int, scope string) []Hit {
 	s.mu.Lock()
 	items := append([]Item(nil), s.items...)
@@ -166,8 +149,6 @@ func (s *Store) SearchScoped(query string, k int, scope string) []Hit {
 	return SearchHitsTop(items, query, k, s.dim)
 }
 
-// Delete 物理删除指定条目。工具入口一律走 SoftDelete（软删优先，可追溯）；
-// 物理删除保留给容量淘汰与测试。
 func (s *Store) Delete(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -182,9 +163,6 @@ func (s *Store) Delete(id string) bool {
 	return true
 }
 
-// SoftDelete 软删除：只打标记，条目保留在库中（检索一律跳过）。
-// 删除记忆是用户明确表达"这条不对/不要了"，物理移除会让误删不可挽回——
-// 软删保留了改判的可能，也保留了"曾记过什么"的痕迹。
 func (s *Store) SoftDelete(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -197,7 +175,6 @@ func (s *Store) SoftDelete(id string) bool {
 	return true
 }
 
-// DeletedCount 软删条目数（体检/统计用）。
 func (s *Store) DeletedCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -210,14 +187,12 @@ func (s *Store) DeletedCount() int {
 	return n
 }
 
-// Count 条目总数。
 func (s *Store) Count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.items)
 }
 
-// Flush 原子落盘（temp + rename）。
 func (s *Store) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -244,30 +219,21 @@ func (s *Store) reindex() {
 	}
 }
 
-// ---------- Manager：面向 Agent 的统一记忆门面 ----------
-
-// Manager 组合短期与长期记忆，并实现上下文自动压缩：
-// 短期环缓冲满员后，被覆盖的旧对话先进入溢出区，压缩时汇总为滚动摘要，
-// 保证"超出窗口的历史对话摘要存储"（设计文档 §9 风险应对）。
 type Manager struct {
 	Short *ShortTerm
 	Long  *Store
 
 	mu           sync.Mutex
-	overflow     []Turn   // 待压缩的旧对话（环缓冲覆盖前抢救出来）
-	summary      string   // 滚动摘要（跨任务持续积累，截断保留）
-	savedTok     int      // 累计压缩节省的估算 token（原始溢出 - 摘要）
-	pinned       []string // 钉住区：不可压缩的用户约束/关键结论（P2-1，见 Pin）
-	omittedTurns int      // 累计被压缩掉的对话轮数（摘要省略量标注用）
-	omittedRunes int      // 累计被压缩掉/截断掉的字数（rune）
+	overflow     []Turn
+	summary      string
+	savedTok     int
+	pinned       []string
+	omittedTurns int
+	omittedRunes int
 	dir          string
-	// carry 下一轮提示携带几轮最近对话（见 CarryFull / CarryTight）。
-	// **不持久化**：它是"这次会话现在紧不紧"的状态，重启后提示本来就从零攒起，
-	// 把一个收紧态带到新进程里只会让新会话莫名其妙地少带历史。
-	carry int
+	carry        int
 }
 
-// CarryTurns 下一轮提示应当携带几轮最近对话。0（零值）视为正常态。
 func (m *Manager) CarryTurns() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -277,9 +243,6 @@ func (m *Manager) CarryTurns() int {
 	return m.carry
 }
 
-// SetCarryTurns 设置携带轮数（钳在 [CarryTight, CarryFull] 内），返回是否真的变了。
-// 返回"是否变了"而不是让调用方自己比对：水位附近每轮都会调用它，
-// 只有真的变了才值得往进度里说一句。
 func (m *Manager) SetCarryTurns(n int) bool {
 	if n < CarryTight {
 		n = CarryTight
@@ -300,15 +263,10 @@ func (m *Manager) SetCarryTurns(n int) bool {
 	return true
 }
 
-// pinnedCap 钉住区上限（超出丢最旧——淘汰最旧是追加式的，不重排剩余条目，不违反「绝不重排」）。
 const pinnedCap = 20
 
-// pinHints 用户消息里的约束信号词：命中即把该轮钉进不可压缩区。
-// 这是启发式——多钉一条的成本只是多注入 200 字，漏钉的代价是约束被压缩丢掉，宁可误报。
 var pinHints = []string{"记住", "约定", "以后", "规则是", "必须", "始终", "一直用", "不要用"}
 
-// Pin 把一条关键结论加入钉住区（去重追加；压缩不动它，注入时排在易变段最前，绝不重排）。
-// 站点 D5 的判据：压缩可以丢过程，不能丢用户定下的约束。
 func (m *Manager) Pin(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -328,23 +286,18 @@ func (m *Manager) Pin(text string) {
 	m.saveContextLocked()
 }
 
-// Pinned 返回钉住区快照（按加入顺序——顺序本身就是语义，调用方不得重排）。
 func (m *Manager) Pinned() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]string(nil), m.pinned...)
 }
 
-// Omission 返回累计省略量（被压缩掉的轮数与字数）。
 func (m *Manager) Omission() (turns, runes int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.omittedTurns, m.omittedRunes
 }
 
-// SummaryAnnotated 返回带省略量标注的滚动摘要。
-// 「已自动压缩」只说明摘要短，不说明丢了多少——省略量必须说出来，
-// 读上下文的人（和模型）才知道这段摘要是"全貌"还是"残余"。
 func (m *Manager) SummaryAnnotated() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -354,33 +307,26 @@ func (m *Manager) SummaryAnnotated() string {
 	return fmt.Sprintf("%s\n（已自动压缩：累计省略 %d 轮 / 约 %d 字）", m.summary, m.omittedTurns, m.omittedRunes)
 }
 
-// overflowCap 溢出区上限（超出即丢弃最旧，防止长期运行内存增长）。
 const overflowCap = 100
 
-// summaryCap 滚动摘要保留上限（rune）。
 const summaryCap = 2000
 
-// 下一轮提示里携带几轮最近对话。**这是"压缩真的腾出上下文"的那一半**：
-// 汇总溢出轮不会让提示变小（那些轮本来就已经不在提示里了），
-// 让水位降下来的动作是下一轮**少带几轮**。
 const (
-	CarryFull  = 6 // 通常：最近 6 轮
-	CarryTight = 2 // 收紧态：最近 2 轮（水位越线时进入，掉回来再松开）
+	CarryFull  = 6
+	CarryTight = 2
 )
 
-// contextFile 数据目录下的压缩状态文件。
 const contextFile = "context.json"
 
 type contextSnapshot struct {
 	Overflow     []Turn   `json:"overflow"`
 	Summary      string   `json:"summary"`
 	SavedToken   int      `json:"saved_tokens"`
-	Pinned       []string `json:"pinned,omitempty"`        // P2-1：旧文件无此字段，零值即兼容
-	OmittedTurns int      `json:"omitted_turns,omitempty"` // 累计省略轮数
-	OmittedRunes int      `json:"omitted_runes,omitempty"` // 累计省略字数
+	Pinned       []string `json:"pinned,omitempty"`
+	OmittedTurns int      `json:"omitted_turns,omitempty"`
+	OmittedRunes int      `json:"omitted_runes,omitempty"`
 }
 
-// Open 打开记忆管理器（数据目录下 memory/longterm.json 与 memory/context.json）。
 func Open(dataDir string, shortCap, dim, maxItems int) (*Manager, error) {
 	dir := filepath.Join(dataDir, "memory")
 	long, err := OpenStore(filepath.Join(dir, "longterm.json"), dim, maxItems)
@@ -388,7 +334,6 @@ func Open(dataDir string, shortCap, dim, maxItems int) (*Manager, error) {
 		return nil, err
 	}
 	m := &Manager{Short: NewShortTerm(shortCap), Long: long, dir: dir}
-	// 恢复压缩状态（尽力而为，损坏即丢弃）
 	if data, err := os.ReadFile(filepath.Join(dir, contextFile)); err == nil {
 		var snap contextSnapshot
 		if json.Unmarshal(data, &snap) == nil {
@@ -403,9 +348,6 @@ func Open(dataDir string, shortCap, dim, maxItems int) (*Manager, error) {
 	return m, nil
 }
 
-// AddTurn 记录一轮对话到短期记忆；环缓冲满员时先把最旧一轮抢救进溢出区。
-// 用户消息命中约束信号词时同时钉进不可压缩区（P2-1）：
-// "以后都……"这类话进了摘要就可能被下一轮压缩磨掉，钉住区保证它活着。
 func (m *Manager) AddTurn(role, content string) {
 	if role == "user" && hitsAny(content, pinHints) {
 		m.Pin(content)
@@ -432,9 +374,6 @@ func hitsAny(s string, subs []string) bool {
 	return false
 }
 
-// Compress 上下文自动压缩：溢出区非空时，优先调用 summarize 生成摘要
-// （可为 nil 或返回错误，此时回退到本地抽取式摘要），追加进滚动摘要并清空溢出区。
-// 返回本次是否发生了压缩。
 func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -444,7 +383,6 @@ func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool
 	turns := m.overflow
 	text := renderTurns(turns)
 	m.overflow = nil
-	// 省略量累计：这段原文将只以摘要形式存在——丢了多少轮、多少字要说出来（P2-1）
 	m.omittedTurns += len(turns)
 	m.omittedRunes += len([]rune(text))
 
@@ -458,14 +396,12 @@ func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool
 		summary = extractiveSummary(text)
 	}
 
-	// 累计压缩收益：本次溢出原文与摘要的估算 token 差
 	raw := 0
 	for _, t := range turns {
 		raw += types.EstimateTokens(t.Content)
 	}
 	m.savedTok += maxInt(0, raw-types.EstimateTokens(summary))
 
-	// 追加进滚动摘要并截断；截断丢弃的部分同样计入省略量
 	prevLen := len([]rune(m.summary))
 	m.summary = strings.TrimSpace(m.summary + "\n" + summary)
 	if r := []rune(m.summary); len(r) > summaryCap {
@@ -485,27 +421,22 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// Summary 返回当前滚动摘要（供规划器注入早期上下文）。
 func (m *Manager) Summary() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.summary
 }
 
-// ContextStats 上下文状态统计（设置页展示与 token 估算用）。
 type ContextStats struct {
-	ShortTurns   int    `json:"short_turns"`   // 短期窗口内轮数
-	ShortCap     int    `json:"short_cap"`     // 窗口容量
-	FillPct      int    `json:"fill_pct"`      // 窗口占用率 0~100（见 fillPct）
-	Overflow     int    `json:"overflow"`      // 待压缩溢出轮数
-	SummaryRunes int    `json:"summary_chars"` // 滚动摘要长度（rune）
-	Summary      string `json:"summary"`       // 滚动摘要全文
-	SavedTokens  int    `json:"saved_tokens"`  // 累计压缩节省的估算 token
+	ShortTurns   int    `json:"short_turns"`
+	ShortCap     int    `json:"short_cap"`
+	FillPct      int    `json:"fill_pct"`
+	Overflow     int    `json:"overflow"`
+	SummaryRunes int    `json:"summary_chars"`
+	Summary      string `json:"summary"`
+	SavedTokens  int    `json:"saved_tokens"`
 }
 
-// fillPct 窗口占用率。归这里算而不是让前端各自除一遍：
-// 界面上多一处「百分比」的算法，就早晚会出现两个面板报出两个数。
-// 上限钳到 100：界面拿它画水位条，一个 105% 的宽度会直接溢出那一栏。
 func fillPct(turns, capacity int) int {
 	if capacity <= 0 {
 		return 0
@@ -516,7 +447,6 @@ func fillPct(turns, capacity int) int {
 	return 100
 }
 
-// Stats 返回上下文统计快照。
 func (m *Manager) Stats() ContextStats {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -531,8 +461,6 @@ func (m *Manager) Stats() ContextStats {
 	}
 }
 
-// ClearSummary 清空滚动摘要、待压缩溢出区与钉住区（删除持久化状态）。
-// 钉住区与摘要同生命周期：都属会话上下文，开始新对话时一起清。
 func (m *Manager) ClearSummary() {
 	m.mu.Lock()
 	m.overflow = nil
@@ -545,19 +473,16 @@ func (m *Manager) ClearSummary() {
 	m.mu.Unlock()
 }
 
-// ResetConversation 开始新对话：清空短期对话缓冲、溢出区与滚动摘要（长期记忆保留）。
 func (m *Manager) ResetConversation() {
 	if m.Short != nil {
 		m.Short.Reset()
 	}
 	m.ClearSummary()
-	// 新对话从正常携带开始：上一个会话是因为它自己攒满了才收紧的，那件事不该跟过来。
 	m.mu.Lock()
 	m.carry = CarryFull
 	m.mu.Unlock()
 }
 
-// saveContextLocked 持久化压缩状态（尽力而为）。
 func (m *Manager) saveContextLocked() {
 	if m.dir == "" {
 		return
@@ -584,7 +509,6 @@ func renderTurns(turns []Turn) string {
 	return b.String()
 }
 
-// extractiveSummary 本地抽取式摘要：每轮取首行要点拼接（无 LLM 依赖的兜底）。
 func extractiveSummary(text string) string {
 	var parts []string
 	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
@@ -604,12 +528,10 @@ func extractiveSummary(text string) string {
 	return "历史要点：" + strings.Join(parts, " / ")
 }
 
-// Remember 写入长期记忆并立即落盘。
 func (m *Manager) Remember(content string, tags []string) (string, error) {
 	return m.RememberWithSource(content, "", tags)
 }
 
-// RememberScoped 写入长期记忆并落盘，带归属工作区（空串 = 全局）。
 func (m *Manager) RememberScoped(content, source, scope string, tags []string) (string, error) {
 	id, err := m.Long.RememberScoped(content, source, scope, tags)
 	if err != nil {
@@ -621,12 +543,10 @@ func (m *Manager) RememberScoped(content, source, scope string, tags []string) (
 	return id, nil
 }
 
-// SearchScoped 词法检索，只看本工作区与全局的条目。
 func (m *Manager) SearchScoped(query string, k int, scope string) []Hit {
 	return m.Long.SearchScoped(query, k, scope)
 }
 
-// RememberWithSource 同 Remember，并记录来源（透传给 Store 的去重与入库）。
 func (m *Manager) RememberWithSource(content, source string, tags []string) (string, error) {
 	id, err := m.Long.RememberWithSource(content, source, tags)
 	if err != nil {
@@ -638,17 +558,14 @@ func (m *Manager) RememberWithSource(content, source string, tags []string) (str
 	return id, nil
 }
 
-// Relevant 词法检索（供规划器注入上下文）。
 func (m *Manager) Relevant(query string, k int) []Hit {
 	return m.Long.Search(query, k)
 }
 
-// RelevantScoped 同 Relevant，但只看本工作区与全局的条目。
 func (m *Manager) RelevantScoped(query string, k int, scope string) []Hit {
 	return m.Long.SearchScoped(query, k, scope)
 }
 
-// Close 落盘退出。
 func (m *Manager) Close() error {
 	return m.Long.Flush()
 }
