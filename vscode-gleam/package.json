@@ -1,0 +1,140 @@
+{
+  "name": "gleam",
+  "displayName": "Gleam",
+  "description": "Local-first AI agent for VS Code: submit goals to the Gleam engine and follow them from the editor.",
+  "version": "0.1.0",
+  "publisher": "gleam",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gleam.start",
+        "title": "Start engine",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.stop",
+        "title": "Stop engine",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.submitGoal",
+        "title": "Submit goal…",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.submitSelection",
+        "title": "Explain selection",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.cancelGoal",
+        "title": "Cancel task…",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.showResult",
+        "title": "Show task result…",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.openUI",
+        "title": "Open web UI",
+        "category": "Gleam"
+      },
+      {
+        "command": "gleam.showOutput",
+        "title": "Show output channel",
+        "category": "Gleam"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "gleam.submitSelection",
+          "when": "editorHasSelection && gleam.enabled",
+          "group": "1_gleam"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gleam.showResult",
+          "when": "view == gleamGoals",
+          "group": "inline"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "gleamGoals",
+          "name": "Gleam tasks"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Gleam",
+      "type": "object",
+      "properties": {
+        "gleam.command": {
+          "type": "string",
+          "default": "gleam",
+          "description": "Path (or PATH name) of the Gleam executable."
+        },
+        "gleam.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "serve"
+          ],
+          "description": "Arguments used to start the JSON-RPC engine."
+        },
+        "gleam.workingDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Working directory for the engine. Empty means the workspace root."
+        },
+        "gleam.requestTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "description": "Timeout for a single JSON-RPC round trip, in milliseconds."
+        },
+        "gleam.defaultMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "plan_first",
+            "interactive"
+          ],
+          "default": "auto",
+          "description": "Execution mode used for new goals."
+        },
+        "gleam.defaultTaskMode": {
+          "type": "string",
+          "default": "auto",
+          "description": "Task mode used for new goals."
+        },
+        "gleam.uiUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8787",
+          "description": "Address of the Gleam desktop web UI."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/rpc.test.js"
+  }
+}

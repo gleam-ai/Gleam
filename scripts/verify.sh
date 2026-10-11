@@ -167,6 +167,8 @@ text_layer() {
   # **静默失效**：批次 A 的锚点曾指向一行早被收进函数的代码，于是那 20 条负例控制一条都没跑，
   # 而六层全绿。跑变异是分钟级、每批一次的人工动作；数锚点是毫秒级，所以这一半进闸门。
   "$PY" scripts/check-mutation-anchors.py --self-test . || return 1
+  # 注释口径：英文、稀疏、无 AI 痕迹；预算只降不升，记在 scripts/comment-policy.json。
+  "$PY" scripts/check-comments.py || return 1
 }
 
 # ── 第 5 层 · 端到端 ──
@@ -191,6 +193,10 @@ ready_layer() {
   go_retry "go build" go build -o bin/gleam.exe ./cmd/gleam || return 1
   ./bin/gleam.exe doctor --strict || return 1
   ./bin/gleam.exe eval --layer smoke --strict || return 1
+  # Editor protocol: the extension's JSON-RPC layer must stay compatible with the
+  # real binary, not just with itself. `initialize`, `ping` and `tools/list` need
+  # no model, so this holds even on an unconfigured machine.
+  node vscode-gleam/scripts/smoke-engine.js ./bin/gleam.exe || return 1
 }
 
 # ── 第 0 步 · 闸门自检（不占层号，但失败即 exit）──
