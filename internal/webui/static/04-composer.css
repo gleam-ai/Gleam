@@ -211,8 +211,13 @@ html[data-theme] .composer .composer-meta-btn[aria-expanded="true"] {
   animation: voice-pulse 1.5s ease-in-out infinite;
 }
 @keyframes voice-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 html[data-theme] .composer .send-btn {
   width: 28px;

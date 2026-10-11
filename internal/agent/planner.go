@@ -160,7 +160,6 @@ func (p *Planner) toolSchemaSection(goal string) string {
 	return b.String()
 }
 
-
 // compactToolSchema 生成紧凑的工具 schema 格式，减少 JSON 结构冗余（约 40% token 节省）。
 // 原：- name：desc 参数 schema: {"type":"object","properties":{...}}
 // 新：- name：desc | 参数：path(string, 描述) [必填]
