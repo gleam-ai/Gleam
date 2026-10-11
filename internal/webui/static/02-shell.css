@@ -25,7 +25,7 @@
   width: min(480px, 92vw);
   background: var(--pop-bg);
   border: 1px solid var(--surface-line);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   padding: 40px 36px 32px;
   box-shadow: 0 24px 64px rgba(var(--shadow-rgb) / 0.5);
   text-align: center;
@@ -334,12 +334,6 @@
   font-weight: 650;
   letter-spacing: -0.03em;
 }
-.workbench-bar {
-  border: none;
-  background: transparent;
-  padding: 4px 0 8px;
-  box-shadow: none;
-}
 .cue-deck {
   border-color: var(--color-border-subtle);
   box-shadow: none;
@@ -353,7 +347,7 @@
 .empty-hero {
   width: 56px;
   height: 56px;
-  border-radius: 18px;
+  border-radius: var(--radius-md);
   display: grid;
   place-items: center;
   margin: 0 auto 6px;
@@ -374,16 +368,6 @@
 .empty-desc {
   max-width: 42ch;
   color: var(--color-fg-muted);
-}
-
-.deck-metrics {
-  border-left: none;
-  padding-left: 0;
-  gap: 18px;
-}
-.metric-value {
-  font-size: var(--fs-xl);
-  font-weight: 600;
 }
 
 .card,
@@ -429,10 +413,10 @@ details.tl-run > summary {
   background: var(--glass-highlight);
   color: var(--color-fg-muted);
 }
-.tl-run > summary::before {
+.run-group > summary::before {
   display: none;
 }
-.tl-run-list {
+.run-list {
   margin-top: 8px;
   padding: 8px 10px;
   border-left: none;
@@ -513,8 +497,7 @@ html[data-theme="dark"] .main > .view.active {
 html[data-theme="dark"] .composer {
   background: var(--color-card);
 }
-html[data-theme="dark"] .sidebar .convo-new,
-html[data-theme="dark"] .quick-card {
+html[data-theme="dark"] .sidebar .convo-new {
   background: var(--color-card);
 }
 html[data-theme="light"] body::before {

@@ -407,7 +407,9 @@ html[data-theme]
   border-radius: var(--row-r);
 }
 
-/* 侧栏顶：编程 / 通用 两段开关（替代品牌胶囊；品牌移到顶栏） */
+/* 侧栏顶：编程 / 目标 两段开关（替代品牌胶囊；品牌移到顶栏）
+   两个标签常显：非激活态塌成 28px 图标，用的人会把它读成「一颗单独的胶囊」，
+   根本不知道那是能按下去的开关。 */
 .sidebar .sidebar-head {
   padding: 0 12px;
   height: 32px;
@@ -427,13 +429,16 @@ html[data-theme]
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+/* 激活指示：比 chip 的 0.12 再重一档，让「我现在在哪个模式」一眼可见。
+   注意别用 --color-accent 当填充——亮色主题下它是给 CTA（发送键）的亮绿 #d7fb58，
+   铺成小块会盖住字；这里只用它的低透明度底 + 深色字。 */
 .mode-toggle-pill {
   position: absolute;
   top: 2px;
   bottom: 2px;
   border-radius: var(--radius-md);
-  background: rgba(var(--accent-rgb) / 0.12);
-  border: 1px solid rgba(var(--accent-rgb) / 0.3);
+  background: rgba(var(--accent-rgb) / 0.14);
+  border: 1px solid rgba(var(--accent-rgb) / 0.4);
   pointer-events: none;
   transition:
     left var(--dur-base) var(--ease-out),
@@ -463,11 +468,7 @@ html[data-theme]
     font-weight var(--dur-fast) ease;
 }
 .mode-toggle button[aria-checked="false"] {
-  width: 28px;
-  padding: 0;
-}
-.mode-toggle button[aria-checked="false"] .mode-label {
-  display: none;
+  color: var(--color-fg-faint);
 }
 .mode-toggle button[aria-checked="false"]:hover {
   color: var(--color-fg);
@@ -476,7 +477,7 @@ html[data-theme]
   background: transparent;
   border-color: transparent;
   color: var(--color-accent);
-  font-weight: 500;
+  font-weight: 600;
 }
 .mode-toggle svg {
   flex: none;
@@ -528,8 +529,10 @@ html[data-theme] .composer .composer-input {
 html[data-theme] .composer .composer-bar {
   height: 42px;
 }
+/* 占位文字用 muted 而不是 faint：13px 的灰字在白底上要过 4.5:1，
+   faint（≈2.8:1）只够做装饰性提示，不够做"该往哪写"的指引。 */
 .composer .composer-input::placeholder {
-  color: color-mix(in srgb, var(--color-fg-faint) 72%, var(--surface));
+  color: var(--color-fg-muted);
 }
 html[data-theme] .composer #plus-btn {
   min-width: 28px;
@@ -544,9 +547,6 @@ html[data-theme] .composer #plus-btn {
   font-size: 11px;
   gap: 5px;
   padding: 0 8px;
-}
-.mode-toggle button[aria-checked="false"] {
-  width: 28px;
 }
 .mode-toggle button[aria-checked="true"] {
   border-color: transparent;

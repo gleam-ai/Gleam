@@ -7,7 +7,7 @@
 :root {
   --topbar-h: 44px;
   --side-w: 252px;
-  --home-w: 768px;
+  --home-w: 900px;
   --row-h: 28px;
   --row-gap: 2px;
   --row-r: 6px;
@@ -23,7 +23,7 @@
     0 10px 28px -8px rgba(0 0 0 / 0.14), 0 2px 6px rgba(0 0 0 / 0.04);
 }
 html[data-width="wide"] {
-  --home-w: 960px;
+  --home-w: 1080px;
 }
 
 /* 每个主题的表面 token（取样自参考稿；强调色同步） */
@@ -522,20 +522,16 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 .sidebar .nav-more.has-active > .nav-more-toggle {
   background: var(--nav-sel);
 }
+/* 「更多」展开区：侧栏内**纵向**展开，不浮出到侧栏外面。
+   这里原本是 position:absolute; left:calc(100% + 12px) 的浮层菜单，
+   而 .sidebar 是 overflow:hidden（圆角裁剪必需）——浮层整个落在侧栏之外，
+   被裁得一个像素都不剩。用户看到的是"点了没反应"，DOM 里其实已经展开了。
+   改成纵向展开后不再依赖任何坐标计算：侧栏折叠、拖宽、窗口缩放都不会错位。 */
 .sidebar .nav-more-body {
-  position: absolute;
-  left: calc(100% + 12px);
-  bottom: -4px;
-  z-index: 60;
-  width: 180px;
-  padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 0;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--pop-shadow);
+  padding: 2px 0;
 }
 .sidebar .nav-more-body[hidden] {
   display: none;
@@ -543,6 +539,37 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 .sidebar .nav-more-body .nav-item {
   height: 32px;
   padding: 0 9px;
+}
+/* 展开时让新出现的那几行淡入一点，否则它们像凭空冒出来 */
+.sidebar .nav-more.open .nav-more-body .nav-item {
+  animation: nav-more-in var(--dur-base) var(--ease-out) both;
+}
+.sidebar .nav-more.open .nav-more-body .nav-item:nth-child(2) {
+  animation-delay: 20ms;
+}
+.sidebar .nav-more.open .nav-more-body .nav-item:nth-child(3) {
+  animation-delay: 40ms;
+}
+.sidebar .nav-more.open .nav-more-body .nav-item:nth-child(4) {
+  animation-delay: 60ms;
+}
+.sidebar .nav-more.open .nav-more-body .nav-item:nth-child(5) {
+  animation-delay: 80ms;
+}
+@keyframes nav-more-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar .nav-more.open .nav-more-body .nav-item {
+    animation: none;
+  }
 }
 
 .user-row {
@@ -762,22 +789,504 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 .chat-tools .role-select:hover {
   background-color: var(--hover);
 }
-.workbench-bar,
-.command-deck,
-.quick-launch,
 .cue-deck {
   margin-left: auto;
   margin-right: auto;
   width: min(var(--home-w), calc(100% - 32px));
 }
 
-/* 首页态 */
-#view-goals.is-home #goals-title,
-#view-goals.is-home .workbench-bar,
-#view-goals.is-home .command-deck,
-#view-goals.is-home .quick-launch,
-#view-goals.is-home .cue-deck {
+/* 首页态按工作模式分两路（data-mode 是唯一口径，JS 只写属性）：
+   编程（code）：hero + 本机活动热力图，问候与 chip 收起；
+   目标（work，默认）：居中问候 + 模式 chip + 分类 chip，hero 与热力图收起。 */
+#view-goals.is-home[data-mode="code"] #goals-title,
+#view-goals.is-home[data-mode="code"] .home-greet,
+#view-goals.is-home[data-mode="code"] .cue-deck,
+#view-goals.is-home[data-mode="code"] .list-filters {
   display: none !important;
+}
+#view-goals.is-home[data-mode="work"] .home-hero .hero-art,
+#view-goals.is-home[data-mode="work"] .home-hero .empty-title,
+#view-goals.is-home[data-mode="work"] .home-hero .empty-desc,
+#view-goals.is-home[data-mode="work"] .home-hero .activity-card {
+  display: none;
+}
+
+/* 专家角色行只在目标模式出现。
+   编程模式下这一排七枚角色没有选择价值：能选的角色全在换措辞
+   （通用助手 / 研究员 / 运维专家 / 开发工程师），而"这条消息该用谁的
+   口吻回"是目标模式才有的犹豫——编程模式下要的是一件事按流程做完。
+   占着输入框上方一整行、还把输入框往下挤，纯属噪声。
+   角色本身不会失效：编程模式固定用开发工程师（见 settleModeState）。 */
+#view-goals[data-mode="code"] .expert-bar {
+  display: none !important;
+}
+
+/* 首页两态的纵向分配：
+   目标模式 —— 问候 + chip + 输入框作为**一列整体居中**（WorkBuddy 的读法：
+     "现在能做什么"和"从哪开始说"必须挨在一起，中间空一大段会把两者读成两屏）；
+   编程模式 —— 头部本来就空着，滚动区自己吃满，hero 在剩余空间里居中。
+   两种都靠同一组 flex 值切换，JS 不参与。 */
+#view-goals.is-home[data-mode="work"] {
+  justify-content: center;
+}
+#view-goals.is-home[data-mode="work"] .chat-header,
+#view-goals.is-home[data-mode="work"] .chat-scroll,
+#view-goals.is-home[data-mode="work"] .composer,
+#view-goals.is-home[data-mode="work"] .composer-foot-row {
+  flex: 0 0 auto;
+}
+/* 首页不挂标题：问候语已经是这一屏的主标题，左上角再来一个「目标」
+   会让人以为下面那块是它的内容。标题在会话态才需要（那时它标的是会话名）。 */
+#view-goals.is-home[data-mode="work"] #goals-title {
+  display: none;
+}
+#view-goals.is-home[data-mode="work"] .chat-title-row {
+  margin-bottom: 0;
+}
+#view-goals.is-home[data-mode="work"] .chat-scroll {
+  padding-bottom: 0;
+}
+#view-goals.is-home[data-mode="work"] .composer,
+#view-goals.is-home[data-mode="work"] .composer-foot-row {
+  width: min(var(--home-w), calc(100% - 32px));
+  margin-left: auto;
+  margin-right: auto;
+}
+/* 输入框在首页放大一号：首页唯一的动作就是"写一句话开跑"，它该是这一屏最大的东西 */
+#view-goals.is-home .composer .composer-input {
+  min-height: 104px;
+}
+#view-goals.is-home[data-mode="code"] .chat-header {
+  flex: 0 0 auto;
+  border-bottom: none;
+}
+#view-goals.is-home[data-mode="code"] .chat-scroll {
+  flex: 1 1 auto;
+}
+
+/* ============ 右侧栏（编程与目标共用同一套） ============
+ * 宽度落在 --panel-w（可拖，记忆在 UIPrefs.panelW）；中屏自动收起——
+ * 一屏放不下"对话 + 侧栏"时，挤掉整栏比两栏都读不清好。
+ * 顶部一排小页签，下面一块内容；默认空着，有产出才长出东西。 */
+:root {
+  --panel-w: 360px;
+}
+.side-panel {
+  position: relative;
+  flex: none;
+  width: var(--panel-w);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--surface-line, var(--color-border-subtle));
+  background: var(--surface, var(--color-card));
+}
+.side-panel[hidden] {
+  display: none;
+}
+/* 顶部页签：小而安静，选中态只靠字重与下边一条 2px 的强调色 */
+.sp-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 6px 0 4px;
+  border-bottom: 1px solid var(--surface-line, var(--color-border-subtle));
+}
+.sp-tab {
+  position: relative;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+.sp-tab:hover {
+  color: var(--color-fg);
+  background: var(--hover);
+}
+.sp-tab[aria-selected="true"] {
+  color: var(--color-fg);
+  font-weight: 600;
+}
+.sp-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -5px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+/* 新内容提示点：只标"有变化"，不自动切页签——替用户翻页比晚一步更招人烦 */
+.sp-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  vertical-align: middle;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+.sp-tabs-acts {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+.sp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sp-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.sp-pane[hidden] {
+  display: none;
+}
+.sp-pane--files {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sp-pane--preview {
+  display: flex;
+  flex-direction: column;
+}
+.sp-empty {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--color-fg-muted); /* #6B6B66 起：13px 灰字要过 AA */
+  text-wrap: pretty;
+}
+/* 产物列表：一行一个，标题 + 相对路径 */
+.sp-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 1px solid var(--surface-line, var(--color-border-subtle));
+  background: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.sp-item:hover {
+  background: var(--hover);
+}
+.sp-item-title {
+  font-size: var(--fs-sm);
+  color: var(--color-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-item-sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+/* 变更页：一次任务一节，节内逐文件 */
+.chg-sec {
+  border-bottom: 1px solid var(--surface-line, var(--color-border-subtle));
+}
+.chg-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 9px 14px 5px;
+}
+.chg-sec-goal {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chg-sec-sum {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-fg-faint);
+}
+.chg-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 14px;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
+}
+.chg-item:hover {
+  background: var(--hover);
+}
+.chg-kind {
+  flex: none;
+  min-width: 26px;
+  color: var(--color-fg-faint);
+}
+.chg-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chg-num {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.chg-acts {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  opacity: 0;
+}
+.chg-item:hover .chg-acts,
+.chg-item:focus-within .chg-acts {
+  opacity: 1;
+}
+.ws-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--surface-line, var(--color-border-subtle));
+}
+.ws-panel-title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.ws-panel-acts {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+.ws-crumb {
+  margin: 0;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* 长路径从尾部开始看：文件名那一头才是关心的 */
+  text-align: left;
+  border-bottom: 1px solid var(--surface-line, var(--color-border-subtle));
+}
+.ws-tree {
+  flex: 0 1 42%;
+  min-height: 90px;
+  overflow: auto;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--surface-line, var(--color-border-subtle));
+}
+.ws-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 16px;
+}
+.ws-view-hint {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
+}
+/* 树节点：一行一个，目录可展开、文件可选中 */
+.ws-node {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 3px 10px 3px 4px;
+  border: none;
+  background: none;
+  color: var(--color-fg-muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ws-node:hover {
+  background: var(--hover);
+  color: var(--color-fg);
+}
+.ws-node[aria-selected="true"] {
+  background: var(--nav-sel, var(--hover));
+  color: var(--color-fg);
+}
+.ws-node-caret {
+  flex: none;
+  width: 12px;
+  color: var(--color-fg-faint);
+  font-size: 9px;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.ws-node[aria-expanded="true"] .ws-node-caret {
+  transform: rotate(90deg);
+}
+.ws-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-node-ico {
+  flex: none;
+  color: var(--color-fg-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+/* 改动角标：M 改过 / A 新建 / D 删掉——用户扫一眼就知道该看哪几个 */
+.ws-node-badge {
+  margin-left: auto;
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 15px;
+  background: rgba(var(--accent-rgb) / 0.16);
+  color: var(--color-accent);
+}
+.ws-node-badge--deleted {
+  background: rgba(var(--danger-rgb, 229, 72, 77) / 0.14);
+  color: var(--color-destructive);
+}
+/* 源码视图：行号列 + 极轻量着色（单遍分词，不引第三方高亮库） */
+.ws-file-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 2px 12px 6px;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
+}
+.ws-file-tabs {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.ws-code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+.ws-line {
+  display: flex;
+  gap: 10px;
+  padding: 0 12px;
+  white-space: pre;
+}
+.ws-line:hover {
+  background: var(--hover);
+}
+.ws-no {
+  flex: none;
+  width: 34px;
+  text-align: right;
+  color: var(--color-fg-faint);
+  opacity: 0.6;
+  user-select: none;
+}
+.ws-txt {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-fg);
+}
+.tok-com {
+  color: var(--color-fg-faint);
+  font-style: italic;
+}
+.tok-str {
+  color: #b45309;
+}
+.tok-num {
+  color: #2563eb;
+}
+.tok-kw {
+  color: #7c3aed;
+  font-weight: 500;
+}
+html[data-theme="dark"] .tok-str {
+  color: #eab664;
+}
+html[data-theme="dark"] .tok-num {
+  color: #74b9e8;
+}
+html[data-theme="dark"] .tok-kw {
+  color: #c4a2fc;
+}
+.ws-trunc {
+  margin: 6px 12px 0;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
+}
+/* 中屏：这一屏放不下两栏就整栏收起（按钮同步隐藏，见 JS 的 applyNarrow） */
+@media (max-width: 1120px) {
+  .side-panel {
+    display: none !important;
+  }
+}
+
+/* 会话态（thread-mode）：首页块一律收起。
+   口径只有这一条 —— 与 [data-mode] 那两条并列，JS 只负责加类名。
+   刻意不隐藏 .home-hero：它是**会话内**的空态（"可以直接开口说了"），
+   与首页那个 hero 同名不同物，一起藏掉会让新对话变成一片空白。 */
+#view-goals.thread-mode :is(.home-greet, .cue-deck, .list-filters) {
+  display: none !important;
+}
+
+/* 模式切换的 crossfade：JS 加 .mode-fading 先淡出，换完内容移除后自然淡入 */
+#view-goals .chat-header,
+#view-goals .chat-scroll {
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+#view-goals.mode-fading .chat-header,
+#view-goals.mode-fading .chat-scroll {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  #view-goals .chat-header,
+  #view-goals .chat-scroll {
+    transition: none;
+  }
 }
 .chat-scroll {
   padding: 0 16px;
@@ -869,17 +1378,26 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 .activity-tabs button[aria-selected="true"] {
   color: var(--color-fg);
 }
+/* 格子随卡片宽度伸缩，**填满**整行。这里踩过两次，记下来免得又改回去：
+   一、列宽写死 11px：52 周排下来 725px，卡片内宽一旦更大（1440 视口下是 857px），
+       右侧就空出 133px —— 看着像内容没加载完。
+   二、改成 minmax(4px, 11px) 只治了"太窄顶出右边界"，没治"太宽留白"：
+       11px 是**上限**，格子长到 11px 就停住，空白一点没少。
+   现在用 minmax(4px, 1fr)：窄卡片里缩到 4px，宽卡片里等分剩余空间。
+   下限 4px 保住"还看得出是一格一格"；上限不设，因为首页那一列自己有最大宽度
+   （1680 视口下卡片内宽仍是 857px），格子最宽也就 13px 出头，不会拉成横条。 */
 .heat-grid {
   display: grid;
   grid-auto-flow: column;
   grid-template-rows: repeat(7, 11px);
-  grid-auto-columns: 11px;
+  grid-auto-columns: minmax(4px, 1fr);
   gap: 3px;
-  justify-content: start;
+  width: 100%;
 }
 .heat-cell {
   display: block;
-  width: 11px;
+  width: 100%;
+  min-width: 0;
   height: 11px;
   border-radius: 2px;
   background: var(--heat-0);
@@ -899,9 +1417,17 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 .heat-cell[data-future] {
   background: transparent;
 }
+/* 月份标签必须和上面的格子共用同一套列定义，否则月份会和它标的那一列错开。
+   列数由 app.js 的 WEEKS 经 --heat-weeks 传进来：这里写死 52 的话，
+   那边一改就悄悄错位，而且错得很难发现（标签还是有 12 个，只是全偏了）。
+   下限写死 0 而不是用裸 1fr：1fr 等价于 minmax(auto, 1fr)，auto 下限会让
+   **有文字的列被内容撑宽**——「11月」那列 17px、空列 12.7px，一列一像素地
+   累积下去，最后一个标签能偏出半列。上限那行没这问题是因为它写了 minmax(4px, …)。
+   标签本身比列宽（13px）宽，超出部分照常画出来——这正是想要的效果：
+   文字从它标注的那一列起头，向右伸出去。 */
 .heat-months {
   display: grid;
-  grid-template-columns: repeat(52, 11px);
+  grid-template-columns: repeat(var(--heat-weeks, 52), minmax(0, 1fr));
   column-gap: 3px;
   margin-top: 9px;
   height: 14px;
@@ -1820,6 +2346,7 @@ html[data-theme] .sidebar .sidebar-top .convo-new:hover {
   background: var(--panel);
   border-radius: var(--row-r);
 }
-#view-goals:not(.is-home) .chat-header .workbench-bar {
+/* 列表态（有过往任务）：头部只留筛选行，紧贴内容顶部 */
+#view-goals:not(.is-home) .chat-header .list-filters {
   margin-top: 4px;
 }

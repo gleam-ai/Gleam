@@ -1,0 +1,65 @@
+/* Motion layer: delivered last so it refines rather than fights the design system.
+
+   Everything here animates transform / opacity / outline only. Layout-affecting
+   properties stay out: animating width, top or margin forces a reflow every
+   frame, which reads as jank on exactly the machines that can least afford it. */
+
+/* The global guard in 01-base.css neutralises animation duration, but a delayed
+   animation still plays after that window, so delays need closing down too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-delay: 0s !important;
+    transition-delay: 0s !important;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Menus feel assembled rather than dropped in. Rows only; the container animation
+   already owns the entrance, so there is nothing to coordinate here. */
+.ctx-menu .menu-item,
+.me-menu .menu-item,
+.menubar-pop .menu-item,
+.menu-flyout .menu-item {
+  animation: menu-item-in var(--dur-fast, 130ms) var(--ease-out, ease-out) both;
+}
+.ctx-menu .menu-item:nth-child(1),
+.me-menu .menu-item:nth-child(1),
+.menubar-pop .menu-item:nth-child(1),
+.menu-flyout .menu-item:nth-child(1) {
+  animation-delay: 0ms;
+}
+.ctx-menu .menu-item:nth-child(n + 2),
+.me-menu .menu-item:nth-child(n + 2),
+.menubar-pop .menu-item:nth-child(n + 2),
+.menu-flyout .menu-item:nth-child(n + 2) {
+  animation-delay: 22ms;
+}
+.ctx-menu .menu-item:nth-child(n + 5),
+.me-menu .menu-item:nth-child(n + 5),
+.menubar-pop .menu-item:nth-child(n + 5),
+.menu-flyout .menu-item:nth-child(n + 5) {
+  animation-delay: 44ms;
+}
+
+@keyframes menu-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Focus rings usually snap on; easing the colour makes keyboard traversal read as
+   movement instead of flicker. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  transition:
+    outline-color var(--dur-fast, 130ms) var(--ease-out, ease-out),
+    box-shadow var(--dur-fast, 130ms) var(--ease-out, ease-out);
+}

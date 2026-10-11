@@ -61,12 +61,14 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  /* ---- 圆角：外软内紧 ---- */
+  /* ---- 圆角：外软内紧，上限收到 14px ----
+     正文的胶囊圆（--radius-full）该圆就圆；容器类一律不超过 lg，
+     22px 的大圆角观感偏软、不像工具，这里刻意收下来。 */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --radius-xl: 22px;
-  --radius-stage: 18px;
+  --radius-xl: 14px;
+  --radius-stage: 12px;
   --radius-full: 999px;
   --blur: 16px;
   --sidebar-list-w: 248px;
@@ -761,142 +763,37 @@ body::before {
   line-height: 1.65;
 }
 
-/* ============ 工作台首屏：概览 + 快捷启动 ============ */
-.command-deck {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-5);
-  margin: var(--space-5) 0 var(--space-3);
-  padding: 28px 8px 8px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
+/* ============ 目标首页：问候 + 模式 chip + 分类 chip ============ */
+/* 「本地工作台」标语块与三张快捷卡已随 WorkBuddy 形态退休：首页要回答的是
+   "现在能做什么"，不是"这台机器上还有几个任务"。任务信息搬到了筛选行与候补目标。 */
 .eyebrow {
   color: var(--color-fg-faint);
   font: 600 10.5px/1 var(--font-mono);
   letter-spacing: 0.14em;
 }
-.deck-intro h2 {
-  margin: 12px 0 6px;
-  font-size: clamp(22px, 3vw, 30px);
-  line-height: 1.18;
-  letter-spacing: -0.03em;
-  text-wrap: balance;
+.home-greet {
+  width: min(var(--home-w), calc(100% - 32px));
+  margin: 0 auto;
+  text-align: center;
 }
-.deck-intro h2 em {
-  color: var(--color-accent);
-  font-style: normal;
-}
-.deck-intro p {
+.home-greet-title {
   margin: 0;
-  color: var(--color-fg-muted);
-  font-size: var(--fs-sm);
-  max-width: 52ch;
-}
-.deck-metrics {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding-left: 24px;
-  border-left: 1px solid var(--glass-border);
-}
-.metric {
-  display: grid;
-  gap: 4px;
-  min-width: 58px;
-  color: var(--color-fg-muted);
-  font-size: 11px;
-}
-.metric-value {
-  color: var(--color-fg);
-  font: 600 22px/1 var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.quick-launch {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: var(--space-5);
-}
-.quick-card {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-height: 64px;
-  padding: 14px 16px;
-  text-align: left;
-  color: var(--color-fg);
-  background: var(--color-card);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  font: inherit;
-  box-shadow: var(--shadow-1);
-  transition:
-    background var(--dur-base) ease,
-    border-color var(--dur-base) ease,
-    transform var(--dur-base) var(--ease-out),
-    box-shadow var(--dur-base) ease;
-}
-.quick-card:hover {
-  transform: translateY(-1px);
-  border-color: var(--color-border-subtle);
-  background: rgba(var(--ink-rgb) / 0.075);
-}
-.quick-card:active {
-  transform: scale(0.99);
-}
-.quick-icon {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  color: var(--color-accent);
-  border-radius: var(--radius-sm);
-  background: rgba(var(--accent-rgb) / 0.1);
-  font-size: 15px;
-}
-.quick-card strong,
-.quick-card small {
-  display: block;
-}
-.quick-card strong {
-  font-size: var(--fs-sm);
+  font-size: clamp(24px, 3vw, 30px);
   font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
-.quick-card small {
-  margin-top: 2px;
+.home-greet-sub {
+  margin: 8px 0 0;
   color: var(--color-fg-muted);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
-.quick-arrow {
-  margin-left: auto;
-  color: var(--color-fg-faint);
-  font-size: 17px;
-  transition:
-    transform var(--dur-base) var(--ease-out),
-    color var(--dur-base) ease;
-}
-.quick-card:hover .quick-arrow {
-  color: var(--color-accent);
-  transform: translateX(3px);
-}
-@media (max-width: 760px) {
-  .command-deck {
-    grid-template-columns: 1fr;
-    padding: var(--space-5);
-  }
-  .deck-metrics {
-    padding: 14px 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--glass-border);
-  }
-  .quick-launch {
-    grid-template-columns: 1fr;
-  }
+/* 这里曾经是两排 chip 的样式（.mode-chips 三枚模式 + .cat-chips 一条模板分类）。
+   首页只剩一句问候和输入框 —— 模式在左侧栏、模板在候补目标，都不必再占一排。 */
+/* 筛选行：只在有任务时出现（显隐由 app.js 按数量给），跟着问候块同一列宽 */
+.list-filters {
+  width: min(var(--home-w), calc(100% - 32px));
+  margin: var(--space-4) auto 0;
 }
 
 /* ============ 工作台：候补目标 ============
@@ -1565,7 +1462,7 @@ body::before {
 }
 
 /* 工具执行折叠汇总：里程碑短句留在时间线，步骤明细收进 details */
-details.tl-run {
+details.run-group {
   margin: 0;
 }
 .tl-run > summary {
@@ -1576,10 +1473,10 @@ details.tl-run {
   font-size: var(--fs-sm);
   color: var(--color-fg-muted);
 }
-.tl-run > summary::-webkit-details-marker {
+.run-group > summary::-webkit-details-marker {
   display: none;
 }
-.tl-run > summary::before {
+.run-group > summary::before {
   content: "";
   position: absolute;
   left: calc(-1 * var(--space-5) + 1px);
@@ -1590,13 +1487,13 @@ details.tl-run {
   background: var(--color-card);
   border: 2px solid var(--color-border);
 }
-.tl-run > summary::after {
+.run-group > summary::after {
   content: "▸";
   margin-left: var(--space-2);
   color: var(--color-fg-faint);
   font-size: var(--fs-xs);
 }
-.tl-run[open] > summary::after {
+.run-group[open] > summary::after {
   content: "▾";
 }
 .tl-run > summary:hover {
@@ -1607,7 +1504,7 @@ details.tl-run {
   padding-left: var(--space-3);
   border-left: 1.5px solid var(--glass-border);
 }
-.tl-run-item {
+.run-item {
   padding: 2px 0;
   font-size: var(--fs-xs);
   color: var(--color-fg-muted);
@@ -1616,8 +1513,304 @@ details.tl-run {
 .tl-run-item--error {
   color: var(--color-destructive);
 }
-.tl-run-item--warn {
+.run-item--warn {
   color: var(--color-warning);
+}
+
+/* ============ 思考状态：动效 + 文案 ============
+ * 六个风格共用同一节骨架：左边一段会动的东西（.think-anim，aria-hidden），
+ * 右边一句人话（.think-label）。动效全部走 transform/opacity，
+ * reduced-motion 下逐个退化成静态字形——此时只剩文字，信息不丢。 */
+.think {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.think-anim {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+}
+.think-label {
+  color: var(--color-fg-muted);
+  font-size: var(--fs-sm);
+}
+/* matrix：字符流逐帧跳动（content 动画，纯 CSS） */
+.think--matrix .think-anim::before {
+  content: "▓▒░";
+  animation: think-matrix 0.9s steps(3, end) infinite;
+}
+@keyframes think-matrix {
+  0% {
+    content: "▓▒░";
+  }
+  33% {
+    content: "░▓▒";
+  }
+  66% {
+    content: "▒░▓";
+  }
+  100% {
+    content: "▓▒░";
+  }
+}
+/* music：五线谱上跑的音符 */
+.think--music .think-anim::before {
+  content: "♫♪♫";
+  animation: think-music 1.1s ease-in-out infinite alternate;
+}
+@keyframes think-music {
+  from {
+    transform: translateY(1px);
+  }
+  to {
+    transform: translateY(-3px);
+  }
+}
+/* bird：小鸟沿一条弧线飞过去再回来 */
+.think--bird .think-anim::before {
+  content: "›";
+  font-size: 18px;
+  font-weight: 600;
+  animation: think-bird 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes think-bird {
+  0% {
+    transform: translate(-6px, 3px) scaleX(1);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate(6px, -3px) scaleX(1);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(18px, 3px) scaleX(-1);
+    opacity: 0;
+  }
+}
+/* fish：两条鱼来回游 */
+.think--fish .think-anim::before {
+  content: "><>";
+  animation: think-fish 1.4s ease-in-out infinite alternate;
+}
+@keyframes think-fish {
+  from {
+    transform: translateX(-4px);
+  }
+  to {
+    transform: translateX(4px);
+  }
+}
+/* ascii：一段旋转的字符（用两个字符轮换，最像终端里的 spinner） */
+.think--ascii .think-anim::before {
+  animation: think-ascii 0.7s steps(4, end) infinite;
+}
+@keyframes think-ascii {
+  0% {
+    content: "|";
+  }
+  25% {
+    content: "/";
+  }
+  50% {
+    content: "—";
+  }
+  75% {
+    content: "\\";
+  }
+  100% {
+    content: "|";
+  }
+}
+/* dots：三个点依次起伏 */
+.think--dots .think-anim::before {
+  content: "· · ·";
+  letter-spacing: 2px;
+  animation: think-dots 1.2s ease-in-out infinite;
+}
+@keyframes think-dots {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .think-anim,
+  .think-anim::before {
+    animation: none !important;
+  }
+  .think--matrix .think-anim::before {
+    content: "▓▒░";
+  }
+  .think--ascii .think-anim::before {
+    content: "|/-\\";
+  }
+  .think--bird .think-anim::before {
+    content: "›";
+  }
+  .think--fish .think-anim::before {
+    content: "><>";
+  }
+  .think--dots .think-anim::before {
+    content: "· · ·";
+  }
+}
+
+/* 会话正文下方的元信息行：时间 · 耗时 · 模型调用次数（只有事实，没有按钮） */
+.conv-meta {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.conv-meta:empty {
+  display: none;
+}
+
+/* 改动清单的头部与汇总（目标卡与右侧栏「变更」页共用） */
+.changes-title {
+  font-weight: 500;
+}
+.changes-sum {
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.changes-sum::before {
+  content: " · ";
+}
+.changes-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.changes-head .btn {
+  margin-left: auto;
+}
+.change-meta--lines .add {
+  color: var(--accent-strong);
+}
+.change-more {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--color-fg-muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.change-more:hover {
+  color: var(--color-fg);
+}
+.change-item--more {
+  padding-left: 0;
+}
+
+/* ============ 会话内的工具步骤条（Qoder 式） ============
+ * 挂在助手气泡里、回复正文**之上**：先看到它做了什么，再看到它说了什么。
+ * 与卡片模式共用 .run-group/.run-item 的视觉语言与文案口径（runSummaryText），
+ * 这里只补会话特有的三段式行（图标 / 标题+摘要 / 耗时）与进行中脉冲。 */
+.conv-run {
+  margin: 0 0 var(--space-3);
+}
+.conv-run .run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.conv-run .run-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+.run-ico {
+  flex: none;
+  width: 13px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-fg-faint);
+}
+.run-item--done .run-ico {
+  color: var(--accent-strong);
+}
+.run-item--failed .run-ico,
+.run-item--failed .run-title {
+  color: var(--color-destructive);
+}
+.run-item--skipped .run-ico {
+  color: var(--color-warning);
+}
+.run-item--running .run-ico {
+  color: var(--color-fg-muted);
+  animation: run-pulse 1.1s ease-in-out infinite;
+}
+@keyframes run-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.run-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+}
+.run-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-faint);
+}
+.run-ms {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.run-err {
+  flex: 1 0 100%;
+  padding-left: 21px;
+  font-size: 11px;
+  color: var(--color-destructive);
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .run-item--running .run-ico {
+    animation: none;
+  }
 }
 
 /* ============ 组件：目标卡 ============ */
@@ -3618,61 +3811,9 @@ details.schema pre {
   }
 }
 
-/* ============ 任务工作台 ============ */
-.workbench-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin: 0 0 var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.workbench-state {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.workbench-state > div {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.workbench-state strong {
-  font-size: var(--fs-sm);
-  font-weight: 650;
-  line-height: 1.35;
-}
-.workbench-state span {
-  color: var(--color-fg-muted);
-  font-size: var(--fs-xs);
-  line-height: 1.45;
-}
-.workbench-dot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: var(--radius-full);
-  background: var(--color-fg-faint);
-}
-.workbench-dot[data-state="active"] {
-  background: var(--color-accent);
-  animation: workbench-breathe 2s var(--ease-out) infinite;
-}
-.workbench-dot[data-state="attention"] {
-  background: var(--color-warning);
-  box-shadow: 0 0 0 4px rgba(var(--warning-rgb) / 0.12);
-}
-@keyframes workbench-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(var(--accent-rgb) / 0.25);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(var(--accent-rgb) / 0.06);
-  }
-}
+/* ============ 任务列表：筛选 ============ */
+/* 「准备就绪」状态行已退休（见 03-align.css 的首页形态），筛选是它唯一留下的能力，
+   现在挂在列表态头部：有任务才出现，四个 tab 带计数。 */
 .goal-filters {
   flex: none;
 }
@@ -3694,10 +3835,6 @@ details.schema pre {
 }
 
 @media (max-width: 700px) {
-  .workbench-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
   .goal-filters {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3713,11 +3850,6 @@ details.schema pre {
 @media (max-width: 380px) {
   .goal-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .workbench-dot[data-state="active"] {
-    animation: none;
   }
 }
 
