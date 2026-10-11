@@ -38,7 +38,21 @@ type contextWindowEntry struct {
 // contextWindows 内置表。按顺序匹配，**长的前缀写在前面**（`gpt-4o` 要在 `gpt-4o-mini` 之前判定，
 // 否则后者永远轮不到；这里两者同值，但规则先立着，免得以后加新条目时踩）。
 var contextWindows = []contextWindowEntry{
-	{prefix: "claude", tokens: 200000, note: "Anthropic 标准窗口 200k"},
+	// Anthropic 5-5 代：官方模型页标的是 1M（2026-10-11 核）。比下面的 `claude` 更具体，
+	// 必须排在它前面——否则永远轮不到，会一直按旧代的 200k 算。
+	{prefix: "claude-fable-5", tokens: 1000000, note: "Anthropic Claude Fable 5 1M"},
+	{prefix: "claude-opus-5", tokens: 1000000, note: "Anthropic Claude Opus 5 1M"},
+	{prefix: "claude-sonnet-5", tokens: 1000000, note: "Anthropic Claude Sonnet 5 1M"},
+	{prefix: "claude-haiku-5", tokens: 1000000, note: "Anthropic Claude Haiku 5 1M"},
+	{prefix: "claude", tokens: 200000, note: "Anthropic 旧代标准窗口 200k"},
+	// 百度千帆的 ERNIE 系列：取自百度自己的模型列表页（该页逐条标了上下文长度）。
+	// 带 32k 的变体写在前面，否则会被 `ernie-4.5-turbo` 那条先命中。
+	{prefix: "ernie-4.5-turbo-128k", tokens: 128000, note: "百度 ERNIE 4.5 Turbo 128k"},
+	{prefix: "ernie-4.5-turbo-vl-32k", tokens: 32000, note: "百度 ERNIE 4.5 Turbo VL 32k"},
+	{prefix: "ernie-4.5-turbo-32k", tokens: 32000, note: "百度 ERNIE 4.5 Turbo 32k"},
+	{prefix: "ernie-4.5-turbo", tokens: 128000, note: "百度 ERNIE 4.5 Turbo 128k"},
+	{prefix: "ernie-5", tokens: 128000, note: "百度 ERNIE 5 128k"},
+	{prefix: "ernie-x1.1", tokens: 64000, note: "百度 ERNIE X1.1 64k"},
 	{prefix: "gpt-4o", tokens: 128000, note: "OpenAI GPT-4o 128k"},
 	{prefix: "gpt-4-turbo", tokens: 128000, note: "OpenAI GPT-4 Turbo 128k"},
 	{prefix: "glm-4", tokens: 128000, note: "智谱 GLM-4 128k"},

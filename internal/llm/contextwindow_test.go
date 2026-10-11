@@ -46,3 +46,36 @@ func TestContextWindowFor_FallsBack(t *testing.T) {
 		}
 	}
 }
+
+// 新增的两族要与旧的分开：同一家的新代窗口更大，**配对长前缀必须排在短前缀前面**，
+// 否则短前缀先命中，百分比就按旧代的窗口算了（用户会看到水位虚高）。
+//
+// 最后两条是**反向**的：旧代仍走旧值、带 32k 的变体不能被通用条目吃掉。
+func TestContextWindowFor_NewFamilies(t *testing.T) {
+	cases := map[string]int{
+		// Anthropic 5-5 代：官方模型页标 1M
+		"claude-fable-5-1":  1000000,
+		"claude-opus-5-5":   1000000,
+		"claude-sonnet-5-5": 1000000,
+		"claude-haiku-5-5":  1000000,
+		// 百度 ERNIE：取自百度自己的模型列表页
+		"ernie-5.1":              128000,
+		"ernie-4.5-turbo-128k":   128000,
+		"ernie-4.5-turbo-32k":    32000,
+		"ernie-4.5-turbo-vl":     128000,
+		"ernie-4.5-turbo-vl-32k": 32000,
+		"ernie-x1.1":             64000,
+		// 反向：旧代与更长的前缀都不能被新条目抢走
+		"claude-sonnet-4-5": 200000,
+		"glm-5.3-flash":     128000,
+	}
+	for model, want := range cases {
+		got, src, note := ContextWindowFor(model)
+		if got != want || src != SourceTable {
+			t.Errorf("ContextWindowFor(%q) = %d/%s，应为 %d/%s", model, got, src, want, SourceTable)
+		}
+		if note == "" {
+			t.Errorf("ContextWindowFor(%q) 的出处不能是空的", model)
+		}
+	}
+}
