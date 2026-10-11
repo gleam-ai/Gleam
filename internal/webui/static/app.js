@@ -5730,32 +5730,41 @@ function _doSetPerm(mode, label, persist = true) {
   });
 }
 
-/* ---------- 专家角色 ---------- */
-const roleSelect = document.getElementById('role-select');
-// 变更监听只绑一次：绑在拉取成功的分支里，等于每次刷新都多挂一个，
-// 而 /api/roles 失败那一次之后它干脆就不绑了——选角色静默失效。
-if (roleSelect)
-  roleSelect.addEventListener('change', () => {
-    currentRole = roleSelect.value;
+/* ---------- 专家团 ---------- */
+const expertBar = document.getElementById('expert-bar');
+
+function renderExpertTags(roles) {
+  if (!expertBar) return;
+  expertBar.innerHTML = '';
+  roles.forEach((r) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'expert-tag';
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-checked', r.id === currentRole ? 'true' : 'false');
+    btn.dataset.role = r.id;
+    btn.title = r.description || r.name;
+    btn.innerHTML =
+      '<span class="expert-tag-dot" aria-hidden="true"></span>' +
+      '<span>' + r.name + '</span>';
+    btn.addEventListener('click', () => {
+      currentRole = r.id;
+      expertBar.querySelectorAll('.expert-tag').forEach((t) => {
+        t.setAttribute('aria-checked', t.dataset.role === r.id ? 'true' : 'false');
+      });
+    });
+    expertBar.appendChild(btn);
   });
+}
 
 async function loadRoles() {
-  const sel = roleSelect;
-  if (!sel) return;
+  if (!expertBar) return;
   try {
     const data = await api('GET', '/api/roles');
     const roles = data.roles || [];
-    sel.innerHTML = '';
-    roles.forEach((r) => {
-      const opt = document.createElement('option');
-      opt.value = r.id;
-      opt.textContent = r.name;
-      opt.title = r.description || '';
-      sel.appendChild(opt);
-    });
-    sel.value = currentRole;
+    renderExpertTags(roles);
   } catch {
-    /* 静默失败，角色选择不影响核心功能 */
+    /* 静默失败，退回默认通用助手 */
   }
 }
 

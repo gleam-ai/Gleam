@@ -237,6 +237,61 @@ html[data-theme] #view-goals.thread-mode .composer .send-btn {
   width: calc(100% - 12px);
   margin: 0 6px 6px;
 }
+/* 专家团标签栏：贴在输入框上方，横向可滚动 */
+.expert-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.expert-bar::-webkit-scrollbar {
+  display: none;
+}
+.expert-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--surface-line);
+  background: transparent;
+  color: var(--color-fg-muted);
+  font-size: var(--fs-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  flex: none;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+.expert-tag:hover {
+  background: var(--hover);
+  color: var(--color-fg);
+}
+.expert-tag[aria-checked="true"] {
+  background: rgba(var(--accent-rgb) / 0.12);
+  border-color: rgba(var(--accent-rgb) / 0.35);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+.expert-tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+  flex: none;
+}
+.expert-tag[aria-checked="true"] .expert-tag-dot {
+  opacity: 1;
+}
+/* 首页无会话时专家栏也出现（输入框卡片内） */
 /* 页脚行：卡片外，文件夹 · 本机 · 上下文水位 */
 .view-chat > .composer-foot-row {
   width: calc(100% - 32px);
