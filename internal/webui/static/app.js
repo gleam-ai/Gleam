@@ -5746,11 +5746,16 @@ function renderExpertTags(roles) {
     btn.title = r.description || r.name;
     btn.innerHTML =
       '<span class="expert-tag-dot" aria-hidden="true"></span>' +
-      '<span>' + r.name + '</span>';
+      '<span>' +
+      r.name +
+      '</span>';
     btn.addEventListener('click', () => {
       currentRole = r.id;
       expertBar.querySelectorAll('.expert-tag').forEach((t) => {
-        t.setAttribute('aria-checked', t.dataset.role === r.id ? 'true' : 'false');
+        t.setAttribute(
+          'aria-checked',
+          t.dataset.role === r.id ? 'true' : 'false',
+        );
       });
     });
     expertBar.appendChild(btn);
