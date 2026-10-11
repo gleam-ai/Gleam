@@ -41,8 +41,9 @@ func NewGLM(baseURL, apiKey, model string, temperature float64, maxTokens int, t
 func (c *GLMClient) Name() string { return c.Model }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role             string `json:"role"`
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type chatRequestPayload struct {
@@ -280,10 +281,15 @@ func (c *GLMClient) ChatStream(ctx context.Context, req ChatRequest, onDelta fun
 			streamUsage = cr.Usage
 		}
 		for _, ch := range cr.Choices {
-			if ch.Delta != nil && ch.Delta.Content != "" {
-				full.WriteString(ch.Delta.Content)
-				if onDelta != nil {
-					onDelta(ch.Delta.Content)
+			if ch.Delta != nil {
+				if ch.Delta.ReasoningContent != "" {
+					full.WriteString(ch.Delta.ReasoningContent)
+				}
+				if ch.Delta.Content != "" {
+					full.WriteString(ch.Delta.Content)
+					if onDelta != nil {
+						onDelta(ch.Delta.Content)
+					}
 				}
 			}
 		}
