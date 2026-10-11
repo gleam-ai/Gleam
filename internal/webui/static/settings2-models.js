@@ -127,6 +127,14 @@
     const [s, provs] = await Promise.all([settings(true), providers()]);
     const L = s.llm;
     const models = L.models || [];
+    // 获取当前激活的模型（运行时使用的）
+    let activeModel = null;
+    try {
+      const activeResp = await api('GET', '/api/models');
+      activeModel = activeResp && activeResp.active;
+    } catch (e) {
+      // 忽略，可能是首次没有激活模型
+    }
     const addBtn = btn(
       '',
       () => openDialog(null),
@@ -168,26 +176,28 @@
       const cards = models.map((m) => {
         const d = describeEntry(m, provs);
         const keyState = m.api_key_set ? '密钥已设置' : '未设置密钥';
+        const isActive = activeModel && activeModel.id === m.id;
         const badges = [];
-        if (m.is_default) badges.push(badge('默认', 'accent'));
+        if (isActive) badges.push(badge('使用中', 'accent'));
+        if (m.is_default) badges.push(badge('默认', 'muted'));
         if (m.is_fast) badges.push(badge('辅助', 'muted'));
         const actions = h(
           'div',
           { class: 's2-icon-btns' },
-          !m.is_default
+          !isActive
             ? h('button', {
                 type: 'button',
                 class: 's2-icon-btn',
-                title: '设为默认',
-                'aria-label': '设为默认',
+                title: '激活此模型（下一个任务开始使用）',
+                'aria-label': '激活此模型',
                 html: ico('check', 15),
                 onclick: async () => {
                   try {
                     await api(
                       'POST',
-                      `/api/models/${encodeURIComponent(m.id)}/default`,
+                      `/api/models/${encodeURIComponent(m.id)}/activate`,
                     );
-                    toast('已设为默认模型', 'success', 1800);
+                    toast('已激活此模型，下一个任务开始用它', 'success', 1800);
                     render();
                   } catch (err) {
                     toast(`操作失败：${err.message}`, 'error');
