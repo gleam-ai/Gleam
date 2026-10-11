@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const maxBodyBytes = 16 << 20 // 16MB 上限，防异常响应撑爆内存
@@ -66,19 +65,11 @@ func postJSONOnce(ctx context.Context, hc *http.Client, url string, headers map[
 	return io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 }
 
-// postJSON POST JSON 并返回响应体；瞬时故障自动重试一次。
+// postJSON POST JSON 并返回响应体；瞬时故障按指数退避重试（最多 3 次）。
 func postJSON(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) ([]byte, error) {
-	out, err := postJSONOnce(ctx, hc, url, headers, body)
-	if err != nil && retryable(ctx, err) {
-		select {
-		case <-ctx.Done():
-		case <-time.After(400 * time.Millisecond):
-			if out2, err2 := postJSONOnce(ctx, hc, url, headers, body); err2 == nil {
-				return out2, nil
-			}
-		}
-	}
-	return out, err
+	return DoWithRetry(ctx, DefaultRetryConfig, func(err error) bool { return retryable(ctx, err) }, func() ([]byte, error) {
+		return postJSONOnce(ctx, hc, url, headers, body)
+	})
 }
 
 func openStreamOnce(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) (io.ReadCloser, error) {
@@ -105,17 +96,9 @@ func openStreamOnce(ctx context.Context, hc *http.Client, url string, headers ma
 	return resp.Body, nil
 }
 
-// openStream POST JSON 并返回 SSE 流；瞬时故障自动重试一次。
+// openStream POST JSON 并返回 SSE 流；瞬时故障按指数退避重试（最多 3 次）。
 func openStream(ctx context.Context, hc *http.Client, url string, headers map[string]string, body []byte) (io.ReadCloser, error) {
-	rc, err := openStreamOnce(ctx, hc, url, headers, body)
-	if err != nil && retryable(ctx, err) {
-		select {
-		case <-ctx.Done():
-		case <-time.After(400 * time.Millisecond):
-			if rc2, err2 := openStreamOnce(ctx, hc, url, headers, body); err2 == nil {
-				return rc2, nil
-			}
-		}
-	}
-	return rc, err
+	return DoWithRetry(ctx, DefaultRetryConfig, func(err error) bool { return retryable(ctx, err) }, func() (io.ReadCloser, error) {
+		return openStreamOnce(ctx, hc, url, headers, body)
+	})
 }

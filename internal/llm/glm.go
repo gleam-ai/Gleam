@@ -163,18 +163,9 @@ func (c *GLMClient) post(ctx context.Context, payload chatRequestPayload) (*http
 	if err != nil {
 		return nil, fmt.Errorf("llm: 序列化请求失败: %w", err)
 	}
-	resp, err := c.do(ctx, body)
-	if err != nil && retryable(ctx, err) {
-		// 瞬时故障自动重试一次（自研韧性）：网络抖动/限流/网关抖动不直接打断任务
-		select {
-		case <-ctx.Done():
-		case <-time.After(400 * time.Millisecond):
-			if resp2, err2 := c.do(ctx, body); err2 == nil {
-				return resp2, nil
-			}
-		}
-	}
-	return resp, err
+	return DoWithRetry(ctx, DefaultRetryConfig, func(err error) bool { return retryable(ctx, err) }, func() (*http.Response, error) {
+		return c.do(ctx, body)
+	})
 }
 
 // retryable 判定是否值得重试：传输层错误，或限流/网关类状态码。
