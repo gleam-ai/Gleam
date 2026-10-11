@@ -109,8 +109,8 @@ var Providers = []ProviderPreset{
 	{
 		ID: "tokendance", Name: "TokenDance 词元跳动（聚合）",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolOpenAIChat, Model: "gpt-4.1-mini"},
-			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolAnthropic, Model: "claude-sonnet-4-5"},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolOpenAIChat, Model: "qwen3.8-flash"},
+			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolAnthropic, Model: "glm-5.3"},
 		},
 	},
 }
