@@ -118,6 +118,15 @@ var Providers = []ProviderPreset{
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token", BaseURL: "https://openrouter.ai/api/v1", Protocol: ProtocolOpenAIChat},
 		},
+		// 聚合商的目录**故意只列能站得住的几条**：官方文档只点名了下面两个 ID，
+		// 而 openrouter/auto 是它自己的路由入口（长期存在，是这家最稳的一个）。
+		// 完整清单只存在于 GET /api/v1/models —— 那是"拉取"要干的事，不是这里要抄一遍的东西。
+		// 出处：https://openrouter.ai/docs/quickstart（2026-10-11 抓取）
+		Models: []string{
+			"openrouter/auto",                 // 路由入口：由 OpenRouter 自己挑模型
+			"~openai/gpt-sol-latest",          // 文档原文
+			"~anthropic/claude-sonnet-latest", // 文档原文
+		},
 	},
 }
 
