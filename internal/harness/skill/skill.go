@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -352,14 +353,30 @@ func asStr(v any) string {
 	return s
 }
 
+// asInt narrows a decoded JSON number to int. Values arrive from skill argument
+// files, so out-of-range input must degrade to the zero value instead of
+// wrapping around when the target int is narrower than the source.
 func asInt(v any) int {
 	switch t := v.(type) {
-	case int64:
-		return int(t)
 	case int:
 		return t
-	case float64:
+	case int64:
+		if t < math.MinInt || t > math.MaxInt {
+			return 0
+		}
 		return int(t)
+	case float64:
+		// Bound the float first: 2^63 is the first value float64 cannot round
+		// back into an int64, so comparing against that exact limit keeps the
+		// narrowing below well defined.
+		if math.IsNaN(t) || t < math.MinInt64 || t >= math.MaxInt64 {
+			return 0
+		}
+		n := int64(t)
+		if n < math.MinInt || n > math.MaxInt {
+			return 0
+		}
+		return int(n)
 	}
 	return 0
 }
