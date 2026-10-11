@@ -3,10 +3,12 @@
  * Inspired by Linear, Vercel, Raycast design language
  * ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
 /* Reset & Base */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -26,8 +28,9 @@
   --accent-subtle: rgba(34, 197, 94, 0.1);
   --accent-border: rgba(34, 197, 94, 0.3);
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -145,14 +148,18 @@ img {
 }
 
 .hero::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 50%;
   transform: translateX(-50%);
   width: 800px;
   height: 600px;
-  background: radial-gradient(ellipse, rgba(34, 197, 94, 0.08) 0%, transparent 70%);
+  background: radial-gradient(
+    ellipse,
+    rgba(34, 197, 94, 0.08) 0%,
+    transparent 70%
+  );
   pointer-events: none;
 }
 
@@ -179,8 +186,13 @@ img {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .hero-title {
@@ -229,12 +241,16 @@ img {
 .btn-primary {
   background: var(--accent);
   color: var(--bg);
-  box-shadow: 0 0 0 1px var(--accent), 0 4px 12px rgba(34, 197, 94, 0.25);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 4px 12px rgba(34, 197, 94, 0.25);
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
-  box-shadow: 0 0 0 1px var(--accent-hover), 0 6px 16px rgba(34, 197, 94, 0.35);
+  box-shadow:
+    0 0 0 1px var(--accent-hover),
+    0 6px 16px rgba(34, 197, 94, 0.35);
   transform: translateY(-1px);
 }
 
@@ -345,7 +361,12 @@ img {
 /* Screenshots */
 .screenshots {
   padding: 120px 0;
-  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-elevated) 50%, var(--bg) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--bg) 0%,
+    var(--bg-elevated) 50%,
+    var(--bg) 100%
+  );
 }
 
 .screenshot-grid {
@@ -666,7 +687,9 @@ img {
 
 /* Animations */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }

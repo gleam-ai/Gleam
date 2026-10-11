@@ -104,8 +104,8 @@ MUTATIONS = [
         "file": "website/index.html",
         "edits": [
             (
-                '<span class="dl-ver" id="dl-version">v' + VERSION + "</span>",
-                '<span class="dl-ver" id="dl-version">v0.0.1</span>',
+                '<span id="dl-version">v' + VERSION + "</span>",
+                '<span id="dl-version">v0.0.1</span>',
             )
         ],
         "targets": [CHECK],
