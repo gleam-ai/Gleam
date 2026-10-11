@@ -1518,7 +1518,6 @@ const I18N_EN = {
   '更新失败：': 'Update failed: ',
   // ---- 连接台账与候补目标：app.js 现场拼的那几句。句子的本体归后端两份
   // （connections.go / cues.go 的 bi），这里只管前端自己长出来的字。
-  '条 · 可撤销': 'entries · undoable',
   '没有查到任何常驻边界。': 'No standing boundaries found.',
   填进输入区: 'Fill into input',
   '把这句话填进下方输入区——按回车才会开始跑':
@@ -1528,8 +1527,7 @@ const I18N_EN = {
     'Stops suggesting this one; undo it in the pressed list below',
   '这张卡已经不成立了（历史变了），重新拉一次':
     'This cue no longer applies (history changed) — refetching',
-  '这张卡已经不成立了，重新拉一次':
-    'This cue no longer applies — refetching',
+  '这张卡已经不成立了，重新拉一次': 'This cue no longer applies — refetching',
   '已填进输入区。还没有开始跑——按回车才会提交':
     'Filled into the input box. Nothing is running yet — press Enter to submit',
   '候补目标读不出来：': 'Follow-up goals are unreadable: ',
@@ -1547,45 +1545,32 @@ const I18N_EN = {
   未连接: 'Not connected',
   替换: 'Replace',
   '按下新的组合键…': 'Press a new combo…',
-  '没有匹配的快捷键': 'No matching shortcuts',
+  没有匹配的快捷键: 'No matching shortcuts',
   '每条命令经 Gleam 安全门控执行 · 非交互式':
     'Every command runs through the Gleam safety gate · non-interactive',
   '桌面版里所有快捷键都由 Gleam 接管。':
     'In the desktop app, every shortcut is handled by Gleam.',
-  '在浏览器里，Ctrl+N / Ctrl+T / Ctrl+Shift+N 这类组合键会先被浏览器拦下；换一个组合，或使用桌面版。':
-    'In a browser, combos like Ctrl+N / Ctrl+T / Ctrl+Shift+N are caught by the browser first; pick another combo, or use the desktop app.',
   浏览器内被占用: 'Used inside the browser',
-  '浏览器会先拦下这个组合键；在桌面版里生效':
-    'The browser catches this combo first; it works in the desktop app',
   '本机还没有已配置的模型。去设置里添加一个，或拉取厂商模型列表。':
     'No model is configured on this machine yet. Add one in Settings, or fetch the provider list.',
   '切换模型失败：': 'Switching models failed: ',
   '停用后保留命令与参数，工具暂时从注册表摘掉':
     'Disabling keeps the command and arguments; the tools are temporarily detached from the registry',
-  '启用后重新连接并挂回工具':
-    'Re-enabling reconnects and mounts the tools back',
-  '已停用，工具已从注册表摘掉':
-    'Disabled; the tools are detached from the registry',
+  启用后重新连接并挂回工具: 'Re-enabling reconnects and mounts the tools back',
   '该服务器无需额外参数。': 'This server needs no extra parameters.',
   '该服务器已安装。重装会用下面填的命令与参数替换现有配置；只想临时别跑，请取消后到「已安装」里点停用。':
     'This server is already installed. Reinstalling replaces its configuration with the command and arguments below; to just pause it, cancel and hit Disable under Installed.',
-  '没有匹配的技能模板': 'No matching skill templates',
-  '尚未安装任何 MCP 服务器': 'No MCP servers installed yet',
-  '从上方目录选择安装，或使用自定义接入。':
-    'Install from the catalog above, or use a custom entry.',
+  没有匹配的技能模板: 'No matching skill templates',
   '安装失败：': 'Install failed: ',
-  '本机检测到的 MCP': 'MCP found on this machine',
-  '本机检测到的技能': 'Skills found on this machine',
+  本机检测到的技能: 'Skills found on this machine',
   '没检测到 MCP 配置': 'No MCP configuration found',
   '本机这些工具都没配过 MCP 服务器。':
     'None of these local tools have MCP servers configured.',
-  'Gleam 的技能是「可执行的步骤清单」，别的工具留下的是 Markdown 说明——两者不是同一种东西，硬导进来只会得到一个空壳，所以这里只列出、不导入。':
-    'A Gleam skill is an executable checklist; what other tools leave behind is Markdown prose — a different thing entirely. Importing one would only produce an empty shell, so they are listed here without importing.',
   同名已存在: 'Same-name entry exists',
-  '没检测到技能': 'No skills found',
+  没检测到技能: 'No skills found',
   '在 ~/.claude/skills 或 ~/.codex/skills 下放过 SKILL.md 才会出现在这里。':
     'Shows up only when a SKILL.md exists under ~/.claude/skills or ~/.codex/skills.',
-  '没找到可导入的记忆': 'No memories available to import',
+  没找到可导入的记忆: 'No memories available to import',
   '只在本机找 Claude Code、Codex、Cursor 等工具写过的记忆与规则文件；它们没装过或没写过，这里就是空的。':
     'Only memory and rule files written locally by Claude Code, Codex, Cursor and the like are scanned; if none of them ever wrote one, this list is empty.',
   '已停用 · ': 'Disabled · ',
@@ -1739,10 +1724,296 @@ const I18N_EN = {
   复制路径: 'Copy path',
   '手动：': 'Manual: ',
   '（还没填地址，保存后才生效）': '(no address yet; takes effect once saved)',
-  '直连：代理已关闭，环境变量不再生效。':
-    'Direct: the proxy is off and environment variables no longer apply.',
   '跟随系统：按启动 Gleam 时的 HTTPS_PROXY / HTTP_PROXY / NO_PROXY 环境变量；手动：只走下面这一条地址；不使用：直连，环境变量一律忽略。改完重启 Gleam 才切换。':
     'System: uses the HTTPS_PROXY / HTTP_PROXY / NO_PROXY environment variables present when Gleam started; Manual: only the address below; Off: direct connection, environment variables ignored. A restart is needed for the change to take effect.',
+
+  // ---- app.js：工作台 ----
+  '连不上本机的 Gleam 服务，请确认它仍在运行':
+    "Can't reach the local Gleam service — make sure it's still running",
+  没能加载: "Couldn't load",
+  '已切换到“完全访问”，高风险操作仍会请你批准':
+    'Switched to “Full access”; high-risk actions will still ask for your approval',
+  '还没有填写模型 API Key，现在不填的话 AI 无法回复。要现在去填写吗？（密钥只保存在本机，下次免填）':
+    'No model API key yet — without one the AI cannot reply. Fill it in now? (The key stays on this machine and is remembered next time.)',
+  '（站点：产出放在当前工作区 sites/ 下的一个新文件夹里，用简短的英文文件夹名，入口是 index.html；HTML 和 CSS 写在同一个文件里，不依赖外部资源，用浏览器直接打开就能看。）':
+    '(Site: put the output in a new folder under sites/ in the current workspace, using a short English folder name, with index.html as the entry point; write the HTML and CSS in one file with no external assets, so it opens directly in a browser.)',
+  '插件列表暂时不可用，请稍后重试。':
+    'The plugin list is unavailable right now — please try again later.',
+  此目录为空: 'This folder is empty',
+  目录: 'Folder',
+  没有匹配文件: 'No matching files',
+  '请求停止这个目标：已跑完的步骤保留，结果照常写回':
+    'Asking to stop this goal: finished steps are kept and the result is written back as usual',
+  '可还原 = 动这个文件之前留过一份内容；没留住的退不回去，也不假装退得回去':
+    'Restorable = a copy of the content was kept before this file was touched; whatever was not kept cannot be rolled back, and we do not pretend otherwise',
+  '前后没有行级差异（内容一样，或只有体量变化）':
+    'No line-level difference (same content, or only a size change)',
+  '（一次移动涉及的两个路径会一起退回）':
+    '(A move involves two paths, and both are rolled back together)',
+  '· 进行中': ' · running',
+  主动提议: 'Suggestion',
+  需要你的批准: 'Needs your approval',
+  批准执行: 'Approve',
+  拒绝: 'Deny',
+  高风险: 'High risk',
+  中风险: 'Medium risk',
+  '✓ 已批准': '✓ Approved',
+  '✗ 已拒绝': '✗ Denied',
+  工具调用需要批准: 'Tool call needs approval',
+  '工具调用需要你的批准，请前往目标视图处理':
+    'A tool call needs your approval — handle it in the Goals view',
+  '（≈ 表示部分调用未返回用量，按字数估算）':
+    ' (≈ means some calls did not report usage; estimated from text length)',
+  后台任务: 'Background task',
+  '厂商列表加载中…': 'Loading providers…',
+  '鉴权失败（401/403）：检查 API Key 是否正确或已过期':
+    'Auth failed (401/403): check whether the API key is correct or expired',
+  '找不到地址或模型（404）：核对 API 端点与模型名':
+    'Endpoint or model not found (404): check the API endpoint and model name',
+  '被限流（429）：稍后再试': 'Rate limited (429): try again later',
+  '厂商侧故障（5xx）：服务暂不可用，稍后再试':
+    'Provider-side failure (5xx): service temporarily unavailable, try again later',
+  'API 返回错误': 'The API returned an error',
+  '连接超时（15 秒）：检查网络或 API 端点':
+    'Connection timed out (15 s): check your network or the API endpoint',
+  '网络不通：检查端点地址、代理或防火墙':
+    'Network unreachable: check the endpoint address, proxy, or firewall',
+  'Mock 模型：未发起真实网络调用': 'Mock model: no real network call was made',
+  'Mock 模型：没有在线模型列表': 'Mock model: no online model list',
+  '上下文窗口：选了「自定义」，但还没填数值':
+    'Context window: “Custom” is selected but no value is filled in',
+  '清空滚动摘要与待压缩历史？短期记忆与长期记忆不受影响。':
+    'Clear the rolling summary and the pending-compression history? Short-term and long-term memory are unaffected.',
+  '，估算': ', estimated',
+  '（估算）': ' (estimated)',
+  'Gleam 自带（tools/go）': 'Bundled with Gleam (tools/go)',
+  '构建技能插件、从源码编译 Gleam 需要 Go 1.22+。请在下方填写路径或运行安装脚本。':
+    'Building skill plugins and compiling Gleam from source need Go 1.22+. Enter the path below or run the install script.',
+  'Gleam 会依次尝试国内镜像拉取 Go 1.23.4（约 80MB），校验官方 sha256 后解压到 Gleam 自己的':
+    'Gleam tries domestic mirrors in turn to fetch Go 1.23.4 (about 80 MB), verifies the official sha256, then unpacks it into Gleam’s own',
+  '目录，不动机器全局 PATH。': 'folder without touching the machine-wide PATH.',
+  '也可以手动装好 Go 后，在下方填写路径检测。':
+    'Or install Go yourself and enter its path below to detect it.',
+  自动安装没成功: 'Automatic install did not succeed',
+  '检查网络或代理后点「重试」；也可以换一个镜像源再试。':
+    'Check your network or proxy and hit Retry; you can also try a different mirror.',
+  '或跑安装脚本：': 'Or run the install script: ',
+  '或手动下载 Go：': 'Or download Go manually: ',
+  '装好后在下方填路径点「检测」':
+    'Once installed, enter the path below and hit Detect',
+  'Go 安装路径': 'Go install path',
+  '未在此路径找到 go.exe，请检查路径':
+    'No go.exe found at this path — please check it',
+  '从本机 SSH 配置与「设置 → 连接」里挑选一台主机。Gleam 只读 Host 名称，不读取用户名、地址或任何密钥。':
+    'Pick a host from the local SSH config and Settings → Connections. Gleam reads only the Host name — never the username, address, or any key.',
+  'SSH 主机': 'SSH host',
+  没有可用的主机: 'No hosts available',
+  '在 ~/.ssh/config 里写好 Host，或到「设置 → 连接」添加 SSH 连接。':
+    'Add a Host in ~/.ssh/config, or add an SSH connection under Settings → Connections.',
+  源文件夹: 'Source folder',
+  '+ 添加': '+ Add',
+  工作区名称: 'Workspace name',
+  '输入名称...': 'Enter a name...',
+  工作区图标: 'Workspace icon',
+  工作区颜色: 'Workspace color',
+  '建立工作区索引可增强上下文理解能力，从而提升智能体回复准确性。关于工作区索引数据处理方式，':
+    'A workspace index improves context understanding and makes the agent’s replies more accurate. For how workspace index data is handled,',
+  了解详情: 'learn more',
+  '工作区索引还没上线：这里只先记住你的开关意向。':
+    'Workspace indexing is not live yet — this only remembers your intent.',
+  点击添加可读写文件夹: 'Click to add a read/write folder',
+  可读写: 'Read/write',
+  移除该文件夹: 'Remove this folder',
+  '这里没有系统文件夹选择器，请在桌面应用里新建工作区。':
+    'There is no system folder picker here — create the workspace in the desktop app.',
+  '说出你想推进的事，Gleam 会边听边整理这轮会话的上下文。':
+    'Say what you want to move forward; Gleam listens and organizes this session’s context as you go.',
+  步骤: 'Step',
+  查看原始输出: 'View raw output',
+  '该任务详情已不在内存（重启后仅保留对话记录）':
+    'This task’s details are no longer in memory (only the conversation record survives a restart)',
+  '（无回复内容）': '(no reply content)',
+  此目录下没有子文件夹: 'No subfolders in this folder',
+  '注册成功，如项目开启了邮箱确认，请先到邮箱确认':
+    'Signed up — if the project requires email confirmation, confirm it in your inbox first',
+  '已在浏览器打开授权页，完成后自动登录…':
+    'The authorization page is open in your browser; you will be signed in automatically when it is done…',
+  '你的所有数据都保存在本机，不会上传云端。可随时复制路径去文件管理器查看或备份。':
+    'All your data is stored on this machine and is never uploaded. Copy the path into your file manager any time to view or back it up.',
+  '密钥文件（仅本机，权限仅自己可读）':
+    'Key file (local only, readable by you alone)',
+  '这个地址打不开：只接受 http / https。':
+    'This address will not open: only http / https are accepted.',
+  '还没有地址，先打开一个再谈外部浏览器。':
+    'No address yet — open one before using an external browser.',
+  '没弹出来：浏览器拦了弹窗，请在地址栏那里放行。':
+    'It did not appear: the browser blocked the pop-up — allow it in the address bar.',
+  请求过于频繁: 'Too many requests',
+  '已保存，但连接测试未通过，可在设置页调整':
+    'Saved, but the connection test did not pass — adjust it on the Settings page',
+  '已收起站点模板，可在「站点」页重新打开':
+    'Site templates collapsed — reopen them on the Sites page',
+  '更新已经下载并验证。安装会退出并重新打开 Gleam。':
+    'The update is downloaded and verified. Installing quits and reopens Gleam.',
+  稍后更新: 'Update later',
+  安装并重启应用: 'Install and restart',
+  重启: 'Restart',
+  '为一款本地优先的笔记应用做产品落地页：首屏标语与两个行动按钮、三项特性介绍、价格区与常见问题。':
+    'Build a product landing page for a local-first notes app: a hero headline with two call-to-action buttons, three feature blurbs, a pricing section, and an FAQ.',
+  '为一场城市夜骑活动做报名落地页：活动主视觉、时间地点、路线说明、报名表单（姓名、手机、车型），以及注意事项。':
+    'Build a sign-up landing page for a city night-ride event: a hero visual, date and location, route notes, a sign-up form (name, phone, bike type), and a notes section.',
+  '做一个街头摄影师的暗色作品集：顶部姓名与简介、按年份筛选、瀑布流照片网格（用占位色块代替照片）、点击放大的灯箱。':
+    'Build a dark portfolio for a street photographer: name and bio at the top, filter by year, a masonry photo grid (placeholder color blocks instead of photos), and a click-to-zoom lightbox.',
+  '做一个插画师的个人作品主页：大号姓名标题、三栏精选作品卡片（作品名 + 年份）、合作邀约区和联系方式，风格明亮活泼。':
+    'Build a personal homepage for an illustrator: a large name title, three featured-work cards (title + year), a collaboration section, and contact details — bright and playful.',
+  '做一个极简技术博客：站点名与一句话简介、文章列表（标题、日期、标签、两行摘要）、标签云和订阅入口，阅读舒适、深浅两套配色。':
+    'Build a minimal tech blog: site name and one-line intro, a post list (title, date, tags, two-line summary), a tag cloud, and a subscribe link — comfortable to read, with light and dark themes.',
+  '做一个读书笔记周刊的归档页：刊头、按期号排列的卡片（期号、本期书名、一句摘录）、搜索框与按年份分组，排版偏杂志感。':
+    'Build an archive page for a reading-notes weekly: a masthead, cards arranged by issue (issue number, book title, one quote), a search box, and grouping by year — magazine-style typography.',
+  '做一个家庭记账的月度看板：读取同目录 data.json（先生成一份示例数据并标明是示例），展示收支概览、按分类的环形图、按周的柱状图和最近流水表。':
+    'Build a monthly dashboard for family budgeting: read data.json in the same folder (generate sample data first and mark it as sample), showing an income/expense overview, a donut chart by category, a bar chart by week, and a recent-transactions table.',
+  '做一个团队周报指标看板：本地 data.json 驱动（先生成示例并标注），包含本周完成事项、进行中事项、阻塞项列表和一条趋势折线，适合投屏。':
+    'Build a team weekly-report dashboard: driven by a local data.json (generate and label sample data first), with this week’s completed items, in-progress items, a blockers list, and a trend line — suitable for screen sharing.',
+  '做一个会议室预约的内部小工具：左侧房间列表、右侧按小时的时间格，点格子弹出预约表单，数据存浏览器 localStorage，不需要后端。':
+    'Build an internal meeting-room booking tool: a room list on the left, an hourly time grid on the right, a booking form that pops up when you click a slot, and data in browser localStorage — no backend.',
+  '做一个设备借用登记台：设备表格（名称、编号、状态、借用人）、借出与归还按钮、按状态筛选，数据存 localStorage，可导出 CSV。':
+    'Build an equipment checkout desk: a device table (name, ID, status, borrower), check-out and return buttons, filter by status, data in localStorage, and CSV export.',
+  '做一张生日派对的网页邀请函：大号标题、时间地点、一段手写感的邀请语、加入日历按钮和回执表单（是否出席、人数）。':
+    'Build a web invitation for a birthday party: a large title, date and location, a handwritten-feel invite line, an add-to-calendar button, and an RSVP form (attending, number of guests).',
+  '做一个发布会倒计时单页：全屏深色背景、居中的天/时/分/秒倒计时（目标时间写在页面顶部的常量里）、一句标语和预约提醒按钮。':
+    'Build a single-page launch countdown: a full-screen dark background, a centered days/hours/minutes/seconds countdown (target time as a constant at the top of the page), a tagline, and a reminder button.',
+
+  // ---- chrome.js：快捷键 / 更新 / 关于 ----
+  逗号: 'comma',
+  '浏览器拦下了新窗口，请允许本页弹出窗口':
+    'The browser blocked the new window — allow pop-ups for this page',
+  '浏览器不允许网页读剪贴板，请直接按 Ctrl+V':
+    'The browser does not let the page read the clipboard — press Ctrl+V instead',
+  '浏览器没给剪贴板权限，请直接按 Ctrl+V':
+    'The browser did not grant clipboard permission — press Ctrl+V instead',
+  大小未知: 'Size unknown',
+  '更新源说我们问得太频繁了，过几分钟再试。':
+    'The update source says we are asking too often — try again in a few minutes.',
+  '发布页上还没有正式版本，暂时无从比较。':
+    'There is no formal release on the releases page yet, so there is nothing to compare against.',
+  '没能连上更新源。检查一下网络；如果走代理，确认 Gleam 能出网。':
+    'Could not reach the update source. Check your network; if you use a proxy, make sure Gleam can get out.',
+  '桌面版（Electron 外壳 + 本机服务）':
+    'Desktop (Electron shell + local service)',
+  在本机运行的智能体工作台: 'An agent workbench running on this machine',
+  '对话、技能、记忆与密钥都存在这台电脑上。':
+    'Chats, skills, memory and keys all stay on this computer.',
+  好: 'OK',
+  向下还原: 'Restore down',
+  '运行中…': 'Running…',
+  目录切换失败: 'Failed to change directory',
+  '输出可能不完整：有子进程仍持有输出管道':
+    'Output may be incomplete: a child process still holds the output pipe',
+  全部恢复默认: 'Restore all defaults',
+  '在任务输入框按 Ctrl+Enter 发送，Enter 换行。':
+    'In the task input, press Ctrl+Enter to send and Enter for a new line.',
+  '至少要带 Ctrl 或 Alt（F1–F12 除外）':
+    'Must include at least Ctrl or Alt (except F1–F12)',
+
+  // ---- geo.js / growth.js ----
+  '已开启：创作完成后自动给出 GEO 建议':
+    'On: suggests GEO improvements automatically after you write',
+  可以这样改: 'Try this',
+  高: 'High',
+  低: 'Low',
+  '请至少输入 10 个字再分析': 'Enter at least 10 characters before analyzing',
+  缺少冒号: 'missing colon',
+  档位名为空: 'tier name is empty',
+  模型名为空: 'model ID is empty',
+
+  // ---- market.js / memory.js ----
+  '没有匹配的 MCP 服务器': 'No matching MCP servers',
+  无: 'None',
+  搜索你的长期记忆: 'Search your long-term memory',
+  '在右上角输入关键词回车即可；上方也可以直接写入一条新记忆。':
+    'Type a keyword in the top right and press Enter; you can also write a new memory above.',
+  没有相关记忆: 'No related memories',
+  '换个关键词试试，或在上方写入这条你想让它记住的事。':
+    'Try another keyword, or write what you want it to remember above.',
+  '这条记忆与搜索词的相关度（词法相似度换算，同义词不算相关），越高越相关':
+    'How relevant this memory is to the search term (lexical similarity; synonyms do not count). Higher means more relevant',
+
+  // ---- schedules.js ----
+  暂停: 'Pause',
+  恢复: 'Resume',
+  '任务名不能含 / 或 \\，换一个说法即可':
+    'A task name cannot contain / or \\ — rephrase it',
+  '请用一句话说说执行时间，例如“每天早上9点”':
+    'Describe the schedule in one sentence, e.g. “every day at 9am”',
+
+  // ---- settings2-models.js ----
+  '已激活此模型，下一个任务开始用它':
+    'This model is active; the next task will use it',
+  '删除模型？': 'Delete model?',
+  校验并保存: 'Validate and save',
+  '请先填写 API Key 再拉取模型列表':
+    'Fill in the API key before fetching the model list',
+  '：这个入口可能不提供模型列表，从列表里选或手填即可':
+    ': this endpoint may not provide a model list — pick from the list or type one in',
+  '已填写的供应商、地址和密钥都不会保存。':
+    'The provider, address and key you entered will not be saved.',
+
+  // ---- settings2-pages.js ----
+  '自定义智能体暂不支持，可在任务输入框里选择内置专家角色':
+    'Custom agents are not supported yet — pick a built-in expert role in the task input',
+  '· 任务已暂停': ' · task paused',
+  清除失败: 'Failed to clear',
+  '在任何应用里按这个组合把 Gleam 拉到前台。只在本机注册，不联网。':
+    'Press this combination in any app to bring Gleam to the front. Registered locally only — no network.',
+  '至少要带一个修饰键（Ctrl / Alt / Shift / Win）':
+    'Must include at least one modifier key (Ctrl / Alt / Shift / Win)',
+  '还没选工作区：没有可建副本的仓库，任务会在不限定目录的边界里执行。':
+    'No workspace selected yet: there is no repository to copy, so tasks run without a bounded directory.',
+  '这个功能开着：每个任务建一份副本，任务在副本里执行。':
+    'This is on: each task gets its own copy and runs inside it.',
+  '5 个': '5',
+  '15 个': '15',
+  '30 个': '30',
+  '来自 ~/.ssh/config': 'From ~/.ssh/config',
+  '通配符（* ?）条目不会列出。': 'Wildcard (* ?) entries are not listed.',
+  '从你的 SSH 配置里挑选主机。Gleam 只读 Host 名称，不读取 HostName、用户名或任何密钥。':
+    'Pick a host from your SSH config. Gleam reads only the Host name — never HostName, username, or any key.',
+  '离线演示模型：没有发起网络请求':
+    'Offline demo model: no network request was made',
+  '先填代理地址，例如 http://127.0.0.1:7890':
+    'Enter the proxy address first, e.g. http://127.0.0.1:7890',
+
+  // ---- settings2.js ----
+  '清除本机登录凭证；本地任务和设置不会被删除。':
+    'Clears the local sign-in credentials; local tasks and settings are not deleted.',
+  '登录后可同步账户信息；不登录也能使用全部本地功能。':
+    'Signing in syncs account info; every local feature works without signing in.',
+  '显示名称（只保存在本机，用于侧栏和个人资料）':
+    'Display name (stored locally only, used in the sidebar and profile)',
+  '· 当前': ' · current',
+  '下次打开 Gleam 时按窗口宽度决定':
+    'Decided by window width the next time Gleam opens',
+
+  // ---- skills.js / tools.js ----
+  '启用后重新进入技能清单，可被引用与运行':
+    'Once enabled it re-enters the skill list and can be referenced and run',
+  '停用后保留内容与统计，但不再进技能清单':
+    'Once disabled its content and stats are kept, but it leaves the skill list',
+  '该技能无需参数。': 'This skill takes no parameters.',
+  成功: 'Success',
+  结束: 'Finished',
+  描述: 'Description',
+  已覆盖: 'Overridden',
+  恢复内置默认: 'Restore built-in default',
+  '参数（JSON）': 'Parameters (JSON)',
+
+  // ---- 第三轮补：前缀片段（后面还拼着运行期值，单独成句时也要认得出）与档位校验词 ----
+  '已停用 ·': 'Disabled ·',
+  '自动压缩已关闭 ·': 'Auto-compress off ·',
+  '· 云端账号': ' · Cloud account',
+  缺少冒号: 'missing colon',
+  档位名为空: 'tier name is empty',
+  模型名为空: 'model name is empty',
 };
 
 // 插值句子的翻译规则：整节点匹配正则后替换。只收界面自己拼的句子；
@@ -1802,10 +2073,7 @@ const I18N_PATTERNS = [
   ],
   // 组合尾缀（默认/辅助 + 无密钥）必须排在单尾缀之前，否则「· 无密钥」先把
   // 前半截当 host 吞掉，剩下的「默认」永远翻不动。
-  [
-    /^(.+) · 默认 · 无密钥$/,
-    (m, p) => `${I18N_EN[p] || p} · default · no key`,
-  ],
+  [/^(.+) · 默认 · 无密钥$/, (m, p) => `${I18N_EN[p] || p} · default · no key`],
   [/^(.+) · 辅助 · 无密钥$/, (m, p) => `${I18N_EN[p] || p} · fast · no key`],
   [/^(.*) · 无密钥$/, (m, host) => `${I18N_EN[host] || host} · no key`],
   [
@@ -1873,10 +2141,7 @@ const I18N_PATTERNS = [
     /^(.+) 已连接（(\d+) 个工具已注册）$/,
     (m, name, n) => `${name} connected (${n} tools registered)`,
   ],
-  [
-    /^(重装|安装) (.+)$/,
-    (m, v, name) => `${I18N_EN[v] || v} ${name}`,
-  ],
+  [/^(重装|安装) (.+)$/, (m, v, name) => `${I18N_EN[v] || v} ${name}`],
   [
     /^移除工具服务「(.+?)」？移除后它提供的工具将不再可用。$/,
     (m, name) =>
@@ -1921,10 +2186,7 @@ const I18N_PATTERNS = [
     (m, a, b, c) =>
       `Imported ${a}${b ? `, skipped ${b} already present` : ''}${c ? `, ${c} failed` : ''}`,
   ],
-  [
-    /^(.+?) · 环境变量 (.+)$/,
-    (m, where, keys) => `${where} · env: ${keys}`,
-  ],
+  [/^(.+?) · 环境变量 (.+)$/, (m, where, keys) => `${where} · env: ${keys}`],
   [
     /^来自 Claude Code \/ Claude Desktop \/ Cursor \/ VS Code \/ Codex 的配置文件。只读命令与参数，环境变量的值不会读出来；同名服务器已安装的会跳过，不覆盖你现在的配置。(?: 另有 (\d+) 台是 URL\/SSE 型，Gleam 目前只支持 stdio 接入，没有列出。)?$/,
     (m, skipped) =>
@@ -1941,7 +2203,7 @@ const I18N_PATTERNS = [
       `Skill "${name}" ${v === '安装' ? 'installed' : 'reinstalled'} — run it on the Skills page`,
   ],
   [
-    /^占用 (\d+)% · 模型窗口 (.+?)（(.+?)，(.+?)） · 最近一次请求 (\d+) tokens(（估算）)? · 下一轮带 (\d+) 轮最近对话 · 短期窗口 (\d+)\/(\d+) 轮，待压缩 (\d+) 轮(?: · 累计已省约 (\d+) tokens)?$/,
+    /^占用 (\d+)% · 模型窗口 (.+?)（(.+?)，(.*?)） · 最近一次请求 (\d+) tokens(（估算）)? · 下一轮带 (\d+) 轮最近对话 · 短期窗口 (\d+)\/(\d+) 轮，待压缩 (\d+) 轮(?: · 累计已省约 (\d+) tokens)?$/,
     (m, pct, win, src, note, tok, est, carry, sa, sb, sc, saved) =>
       `Used ${pct}% · model window ${win} (${I18N_EN[src] || src}, ${note}) · last request ${tok} tokens${est ? ' (estimated)' : ''} · ${carry} turns carried next round · short window ${sa}/${sb} turns, ${sc} to compress${saved ? ` · ~${saved} tokens saved so far` : ''}`,
   ],
@@ -2018,12 +2280,289 @@ const I18N_PATTERNS = [
     (m, n) =>
       `Scanned ${n} files. The selection is written into Gleam's memory store paragraph by paragraph; read-only — their files are never modified.`,
   ],
+  // ---- 第三轮：现场拼出的整句按「形状」收口 ----
+  // 句子里混着运行期数字 / ID / 路径时不进词表，按形状匹配；尾巴能递归翻的就递归。
+  [/^搜索 "(.+)" · (\d+) 个结果$/, (m, q, n) => `Search "${q}" · ${n} results`],
+  [/^验收清单 (\d+)\/(\d+) 项通过$/, (m, a, b) => `Checklist ${a}/${b} passed`],
+  [/^本次改动 (\d+) 个路径$/, (m, n) => `${n} paths changed this round`],
+  [/^(.*?)\s*· 由 (.+?) 改的$/, (m, p, t) => `${p} · changed by ${t}`],
+  [
+    /^把「(.+?)」退回到这次任务开始前的样子？(.*)当前内容不会保留。$/,
+    (m, name, pair) =>
+      `Revert "${name}" to how it was before this task started? ${i18nText(pair) || pair}Current content will not be kept.`,
+  ],
+  [
+    /^执行工具 (\d+) 次( · 进行中)?$/,
+    (m, n, run) => `${n} tool runs${run ? ' · running' : ''}`,
+  ],
+  [
+    /^其中 (\d+) 次失败( · 进行中)?$/,
+    (m, n, run) => `${n} failed${run ? ' · running' : ''}`,
+  ],
+  [/^· (\d+) 次工具$/, (m, n) => ` · ${n} tool calls`],
+  [
+    /^；缓存命中 (\d+)%（(.+?) tokens）([\s\S]*)$/,
+    (m, p, t, rest) =>
+      `; cache hit ${p}% (${t} tokens)${i18nText(rest) || rest}`,
+  ],
+  [/^；(\d+) 次重试$/, (m, n) => `; ${n} retries`],
+  [/^可固化为技能「(.+?)」$/, (m, n) => `Can be saved as a skill "${n}"`],
+  [
+    /^本次任务包含 (\d+) 个步骤，保存后可一键复用。$/,
+    (m, n) => `This task has ${n} steps; save it to reuse them in one click.`,
+  ],
+  [/^目标完成（(.+?)\/100）$/, (m, s) => `Goal complete (${s}/100)`],
+  [
+    /^目标(.+?)（(.+?)\/100）$/,
+    (m, st, s) => `Goal ${i18nText(st) || st} (${s}/100)`,
+  ],
+  [
+    /^已设置，仅发往 (.+?)；留空表示不修改$/,
+    (m, h) => `Already set; sent only to ${h} — leave blank to keep it`,
+  ],
+  [
+    /^已存的密钥属于 (.+?)，换厂商需重新填写$/,
+    (m, h) =>
+      `The stored key belongs to ${h}; re-enter it when switching providers`,
+  ],
+  [
+    /^已获取 (\d+) 个模型，模型框可直接点选$/,
+    (m, n) => `Fetched ${n} models — pick one in the model box`,
+  ],
+  [/^· 已省约 (\d+) tokens$/, (m, n) => ` · ~${n} tokens saved`],
+  [/^· 累计已省约 (\d+) tokens$/, (m, n) => ` · ~${n} tokens saved so far`],
+  [
+    /^本机配置：(.+?)（只解析 Host 名称）$/,
+    (m, p) => `Local config: ${p} (reads the Host name only)`,
+  ],
+  [
+    /^删除空间「(.+?)」？其中 (\d+) 个对话会移入「默认空间」，不会丢失。$/,
+    (m, name, n) =>
+      `Delete space "${name}"? Its ${n} chats move to "Default space" and are not lost.`,
+  ],
+  [/^确定删除空间「(.+?)」？$/, (m, name) => `Delete space "${name}"?`],
+  [
+    /^还有 (\d+) 个目标正在执行，完成后再开始新对话$/,
+    (m, n) =>
+      `${n} goals are still running — start a new chat once they finish`,
+  ],
+  [
+    /^删除对话「(.+?)」？此操作不可恢复。$/,
+    (m, t) => `Delete chat "${i18nText(t) || t}"? This cannot be undone.`,
+  ],
+  [
+    /^共 (\d+) 个本地文件，约 ([\d.]+) KB。包含密钥、对话记录、技能、记忆、工具配置等。$/,
+    (m, n, kb) =>
+      `${n} local files, about ${kb} KB. They include keys, chat history, skills, memories and tool settings.`,
+  ],
+  [
+    /^没能读到本机版本（(.+?)），检查更新没能开始，稍后再试一次。$/,
+    (m, e) =>
+      `Couldn't read the local version (${e}) — the update check did not start; try again later.`,
+  ],
+  [/^上一轮：已完成（(.+?)\/100）$/, (m, s) => `Last round: done (${s}/100)`],
+  [
+    /^正在载入 (.+?) · 一直空白多半是它拒绝被嵌，用「在系统浏览器打开」$/,
+    (m, u) =>
+      `Loading ${u} · a blank panel usually means it refuses to be embedded — use "Open in system browser"`,
+  ],
+  [
+    /^有 (\d+) 个空间不在当前工作区范围内，切到那个空间再刷新就能扫到$/,
+    (m, n) =>
+      `${n} spaces are outside the current workspace scope; switch to that space and refresh to scan them`,
+  ],
+  [
+    /^共 (\d+) 个，这里先列前 (\d+) 个$/,
+    (m, a, b) => `${a} in total; the first ${b} are listed here`,
+  ],
+  [/^更新 (\d+)%$/, (m, n) => `Updating ${n}%`],
+  // chrome.js：检查更新 / 应用更新的一串句子
+  [
+    /^没能问到更新情况：(.+?)。稍后再试一次。$/,
+    (m, e) => `Couldn't check for updates: ${e}. Try again later.`,
+  ],
+  [
+    /^已是最新版本 (.+?)。 发布页上还没有比它更新的版本，不用动它。$/,
+    (m, v) =>
+      `Already on the latest version ${v}. Nothing newer on the release page — no action needed.`,
+  ],
+  [
+    /^本机版本 (.+?)。 ([\s\S]+)$/,
+    (m, v, why) => `Local version ${v}. ${i18nText(why) || why}`,
+  ],
+  [
+    /^发现新版本 v(.+?)，你现在是 (.+?)。$/,
+    (m, latest, cur) => `New version v${latest} available; you are on ${cur}.`,
+  ],
+  [
+    /^将下载 (.+?)（(.+?)）并覆盖当前程序本身。对话、技能、密钥都存在「本地数据」目录里，换程序不影响它们；旧版本会留一份 \.old 备份，想退回去改回扩展名即可。$/,
+    (m, name, size) =>
+      `Will download ${name} (${size}) and overwrite the current program. Chats, skills and keys all live in the "Local data" directory, so swapping the program does not affect them; the old version is kept as a .old backup — rename its extension to roll back.`,
+  ],
+  [
+    /^已更新到 v(.+?)（下载的是 (.+?)）。 把 Gleam 关掉再打开，新版本就生效了。原文件留在 (.+?)，要退回旧版就把它的扩展名改回去。$/,
+    (m, v, to, backup) =>
+      `Updated to v${v} (downloaded ${to}). Quit Gleam and open it again for the new version to take effect. The original file is kept at ${i18nText(backup) || backup}; rename its extension to roll back.`,
+  ],
+  [
+    /^，要退回旧版就把它的扩展名改回去。$/,
+    () => `; rename its extension to roll back.`,
+  ],
+  [/^浏览器（本机服务 (.+?)）$/, (m, h) => `Browser (local service ${h})`],
+  [
+    /^这条命令需要你的批准(：([\s\S]*))?$/,
+    (m, _colon, r) => `This command needs your approval${r ? `: ${r}` : ''}`,
+  ],
+  [/^已被「(.+?)」使用$/, (m, c) => `Already used by "${i18nText(c) || c}"`],
+  [
+    /^「(.+?)」的快捷键已清除$/,
+    (m, t) => `Shortcut for "${i18nText(t) || t}" cleared`,
+  ],
+  // growth.js / importer.js / market.js
+  [
+    /^第 (\d+) 行「(.+?)」(.+?)（格式：档位: 模型ID）$/,
+    (m, i, line, why) =>
+      `Line ${i} "${line}": ${i18nText(why) || why} (format: tier: model-id)`,
+  ],
+  [/^([\d.]+)小时$/, (m, n) => `${n} h`],
+  [/^· 环境变量 (.+)$/, (m, k) => ` · env: ${k}`],
+  [
+    /^信任 ([\s\S]+?)( · [\s\S]*)?$/,
+    (m, p, rest) =>
+      `Trust ${i18nText(p) || p}${rest ? i18nTail(rest) || rest : ''}`,
+  ],
+  [/^· (\d+) 个工具$/, (m, n) => ` · ${n} tools`],
+  [
+    /^已连接（(\d+) 个工具已注册）$/,
+    (m, n) => `Connected (${n} tools registered)`,
+  ],
+  [/^相关度 (\d+)%$/, (m, n) => `Relevance ${n}%`],
+  [
+    /^删除这条记忆？ 「(.+?)」 删除后不再参与检索。$/,
+    (m, x) =>
+      `Delete this memory? "${x}" — once deleted it is no longer searched.`,
+  ],
+  // schedules.js / settings2-pages.js / skills.js / tools.js
+  [
+    /^删除定时任务「(.+?)」？此操作不可恢复。$/,
+    (m, n) => `Delete scheduled task "${n}"? This cannot be undone.`,
+  ],
+  [/^下次 (.+)$/, (m, w) => `Next ${w}`],
+  [/^已触发「(.+?)」$/, (m, n) => `Triggered "${n}"`],
+  [
+    /^「(.+?)」没有触发（可能正在运行）$/,
+    (m, n) => `"${n}" did not fire (it may already be running)`,
+  ],
+  [
+    /^当前工作区不是 git 仓库(.*?)，任务会在工作区里直接执行——想用副本请先把工作区换到一个 git 仓库。$/,
+    (m, ws) =>
+      `The current workspace is not a git repository${ws}, so tasks run directly in the workspace — switch the workspace to a git repository to use copies.`,
+  ],
+  [
+    /^([\s\S]+?)。继续会把里面的内容一起丢掉，且丢了找不回来。$/,
+    (m, msg) =>
+      `${i18nText(msg) || msg}. Continuing will discard its contents too, and once gone they cannot be recovered.`,
+  ],
+  [/^添加（(\d+)）$/, (m, n) => `Add (${n})`],
+  [
+    /^读取自 (.+?)（只解析 Host 名称）$/,
+    (m, p) => `Read from ${p} (reads the Host name only)`,
+  ],
+  [
+    /^在 (.+?) 写好 Host 后点「重新读取」。$/,
+    (m, p) => `Write Host entries in ${p}, then click "Read again".`,
+  ],
+  [/^已记下 (\d+) 台主机$/, (m, n) => `Recorded ${n} hosts`],
+  [
+    /^将永久删除 (\d+) 条已结束任务的记录（盘上的归档文件一并删除），无法恢复。$/,
+    (m, n) =>
+      `This permanently deletes ${n} finished-task records (their archive files on disk go too) and cannot be undone.`,
+  ],
+  [
+    /^「(.+?)」的记录和归档文件会被永久删除。$/,
+    (m, g) =>
+      `The record for "${g}" and its archive file will be permanently deleted.`,
+  ],
+  [
+    /^运行 (\d+) 次 · 成功 (\d+) · (\d+) 步([\s\S]*)$/,
+    (m, a, b, c, rest) =>
+      `Ran ${a} times · ${b} succeeded · ${c} steps${i18nTail(rest) || rest}`,
+  ],
+  [/^· 参数: (.+)$/, (m, x) => ` · params: ${x}`],
+  [/^技能「(.+?)」已启用$/, (m, n) => `Skill "${n}" enabled`],
+  [/^技能「(.+?)」已停用$/, (m, n) => `Skill "${n}" disabled`],
+  [
+    /^删除技能「(.+?)」？此操作不可恢复。$/,
+    (m, n) => `Delete skill "${n}"? This cannot be undone.`,
+  ],
+  [/^运行技能「(.+?)」$/, (m, n) => `Run skill "${n}"`],
+  [
+    /^技能执行(成功|结束)（([\s\S]*)）$/,
+    (m, st, s) =>
+      `Skill run ${st === '成功' ? 'succeeded' : 'finished'} (${i18nText(s) || s})`,
+  ],
+  [/^保存技能「(.+?)」$/, (m, n) => `Save skill "${n}"`],
+  [/^技能「(.+?)」已保存$/, (m, n) => `Skill "${n}" saved`],
+  [
+    /^工具 (.+?) 权限已更新（(.+?)）$/,
+    (m, t, v) => `${i18nText(t) || t} permission updated (${i18nText(v) || v})`,
+  ],
+  [
+    /^(内置默认)?（当前 (.+?)）$/,
+    (m, pre, x) =>
+      `${pre ? 'Built-in default ' : ''}(currently ${i18nText(x) || x})`,
+  ],
+  [/^工作区：(.+)$/, (m, p) => `Workspace: ${p}`],
+  [
+    /^(\d+) 个 index\.html 不是 Gleam 生成的，已略过$/,
+    (m, n) => `${n} index.html files were not generated by Gleam — skipped`,
+  ],
+  // 会话用量行：`≈12.3k tokens · 4 次调用 · 6 次工具`
+  [
+    /^([\s\S]*?) tokens · (\d+) 次调用(?: · (\d+) 次工具)?$/,
+    (m, tk, calls, tools) =>
+      `${tk} tokens · ${calls} calls${tools ? ` · ${tools} tools` : ''}`,
+  ],
+  // 用量 tooltip 的「；」串：整串不命中时由 i18nText 的「，；」分段规则拆开，
+  // 逐段落到下面这三条。
+  [
+    /^输入 (\d+) \/ 输出 (\d+) token$/,
+    (m, i, o) => `Input ${i} / output ${o} tokens`,
+  ],
+  [
+    /^缓存命中 (\d+)%（(.+?) tokens）$/,
+    (m, p, t) => `Cache hit ${p}% (${t} tokens)`,
+  ],
+  [/^(\d+) 次重试$/, (m, n) => `${n} retries`],
+  // 改动清单的表头片段与账号行
+  [/^可还原 (\d+)\/(\d+)$/, (m, a, b) => `Restorable ${a}/${b}`],
+  [/^([\s\S]+) · 云端账号$/, (m, h) => `${h} · Cloud account`],
+  [/^已连接 SSH：(.+)$/, (m, h) => `Connected over SSH: ${h}`],
+  [/^继续完善 (.+?)：$/, (m, p) => `Keep improving ${p}:`],
+  [
+    /^在工作区新建 sites\/(.+?)：([\s\S]*)单文件 HTML \+ CSS，不依赖外部资源，桌面和手机都能看。$/,
+    (m, id, prompt) =>
+      `Create sites/${id} in the workspace: ${prompt}Single-file HTML + CSS, no external resources, works on desktop and mobile.`,
+  ],
 ];
 
 const I18N_ATTRS = ['placeholder', 'title', 'aria-label'];
 const i18nOrig = new WeakMap();
 let i18nLang = 'zh';
 let i18nApplying = false;
+
+// 翻规则里的「尾巴」：尾巴是拼接留下的片段，可能带着空白，先按 i18nNode 的规矩
+// 归一化（空白压成单空格、去首尾）再查，否则 `· 参数: x` 会因前导空格查不中。
+function i18nTail(s) {
+  return i18nText(String(s).replace(/\s+/g, ' ').trim(), false);
+}
+
+// 输入框里预填的内容（.value 不走 DOM 文本节点那条路）。英文模式下同样给英文；
+// 中文模式原样返回，不做任何翻译。
+function i18nValue(text) {
+  const s = String(text);
+  return i18nLang === 'en' ? i18nText(s) || s : s;
+}
 
 // 取一条文案的英文；没有就返回 null（表示"这句不翻"）。
 // 规则可以返回 null 表示"这条不归我管"，后面更专的规则还有机会——最靠前的
@@ -2037,6 +2576,39 @@ function i18nText(key, isAttr) {
     const hit = fn(...m);
     if (hit != null) return hit;
   }
+  // 运行期自己拼上去的句号：`bits.join('；') + '。'`（app.js 的站点/改动汇总行）。
+  // 整句查不到就把句号摘下来再查一次，查到了补回一个英文句号——别因为一个标点漏翻一整句。
+  const HAN = /[\u4e00-\u9fff\uf900-\ufaff]/;
+  if (key.endsWith('。')) {
+    const en = i18nText(key.slice(0, -1), isAttr);
+    if (en != null) return /[.!?;,:]$/.test(en) ? en : en + '.';
+  }
+  // 分隔符串起来的汇总行（app.js 里 `bits.join('；')` / `bits.join('，')`）：先按分号切，
+  // 每段各自再走一遍完整规则（可能命中整句 pattern，也可能继续按逗号细分），分隔符换成
+  // 英文标点。**必须先分号后逗号**：句子内部本来就有逗号（`有 N 个空间…，切到…就能扫到`），
+  // 先按逗号切会把整句打碎。带中文的段必须每段都翻得动，整串才动；一段翻不动就整句不翻,
+  // 不半翻——运行期内容（路径、名字）不该被抠掉半截。纯 ASCII 段原样穿过。
+  const splitJoin = (sep, en) => {
+    const parts = key.split(sep);
+    if (parts.length < 2) return null;
+    let hit = false;
+    const out = [];
+    for (const p of parts) {
+      if (!HAN.test(p)) {
+        out.push(p);
+        continue;
+      }
+      const e = i18nText(p, isAttr);
+      if (e == null) return null;
+      hit = true;
+      out.push(e);
+    }
+    return hit ? out.join(en) : null;
+  };
+  const semi = splitJoin('；', '; ');
+  if (semi != null) return semi;
+  const comma = splitJoin('，', ', ');
+  if (comma != null) return comma;
   return null;
 }
 
