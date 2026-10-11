@@ -1,7 +1,3 @@
-/* 设置 v2 · 模型：多模型列表管理 + 添加/编辑对话框。
- * Gleam 支持同时配置多个模型（不同厂商、不同协议），对话页下拉切换。
- * 每条模型是独立的 ModelEntry（厂商/协议/地址/模型/密钥），CRUD 走 /api/models。
- * API Key 只往后端写，页面上永远只显示「已设置 / 未设置」，不回显、不打日志。 */
 'use strict';
 
 (() => {
@@ -69,8 +65,6 @@
     if (!PROVS) PROVS = (await api('GET', '/api/providers')).providers || [];
     return PROVS;
   }
-  // 首字母取的是**显示语言下**的名字：直接拿中文名去取，英文界面里会留下「智」「月」
-  // 这种落单的汉字。i18nText 是 i18n.js 的全局查表函数，没命中就退回原名。
   const glyph = (name, cls = '') => {
     const src = i18nText(String(name || '')) || String(name || '?');
     const ch = [...src.replace(/^[^\p{L}\p{N}]+/u, '')][0] || '?';
@@ -87,6 +81,12 @@
       return u || '';
     }
   };
+
+  async function afterMutation() {
+    try {
+      if (typeof loadSettings === 'function') await loadSettings();
+    } catch {}
+  }
 
   function ensureShell() {
     const panel = document.querySelector('.settings-panel[data-stab="llm"]');
@@ -130,14 +130,11 @@
     const [s, provs] = await Promise.all([settings(true), providers()]);
     const L = s.llm;
     const models = L.models || [];
-    // 获取当前激活的模型（运行时使用的）
     let activeModel = null;
     try {
       const activeResp = await api('GET', '/api/models');
       activeModel = activeResp && activeResp.active;
-    } catch (e) {
-      // 忽略，可能是首次没有激活模型
-    }
+    } catch (e) {}
     const addBtn = btn(
       '',
       () => openDialog(null),
@@ -201,6 +198,7 @@
                       `/api/models/${encodeURIComponent(m.id)}/activate`,
                     );
                     toast('已激活此模型，下一个任务开始用它', 'success', 1800);
+                    afterMutation();
                     render();
                   } catch (err) {
                     toast(`操作失败：${err.message}`, 'error');
@@ -234,6 +232,7 @@
               try {
                 await api('DELETE', `/api/models/${encodeURIComponent(m.id)}`);
                 toast(`已删除 ${m.name}`, 'success', 1800);
+                afterMutation();
                 render();
               } catch (err) {
                 toast(`删除失败：${err.message}`, 'error');
@@ -249,8 +248,6 @@
             'div',
             { class: 's2-model-text' },
             h('strong', {}, m.model || '（未填模型）', ...badges),
-            // 厂商名与套餐标签由后端目录带出，各成一个文本节点：拼成一整句之后
-            // 节点查不到词条，英文界面里就会剩下一截中文。
             h(
               'small',
               {},
@@ -289,7 +286,6 @@
     root.replaceChildren(...kids);
   }
 
-  /* ---------------- 添加 / 编辑对话框 ---------------- */
   async function openDialog(entry) {
     const provs = await providers();
     const isEdit = !!entry;
@@ -587,9 +583,7 @@
         link,
       );
     }
-    // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；
-    // 内置目录只作离线兜底；手填始终可用。三条来源都在界面上标出来。
-    const MODEL_SEARCH_THRESHOLD = 30; // 超过就出过滤框：OpenRouter 这类能拉到几百个
+    const MODEL_SEARCH_THRESHOLD = 30;
     const catKey = (host) => 'gleam.modelcat.' + host;
 
     function catGet(host) {
@@ -597,7 +591,7 @@
         const o = JSON.parse(localStorage.getItem(catKey(host)) || 'null');
         return o && Array.isArray(o.ids) && o.ids.length ? o : null;
       } catch {
-        return null; // 存坏了就当没有，不影响手填
+        return null;
       }
     }
     function catPut(host, ids) {
@@ -606,9 +600,7 @@
           catKey(host),
           JSON.stringify({ ids, at: new Date().toISOString() }),
         );
-      } catch {
-        /* 存不下只影响下次，不打断本次 */
-      }
+      } catch {}
     }
     function ago(iso) {
       const mins = Math.max(
@@ -621,13 +613,8 @@
       return hours < 24 ? hours + ' 小时前' : Math.round(hours / 24) + ' 天前';
     }
 
-    // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；内置目录只作离线兜底；
-    // 手填始终可用。
-    //
-    // 用与「供应商」**同一个 .s2-picker 弹层**，不用原生 <select>：原生控件做不出
-    // 「选中项打勾」，也没法在列表里塞过滤框，两种控件摆在同一张表单上手感会不一致。
     function modelField() {
-      let fetched = []; // 本次打开期间拉到的
+      let fetched = [];
       let manual = false;
       let query = '';
       let optsBox = null;
@@ -672,7 +659,6 @@
         trigger.querySelector('.s2-picker-name').textContent = text;
       };
 
-      // 三条来源合并去重，越靠前越「新」：本次拉取 > 缓存 > 内置兜底。
       function sources() {
         const seen = new Set();
         const out = [];
@@ -686,7 +672,6 @@
         const c = cached();
         if (c) c.ids.forEach(push);
         builtin().forEach(push);
-        // 当前值不在列表里（自建网关、或清单没收录）也要显示出来，否则字段会空
         if (st.modelName && !seen.has(st.modelName)) out.unshift(st.modelName);
         return out;
       }
@@ -741,7 +726,6 @@
         );
       }
 
-      // 只重画选项：过滤时若整层重建，输入框每敲一个字就失焦。
       function fillOptions() {
         if (!optsBox) return;
         const needle = query.trim().toLowerCase();
@@ -773,7 +757,6 @@
         optsBox = null;
 
         if (manual || !ids.length) {
-          // 三条来源都空（自建网关、没 key、没缓存）：不给一个空弹层，直接退到纯手填
           if (!ids.length) manual = true;
           custom.hidden = false;
           setName(
@@ -808,7 +791,6 @@
             query = filter.value;
             fillOptions();
           });
-          // 别和弹层的方向键抢：在过滤框里按上下键应是移动光标
           filter.addEventListener('keydown', (e) => e.stopPropagation());
           list.append(filter);
         }
@@ -849,8 +831,6 @@
         validate();
       });
 
-      // 启动装配时不再从预设取默认模型——那批默认值已被刻意移除；
-      // 没填就是没填，界面显示「请选择模型」，由用户去选或去拉。
       paintModel();
 
       const fetchBtn = h(
@@ -871,7 +851,7 @@
           const r = await api('POST', '/api/llm/models', target());
           if (r.ok && Array.isArray(r.models) && r.models.length) {
             fetched = r.models.map((m) => m.id);
-            catPut(host(), fetched); // 存下来：下次打开不用重新填 key
+            catPut(host(), fetched);
             query = '';
             paintModel();
             showResult(
@@ -962,7 +942,7 @@
       b.is_default = st.isDefault;
       if (st.editing) {
         b.id = st.entryId;
-        b.model_id = st.entryId; // 用于测试时查找现有模型的密钥
+        b.model_id = st.entryId;
       }
       return b;
     }
@@ -1053,6 +1033,7 @@
           toast(`已添加模型 ${t.name}`, 'success', 2200);
         }
         close();
+        await afterMutation();
         render();
       } catch (err) {
         showResult('fail', err.message || String(err));

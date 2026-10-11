@@ -16,13 +16,79 @@ import (
 	"gleam/internal/llm"
 )
 
-// glmHost 一条真实的官方入口，用来测"密钥绑到了哪台主机"。
 const glmHost = "https://open.bigmodel.cn/api/paas/v4"
 
-// scopeOf 复用生产的 host 解析，不在测试里另抄一份——抄一份就会和实现漂移。
 func scopeOf(baseURL string) string { return llm.KeyScope(baseURL) }
 
-// ---------- 设置与上下文 API ----------
+func modelPatch(name, model, key string) map[string]any {
+	return map[string]any{
+		"id":       "m-" + name,
+		"name":     name,
+		"protocol": "openai_chat",
+		"base_url": "https://models.example.test/v1",
+		"model":    model,
+		"api_key":  key,
+	}
+}
+
+func TestWebUI_ModelAddBecomesActive(t *testing.T) {
+	f := newFixture(t, nil)
+	f.call("POST", "/api/models", modelPatch("primary", "gpt-x", "sk-abc"))
+
+	list := f.call("GET", "/api/models", nil)
+	active, _ := list["active"].(map[string]any)
+	if active == nil {
+		t.Fatalf("/api/models returned no active entry: %v", list)
+	}
+	if active["id"] != "m-primary" {
+		t.Errorf("active = %v, want the entry just added", active["id"])
+	}
+	if active["api_key_set"] != true {
+		t.Errorf("api_key_set = %v", active["api_key_set"])
+	}
+	cfg := f.call("GET", "/api/settings", nil)["llm"].(map[string]any)
+	if cfg["api_key_set"] != true {
+		t.Errorf("settings api_key_set = %v, want true after add", cfg["api_key_set"])
+	}
+}
+
+func TestWebUI_ModelAddRewiresRuntime(t *testing.T) {
+	f := newFixture(t, nil)
+	f.agent.Cfg.LLM.Provider = "custom"
+
+	f.call("POST", "/api/models", modelPatch("primary", "gpt-latest", "sk-real"))
+
+	if got := f.agent.Cfg.LLM.Model; got != "gpt-latest" {
+		t.Errorf("Cfg.LLM.Model = %q", got)
+	}
+	if got := f.agent.Cfg.LLM.BaseURL; got != "https://models.example.test/v1" {
+		t.Errorf("Cfg.LLM.BaseURL = %q", got)
+	}
+	if got := f.agent.LLMName(); got == "unavailable" {
+		t.Error("main client is still unavailable: adding a model did not reach the runtime")
+	}
+
+	f.call("POST", "/api/models", modelPatch("backup", "gpt-backup", "sk-backup"))
+	f.call("POST", "/api/models/m-backup/activate", nil)
+	if got := f.agent.Cfg.LLM.Model; got != "gpt-backup" {
+		t.Errorf("Cfg.LLM.Model after activate = %q", got)
+	}
+	active := f.call("GET", "/api/models", nil)["active"].(map[string]any)
+	if active["id"] != "m-backup" {
+		t.Errorf("active = %v, want the activated entry", active["id"])
+	}
+}
+
+func TestWebUI_ModelDeleteFallsBack(t *testing.T) {
+	f := newFixture(t, nil)
+	f.agent.Cfg.LLM.Provider = "custom"
+	f.call("POST", "/api/models", modelPatch("only", "only-model", "sk-1"))
+	f.call("DELETE", "/api/models/m-only", nil)
+
+	if list := f.call("GET", "/api/models", nil); list["active"] != nil {
+		t.Errorf("active still reported with an empty list: %v", list["active"])
+	}
+}
 
 func TestWebUI_SettingsGetMasked(t *testing.T) {
 	f := newFixture(t, nil)
@@ -39,8 +105,6 @@ func TestWebUI_SettingsGetMasked(t *testing.T) {
 	}
 }
 
-// TestWebUI_EngineRangeRejection 引擎参数越界必须整次拒绝并报错（曾因 posInt 无上限，
-// done_threshold=150 / max_replans=999 被"保存成功"静默接受）。max_steps=0 是合法兜底值。
 func TestWebUI_EngineRangeRejection(t *testing.T) {
 	f := newFixture(t, nil)
 	post := func(body any) (int, map[string]any) {
@@ -63,14 +127,12 @@ func TestWebUI_EngineRangeRejection(t *testing.T) {
 	if code, out := post(map[string]any{"agent": map[string]any{"max_replans": 999}}); code < 400 {
 		t.Errorf("max_replans=999 应被拒绝，得到 %d %v", code, out)
 	}
-	// 合法补丁里混一个越界字段：整次拒绝，合法字段也不许夹带生效
 	if code, _ := post(map[string]any{"agent": map[string]any{"max_replans": 5, "done_threshold": 200}}); code < 400 {
 		t.Errorf("混合越界应整次拒绝，得到 %d", code)
 	}
 	if f.agent.Cfg.Agent.MaxReplans == 5 {
 		t.Error("被拒绝的请求里合法字段不应生效")
 	}
-	// 边界内值（含 max_steps=0 的"用默认"语义）正常接受
 	if code, out := post(map[string]any{"agent": map[string]any{"max_steps": 0, "done_threshold": 90}}); code >= 400 {
 		t.Errorf("合法值被拒，得到 %d %v", code, out)
 	}
@@ -81,7 +143,7 @@ func TestWebUI_EngineRangeRejection(t *testing.T) {
 
 func TestWebUI_SettingsApplyAndPersist(t *testing.T) {
 	f := newFixture(t, nil)
-	f.agent.Cfg.LLM.Provider = "glm" // 非 mock 时 ApplySettings 才会热更新 GLM 客户端字段
+	f.agent.Cfg.LLM.Provider = "glm"
 	updated := f.call("POST", "/api/settings", map[string]any{
 		"persona": map[string]any{"style": "gentle", "name": "小光"},
 		"agent":   map[string]any{"step_retries": 3, "context_compress": false},
@@ -98,11 +160,9 @@ func TestWebUI_SettingsApplyAndPersist(t *testing.T) {
 	if updated["safety"].(map[string]any)["mode"] != "plan_first" {
 		t.Error("safety.mode 未更新")
 	}
-	// 运行时热生效
 	if f.agent.Cfg.Safety.Mode != "plan_first" {
 		t.Error("cfg.Safety.Mode 未生效")
 	}
-	// 覆盖层已持久化，可被新配置加载恢复
 	fresh := config.Default()
 	if err := config.LoadOverlay(fresh, filepath.Join(f.dataDir, config.OverlayFile)); err != nil {
 		t.Fatal(err)
@@ -112,7 +172,6 @@ func TestWebUI_SettingsApplyAndPersist(t *testing.T) {
 	}
 }
 
-// TestWebUI_CostGovernanceSettingsRoundTrip 成本治理四件套的设置项应能保存、热生效并持久化。
 func TestWebUI_CostGovernanceSettingsRoundTrip(t *testing.T) {
 	f := newFixture(t, nil)
 	updated := f.call("POST", "/api/settings", map[string]any{
@@ -138,13 +197,11 @@ func TestWebUI_CostGovernanceSettingsRoundTrip(t *testing.T) {
 	if got := updated["llm"].(map[string]any)["fast_model"]; got != "glm-cheap" {
 		t.Errorf("fast_model = %v", got)
 	}
-	// 运行时热生效
 	if f.agent.Cfg.Agent.DedupeCalls || f.agent.Cfg.Agent.MaxLLMCallsPerTask != 7 ||
 		f.agent.Cfg.Agent.MaxTokensPerTask != 12345 || f.agent.Cfg.Agent.MaxTaskDurationSecs != 42 ||
 		f.agent.Cfg.LLM.FastModel != "glm-cheap" {
 		t.Errorf("运行时配置未生效: agent=%+v fast=%q", f.agent.Cfg.Agent, f.agent.Cfg.LLM.FastModel)
 	}
-	// 覆盖层持久化
 	fresh := config.Default()
 	if err := config.LoadOverlay(fresh, filepath.Join(f.dataDir, config.OverlayFile)); err != nil {
 		t.Fatal(err)
@@ -155,7 +212,6 @@ func TestWebUI_CostGovernanceSettingsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestWebUI_BudgetZeroMeansUnlimited 预算填 0 应被接受（0 = 不限），不能因为"非正数"被拒。
 func TestWebUI_BudgetZeroMeansUnlimited(t *testing.T) {
 	f := newFixture(t, nil)
 	updated := f.call("POST", "/api/settings", map[string]any{
@@ -179,7 +235,6 @@ func TestWebUI_BudgetZeroMeansUnlimited(t *testing.T) {
 
 func TestWebUI_SettingsInvalidPatch(t *testing.T) {
 	f := newFixture(t, nil)
-	// 全部字段非法 → 400
 	req := map[string]any{
 		"persona": map[string]any{"style": "狂野"},
 		"safety":  map[string]any{"mode": "yolo"},
@@ -194,7 +249,6 @@ func TestWebUI_SettingsInvalidPatch(t *testing.T) {
 		t.Errorf("非法补丁应 400, got %d", resp.StatusCode)
 	}
 	_ = req
-	// 非法值不应污染现有配置
 	if f.agent.Cfg.Persona.Style == "狂野" || f.agent.Cfg.Safety.Mode == "yolo" {
 		t.Error("非法值被应用")
 	}
@@ -202,7 +256,6 @@ func TestWebUI_SettingsInvalidPatch(t *testing.T) {
 
 func TestWebUI_ContextCompressAndClear(t *testing.T) {
 	f := newFixture(t, nil)
-	// 制造溢出：容量 20，写入 22 轮（每轮足够长，压缩收益为正）
 	long := strings.Repeat("需要保留的关键上下文细节。", 12)
 	for i := 0; i < 22; i++ {
 		f.agent.Mem.AddTurn("user", long)
@@ -219,7 +272,6 @@ func TestWebUI_ContextCompressAndClear(t *testing.T) {
 	if ctxAfter["overflow"].(float64) != 0 || ctxAfter["summary"].(string) == "" {
 		t.Errorf("压缩后 = %v", ctxAfter)
 	}
-	// token 收益估算应为正（溢出原文远大于摘要）
 	if ctxAfter["est_tokens_saved"].(float64) < 0 {
 		t.Errorf("est_tokens_saved = %v", ctxAfter["est_tokens_saved"])
 	}
@@ -232,9 +284,6 @@ func TestWebUI_ContextCompressAndClear(t *testing.T) {
 	}
 }
 
-// TestWebUI_APIKeySaveAndClear 密钥保存全链路：写入凭证文件、视图只回布尔、
-// 覆盖层零泄漏、空串=不修改、clear_api_key 显式清除（内存 + 磁盘同时生效）。
-// 密钥按主机绑定，所以这里必须带上 base_url——没有主机的密钥无处可绑。
 func TestWebUI_APIKeySaveAndClear(t *testing.T) {
 	f := newFixture(t, nil)
 	cred, err := credentials.Open(f.dataDir)
@@ -256,7 +305,6 @@ func TestWebUI_APIKeySaveAndClear(t *testing.T) {
 	if _, hasPlain := llmSec["api_key"]; hasPlain {
 		t.Error("响应不应回传 api_key")
 	}
-	// 覆盖层（settings.yaml）绝不能带上 key
 	raw, err := os.ReadFile(filepath.Join(f.dataDir, config.OverlayFile))
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +313,6 @@ func TestWebUI_APIKeySaveAndClear(t *testing.T) {
 		t.Error("settings.yaml 泄漏了 api_key")
 	}
 
-	// 前端"留空=不修改"：空串不得动已存的 key
 	f.call("POST", "/api/settings", map[string]any{
 		"llm": map[string]any{"base_url": glmHost, "api_key": "", "model": "m-next"},
 	})
@@ -273,7 +320,6 @@ func TestWebUI_APIKeySaveAndClear(t *testing.T) {
 		t.Errorf("空串不应清除，得到 %q", got)
 	}
 
-	// 显式清除：内存与磁盘同时生效
 	up2 := f.call("POST", "/api/settings", map[string]any{
 		"llm": map[string]any{"base_url": glmHost, "clear_api_key": true},
 	})
@@ -288,9 +334,6 @@ func TestWebUI_APIKeySaveAndClear(t *testing.T) {
 	}
 }
 
-// authCapture 记录假厂商收到的鉴权头。按厂商各记一份，而不是按路径记：
-// 客户端会往 base_url 后面拼 /chat/completions 等路径，拼法属于 llm 层，
-// 测试若把这些写进键名，llm 一改路径这里就成假绿。
 type authCapture struct {
 	mu    sync.Mutex
 	hits  int
@@ -304,8 +347,6 @@ func (c *authCapture) record(auth string) {
 	c.auths = append(c.auths, auth)
 }
 
-// summary 返回请求次数与**第一条非空鉴权头**：按"有没有一条非空"判，
-// 而不是把记录拼起来比字符串——拼法会让"两次都空"看起来像"收到过东西"。
 func (c *authCapture) summary() (hits int, nonEmptyAuth string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -317,7 +358,6 @@ func (c *authCapture) summary() (hits int, nonEmptyAuth string) {
 	return c.hits, ""
 }
 
-// recordingKeyServer 起一个假厂商：答应答、记下鉴权头。
 func recordingKeyServer(t *testing.T, cap *authCapture) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -333,12 +373,6 @@ func recordingKeyServer(t *testing.T, cap *authCapture) *httptest.Server {
 	return srv
 }
 
-// TestWebUI_APIKeyNotForwardedToOtherHost 换厂商不得把上一家的密钥发出去。
-//
-// 修之前：密钥只按"有没有"管理，设置页把 base_url 从 A 改成 B 之后，
-// 新端点照样收到 A 的 Bearer 头——本地优先的产品替用户把凭证转发给了第三方，
-// 而界面上写着"已设置"，没有任何一处会提示。判据在 credentials 那层已经对，
-// 这里要证的是**线路上真的没发**（本仓库栽过的是"判据对、线没接"）。
 func TestWebUI_APIKeyNotForwardedToOtherHost(t *testing.T) {
 	var capA, capB authCapture
 	srvA := recordingKeyServer(t, &capA)
@@ -351,9 +385,8 @@ func TestWebUI_APIKeyNotForwardedToOtherHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.agent.Creds = cred
-	f.agent.Cfg.LLM.Provider = "glm" // mock 下不建真实客户端，这条要测真实外发
+	f.agent.Cfg.LLM.Provider = "glm"
 
-	// ① 给 A 家配密钥
 	v := f.call("POST", "/api/settings", map[string]any{
 		"llm": map[string]any{"base_url": urlA, "model": "m-a", "api_key": "sk-A-只属于A"},
 	})
@@ -361,7 +394,6 @@ func TestWebUI_APIKeyNotForwardedToOtherHost(t *testing.T) {
 		t.Fatalf("A 家应显示已设置: %v", v["llm"])
 	}
 
-	// ② 只换厂商、不填密钥
 	v2 := f.call("POST", "/api/settings", map[string]any{
 		"llm": map[string]any{"base_url": urlB, "model": "m-b"},
 	})
@@ -376,7 +408,6 @@ func TestWebUI_APIKeyNotForwardedToOtherHost(t *testing.T) {
 		t.Errorf("内存里的生效密钥应已让位，得到 %q", f.agent.Cfg.LLM.APIKey)
 	}
 
-	// ③ 真往 B 发一次（连接自测走的就是 llmFormTarget 这条取密钥的路）
 	res := f.call("POST", "/api/llm/test", map[string]any{"base_url": urlB, "model": "m-b"})
 	if res["ok"] != true {
 		t.Fatalf("探测应打到本地假服务，得到 %v", res)
@@ -389,7 +420,6 @@ func TestWebUI_APIKeyNotForwardedToOtherHost(t *testing.T) {
 		t.Errorf("B 家不该收到任何鉴权头：%q", auths)
 	}
 
-	// ④ 换回 A：原来那把还在，不用重填
 	v3 := f.call("POST", "/api/settings", map[string]any{
 		"llm": map[string]any{"base_url": urlA, "model": "m-a"},
 	})
@@ -402,8 +432,6 @@ func TestWebUI_APIKeyNotForwardedToOtherHost(t *testing.T) {
 	}
 }
 
-// TestWebUI_APIKeyNeedsHost 没有主机就没法绑：填了 key 却没填 base_url 必须报错，
-// 而不是悄悄存成"没绑主机的密钥"——那种记录会被下一次的补绑逻辑随手发给第一台主机。
 func TestWebUI_APIKeyNeedsHost(t *testing.T) {
 	f := newFixture(t, nil)
 	cred, err := credentials.Open(f.dataDir)
@@ -425,7 +453,6 @@ func TestWebUI_APIKeyNeedsHost(t *testing.T) {
 	}
 }
 
-// TestWebUI_BaseURLClear 清空 base_url 必须真的回落（曾因 getStr 跳过空串而静默失效）。
 func TestWebUI_BaseURLClear(t *testing.T) {
 	f := newFixture(t, nil)
 	f.agent.Cfg.LLM.Provider = "glm"
@@ -438,13 +465,11 @@ func TestWebUI_BaseURLClear(t *testing.T) {
 	f.call("POST", "/api/settings", map[string]any{
 		"llm": map[string]any{"base_url": ""},
 	})
-	// 清空后内存为空串，启动/保存路径会经 ResolvePreset 回落厂商预设
 	if f.agent.Cfg.LLM.BaseURL != "" {
 		t.Errorf("清空未生效: %q", f.agent.Cfg.LLM.BaseURL)
 	}
 }
 
-// TestWebUI_LLMTestProbe 连接探测：成功/鉴权失败分类/mock 短路。
 func TestWebUI_LLMTestProbe(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" || r.Header.Get("Authorization") == "" {
@@ -462,7 +487,7 @@ func TestWebUI_LLMTestProbe(t *testing.T) {
 	defer gw401.Close()
 
 	f := newFixture(t, nil)
-	f.agent.Cfg.LLM.Provider = "glm" // mock 会短路，这里要真实走 HTTP 栈
+	f.agent.Cfg.LLM.Provider = "glm"
 	res := f.call("POST", "/api/llm/test", map[string]any{
 		"base_url": gwOK.URL, "model": "probe-model", "api_key": "k", "protocol": "openai_chat",
 	})
@@ -475,13 +500,11 @@ func TestWebUI_LLMTestProbe(t *testing.T) {
 	if res2["ok"] != false || res2["kind"] != "auth" || res2["http_status"] != float64(401) {
 		t.Errorf("401 应分类为 auth，得到 %v", res2)
 	}
-	// mock 供应商：不联网，直接给出 mock 结论
 	f.agent.Cfg.LLM.Provider = "mock"
 	res3 := f.call("POST", "/api/llm/test", map[string]any{})
 	if res3["kind"] != "mock" || res3["ok"] != true {
 		t.Errorf("mock 短路 = %v", res3)
 	}
-	// M4：mock 会话下表单填了显式 base_url → 必须真实探测（切换供应商前预验证是唯一用途）
 	res4 := f.call("POST", "/api/llm/test", map[string]any{
 		"base_url": gwOK.URL, "model": "m", "api_key": "k", "protocol": "openai_chat",
 	})
@@ -490,7 +513,6 @@ func TestWebUI_LLMTestProbe(t *testing.T) {
 	}
 }
 
-// TestWebUI_LLMModelsFetch 在线拉模型列表：成功解析 / 失败分类 / mock 短路。
 func TestWebUI_LLMModelsFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" || r.Header.Get("Authorization") != "Bearer k" {
@@ -524,7 +546,6 @@ func TestWebUI_LLMModelsFetch(t *testing.T) {
 	if res3["kind"] != "mock" || res3["ok"] != true {
 		t.Errorf("mock 短路 = %v", res3)
 	}
-	// M4：显式 base_url 的表单值必须穿透 mock 短路真实拉取
 	res4 := f.call("POST", "/api/llm/models", map[string]any{
 		"base_url": srv.URL + "/v1", "api_key": "k", "protocol": "openai_chat",
 	})

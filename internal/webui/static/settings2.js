@@ -1,11 +1,6 @@
-/* Gleam 设置 v2：整页设置的分组导航、行式卡片与各分区页面。
- * 规则：页面上的每个开关都接到真实设置（/api/settings 等）或会真的生效的本机偏好；
- * Gleam 没有的能力要么不出现，要么灰掉并标「暂不支持」——不放假数据、不放摆设。
- * 依赖 app.js（api / toast / esc / UIPrefs / loadSettings …）与 chrome.js（Keymap / Desk）的全局。 */
 'use strict';
 
 const S2 = (() => {
-  /* ---------- 图标：线性 24 栅格，自绘，不引外部品牌图 ---------- */
   const P = {
     profile:
       '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.5c1.3-2 3.2-3 5.5-3s4.2 1 5.5 3"/>',
@@ -40,7 +35,6 @@ const S2 = (() => {
       '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
     labs: '<path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3"/><path d="M7 15h10"/>',
     network: '<path d="M3 12h4l2.5-6 5 12 2.5-6h4"/>',
-    // 行内图标
     send: '<path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     compress: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
@@ -115,7 +109,6 @@ const S2 = (() => {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
   }
 
-  /* ---------- 小型 DOM 工具 ---------- */
   function h(tag, attrs, ...kids) {
     const e = document.createElement(tag);
     if (attrs) {
@@ -155,7 +148,6 @@ const S2 = (() => {
   }
   const label = (text) => h('div', { class: 's2-section-label', text });
   const card = (...rows) => h('div', { class: 's2-card' }, ...rows);
-  /** 一行：图标 / 标题与说明 / 右侧控件。disabled 时整行灰掉并挂「暂不支持」。 */
   function row({
     icon,
     title,
@@ -166,8 +158,6 @@ const S2 = (() => {
     cls,
     titleExtra,
   }) {
-    // titleExtra 是标题行里的附加节点（例如一个"有改动"徽标）。它必须作为**子节点**传进来，
-    // 不能拼进 title 字符串里——那样渲染出来是一句 "[object HTMLSpanElement]"。
     const r = h(
       'div',
       {
@@ -216,8 +206,6 @@ const S2 = (() => {
     });
     return input;
   }
-  // 自绘下拉：原生 <select> 的弹层是系统画的，改不动样式。这里用「胶囊按钮 + 浮层列表」，
-  // 选中项右侧打勾、底色加深。浮层挂到 body 上并按视口定位——卡片有 overflow:hidden，放里面会被裁掉。
   function select(options, value, onChange, { disabled, labelText } = {}) {
     const wrap = h('div', { class: 's2-dd' });
     const valEl = h('span', { class: 's2-dd-val' });
@@ -348,7 +336,6 @@ const S2 = (() => {
     if (!w) toast('浏览器拦下了新窗口：' + url, 'warning');
   };
 
-  /* ---------- 设置读写：一律走 /api/settings，保存后让旧表单与运行态同步 ---------- */
   let SET = null;
   async function settings(force) {
     if (!SET || force) SET = await api('GET', '/api/settings');
@@ -359,19 +346,14 @@ const S2 = (() => {
     SET = s;
     try {
       syncRuntimeState(s);
-    } catch {
-      /* 旧页面元素缺失时忽略 */
-    }
+    } catch {}
     try {
       loadSettings();
-    } catch {
-      /* 同上 */
-    }
+    } catch {}
     if (okText) toast(okText, 'success', 1800);
     return s;
   }
 
-  /* ---------- 导航：给每个分区挂图标 ---------- */
   function decorateNav() {
     document.querySelectorAll('.settings-nav .settings-tab').forEach((t) => {
       if (t.querySelector('.s2-nav-ico')) return;
@@ -384,7 +366,6 @@ const S2 = (() => {
     });
   }
 
-  /* ============================== 个人资料 ============================== */
   async function renderProfile() {
     const acc = await api('GET', '/api/account').catch(() => ({}));
     const pref = UIPrefs.get();
@@ -471,7 +452,6 @@ const S2 = (() => {
     if (me && !signed) me.textContent = n || '我的';
   }
 
-  /* ============================== 常规 ============================== */
   async function renderGeneral() {
     const root = $('#s2-general');
     const s = await settings(true);
@@ -603,7 +583,6 @@ const S2 = (() => {
       }));
   }
 
-  /* ============================== 模式配置 ============================== */
   const THEMES = [
     { id: 'gleam', name: '微光', sw: '#D7FB58' },
     { id: 'emerald', name: '森林', sw: '#34D399' },
@@ -617,7 +596,7 @@ const S2 = (() => {
     { id: 'amber', name: '暖阳橙', sw: '#F5A524' },
     { id: 'rose', name: '樱粉', sw: '#F472B6' },
   ];
-  const MODE_NAMES = { code: '编程', work: '通用' };
+  const MODE_NAMES = { code: '编程', work: '目标' };
   const currentMode = () => {
     const b = document.querySelector(
       '#mode-toggle button[aria-checked="true"]',
@@ -635,9 +614,7 @@ const S2 = (() => {
       if (!cur || cur.dataset.perm !== bind.perm) {
         try {
           setPerm(bind.perm);
-        } catch {
-          /* 权限控件不可用 */
-        }
+        } catch {}
       }
     }
   }
@@ -706,17 +683,16 @@ const S2 = (() => {
     root.replaceChildren(
       head(
         '模式配置',
-        '侧栏顶部的「编程 / 通用」切换时，顺带切换的界面与权限偏好。只保存在本机。',
+        '侧栏顶部的「编程 / 目标」切换时，顺带切换的界面与权限偏好。只保存在本机。',
       ),
       ...section(
         'code',
         '进入编程模式时把输入框的执行权限切到这一档；高风险操作仍会请你批准。',
       ),
-      ...section('work', '进入通用模式时把输入框的执行权限切到这一档。'),
+      ...section('work', '进入目标模式时把输入框的执行权限切到这一档。'),
     );
   }
 
-  /* ============================== 任务监控（现场栏） ============================== */
   const RAIL_PARTS = [
     {
       id: 'loop',
@@ -804,7 +780,6 @@ const S2 = (() => {
     );
   }
 
-  /* ============================== 外观 ============================== */
   function renderAppearance() {
     const panel = document.querySelector(
       '.settings-panel[data-stab="appearance"]',
@@ -873,6 +848,19 @@ const S2 = (() => {
         },
         { labelText: title },
       );
+    const textPref = (key, placeholder) => {
+      const field = h('input', {
+        class: 's2-input',
+        type: 'text',
+        value: String(p[key] || ''),
+        placeholder,
+        'aria-label': placeholder,
+      });
+      field.addEventListener('input', () =>
+        UIPrefs.set({ [key]: field.value }),
+      );
+      return field;
+    };
     root.replaceChildren(
       head('外观', '主题、颜色模式与排版。外观偏好只保存在本机。'),
       label('主题'),
@@ -979,6 +967,38 @@ const S2 = (() => {
           ),
         }),
       ),
+      label('思考状态'),
+      card(
+        row({
+          icon: 'sparkles',
+          title: '思考动效',
+          desc: 'AI 思考时显示的那段动画。六种纯 CSS 动效，不额外占资源。',
+          control: pref(
+            'thinkStyle',
+            [
+              { value: 'matrix', label: '字符流（默认）' },
+              { value: 'music', label: '音符' },
+              { value: 'bird', label: '飞鸟' },
+              { value: 'fish', label: '游鱼' },
+              { value: 'ascii', label: 'ASCII 旋转' },
+              { value: 'dots', label: '三点起伏' },
+            ],
+            '思考动效',
+          ),
+        }),
+        row({
+          icon: 'type',
+          title: '思考文案',
+          desc: '中文界面上显示的那句话。留空用默认的「正在思考」。',
+          control: textPref('thinkTextZh', '正在思考'),
+        }),
+        row({
+          icon: 'globe',
+          title: '思考文案（英文界面）',
+          desc: '英文界面上显示的那句话。留空用默认的 Thinking。',
+          control: textPref('thinkTextEn', 'Thinking'),
+        }),
+      ),
       label('应用图标'),
       card(
         row({
@@ -1004,7 +1024,6 @@ const S2 = (() => {
       UIPrefs.get().blur === 'off' ? 'off' : 'on';
   }
 
-  /* ---------- 页面注册 ---------- */
   const PAGES = {
     profile: renderProfile,
     general: renderGeneral,
@@ -1031,7 +1050,6 @@ const S2 = (() => {
     document
       .querySelectorAll('.settings-nav .settings-tab')
       .forEach((t) => t.addEventListener('click', () => show(t.dataset.stab)));
-    // 进入设置页时渲染当前分区（app.js 的 settings 加载器只管旧表单）
     const origShow = showView;
     showView = function (name, ...rest) {
       const r = origShow.call(this, name, ...rest);
@@ -1052,7 +1070,6 @@ const S2 = (() => {
       };
     }
     applyLocalName();
-    // 设置搜索按分区里的文字过滤：新分区是懒渲染的，第一次搜索前先把它们都画出来
     const search = $('#settings-search');
     let primed = false;
     if (search)
