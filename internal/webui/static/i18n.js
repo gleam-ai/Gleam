@@ -1516,11 +1516,31 @@ const I18N_EN = {
   '拉取失败：': 'Fetch failed: ',
   '获取失败：': 'Fetch failed: ',
   '更新失败：': 'Update failed: ',
+  '过滤模型…': 'Filter models…',
+  '手动输入模型 ID': 'Enter a model ID manually',
+  '或手动输入…': 'Or enter one manually…',
+  '没有可用的模型列表，请手动填写模型 ID':
+    'No model list available — enter a model ID manually',
+  已并入本次拉取到的模型: 'Merged with the models fetched just now',
+  '内置兜底（点「拉取可用模型」可拿到该厂商的完整列表）':
+    'Built-in fallback (use Fetch available models for the full list)',
+  刚刚: 'just now',
 };
 
 // 插值句子的翻译规则：整节点匹配正则后替换。只收界面自己拼的句子；
 // 数字、主机名这类运行期值原样保留。
 const I18N_PATTERNS = [
+  [
+    /^拉到 (\d+) 个模型（已缓存，下次打开仍可见）$/,
+    (m, n) => `Fetched ${n} models (cached; still visible next time)`,
+  ],
+  [
+    /^内置兜底 \+ 上次拉取（(.+)）$/,
+    (m, when) => `Built-in fallback + last fetch (${when})`,
+  ],
+  [/^(\d+) 分钟前$/, (m, n) => `${n} min ago`],
+  [/^(\d+) 小时前$/, (m, n) => `${n} h ago`],
+  [/^(\d+) 天前$/, (m, n) => `${n} d ago`],
   [
     /^(\d{1,2})月$/,
     (m, n) =>

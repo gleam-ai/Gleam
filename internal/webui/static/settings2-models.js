@@ -574,64 +574,158 @@
         link,
       );
     }
+    // 模型字段：**联网优先**。拉到的结果按主机缓存，重开弹窗立刻可见；
+    // 内置目录只作离线兜底；手填始终可用。三条来源都在界面上标出来。
+    const MODEL_SEARCH_THRESHOLD = 30; // 超过就出过滤框：OpenRouter 这类能拉到几百个
+    const MANUAL = '__manual__'; // 下拉里「或手动输入…」这一项的值
+    const catKey = (host) => 'gleam.modelcat.' + host;
+
+    function catGet(host) {
+      try {
+        const o = JSON.parse(localStorage.getItem(catKey(host)) || 'null');
+        return o && Array.isArray(o.ids) && o.ids.length ? o : null;
+      } catch {
+        return null; // 存坏了就当没有，不影响手填
+      }
+    }
+    function catPut(host, ids) {
+      try {
+        localStorage.setItem(
+          catKey(host),
+          JSON.stringify({ ids, at: new Date().toISOString() }),
+        );
+      } catch {
+        /* 存不下只影响下次，不打断本次 */
+      }
+    }
+    function ago(iso) {
+      const mins = Math.max(
+        0,
+        Math.round((Date.now() - Date.parse(iso)) / 60000),
+      );
+      if (mins < 1) return '刚刚';
+      if (mins < 60) return mins + ' 分钟前';
+      const hours = Math.round(mins / 60);
+      return hours < 24 ? hours + ' 小时前' : Math.round(hours / 24) + ' 天前';
+    }
+
     function modelField() {
       const pl = curPlan();
-      const wrap = h('div', {});
-      const defaultModel = pl ? pl.model : '';
-      let fetchedModels = [];
-      let useSelect = false;
+      let fetched = []; // 本次打开期间拉到的
+      let manual = false;
 
-      function renderInput() {
-        wrap.replaceChildren();
-        if (useSelect && fetchedModels.length) {
-          const sel = h('select', {
-            class: 's2-select s2-select--block',
-            id: 's2-dlg-model',
-          });
-          sel.append(
-            h('option', { value: '', text: '— 请选择或手填模型 ID —' }),
-          );
-          fetchedModels.forEach((m) =>
-            sel.append(h('option', { value: m.id, text: m.id })),
-          );
-          if (st.modelName) sel.value = st.modelName;
-          sel.addEventListener('change', () => {
-            st.modelName = sel.value;
-            touch();
-            result.hidden = true;
-            validate();
-            const custom = h('input', {
-              class: 'input s2-dlg-input',
-              style: 'margin-top:6px',
-              placeholder: '或手动输入模型 ID',
-              autocomplete: 'off',
-              spellcheck: 'false',
-            });
-            custom.value = sel.value === '' ? '' : sel.value;
-            custom.addEventListener('input', () => {
-              st.modelName = custom.value;
-              touch();
-              result.hidden = true;
-              validate();
-            });
-            wrap.append(sel, custom);
-          });
-          wrap.append(sel);
-        } else {
-          const i = input(
-            's2-dlg-model',
-            st.modelName || defaultModel,
-            defaultModel,
-            (v) => {
-              st.modelName = v;
-            },
-          );
-          wrap.append(i);
-        }
+      const wrap = h('div', {});
+      const listBox = h('div', {});
+      const srcNote = h('div', { class: 's2-field-hint' });
+      const custom = h('input', {
+        class: 'input s2-dlg-input',
+        id: 's2-dlg-model-custom',
+        placeholder: '手动输入模型 ID',
+        autocomplete: 'off',
+        spellcheck: 'false',
+        hidden: true,
+      });
+
+      const host = () =>
+        hostOf(isCustom() ? st.base : (curPlan() || {}).base_url || '');
+      const cached = () => catGet(host());
+      const builtin = () => {
+        const p = curProv();
+        return !isCustom() && p && Array.isArray(p.models) ? p.models : [];
+      };
+
+      // 三条来源合并去重，越靠前越「新」：本次拉取 > 缓存 > 内置兜底。
+      function sources() {
+        const seen = new Set();
+        const out = [];
+        const push = (id) => {
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            out.push(id);
+          }
+        };
+        fetched.forEach(push);
+        const c = cached();
+        if (c) c.ids.forEach(push);
+        builtin().forEach(push);
+        // 当前值不在列表里（默认模型文档未列时常有）也要显示出来，否则字段会空
+        if (st.modelName && !seen.has(st.modelName)) out.unshift(st.modelName);
+        return out;
       }
 
-      if (!st.modelName && pl) st.modelName = defaultModel;
-      renderInput();
+      function paintModel() {
+        const ids = sources();
+        listBox.replaceChildren();
+        custom.hidden = !manual;
+
+        if (!ids.length) {
+          // 三条来源都空（自建网关、没 key、没缓存）：退回纯手填，不给一个空下拉
+          manual = true;
+          custom.hidden = false;
+          listBox.append(custom);
+          srcNote.textContent = '没有可用的模型列表，请手动填写模型 ID';
+          return;
+        }
+        const c = cached();
+        srcNote.textContent = fetched.length
+          ? '已并入本次拉取到的模型'
+          : c
+            ? `内置兜底 + 上次拉取（${ago(c.at)}）`
+            : '内置兜底（点「拉取可用模型」可拿到该厂商的完整列表）';
+
+        const filter = h('input', {
+          class: 'input s2-dlg-input',
+          id: 's2-dlg-model-filter',
+          placeholder: '过滤模型…',
+          autocomplete: 'off',
+          spellcheck: 'false',
+        });
+        const sel = h('select', {
+          class: 's2-select s2-select--block',
+          id: 's2-dlg-model',
+        });
+        const fill = (q) => {
+          const needle = (q || '').trim().toLowerCase();
+          sel.replaceChildren();
+          ids
+            .filter((id) => !needle || id.toLowerCase().includes(needle))
+            .forEach((id) => sel.append(h('option', { value: id, text: id })));
+          sel.append(h('option', { value: MANUAL, text: '或手动输入…' }));
+          if (ids.includes(st.modelName)) sel.value = st.modelName;
+        };
+        fill('');
+        if (ids.length > MODEL_SEARCH_THRESHOLD) listBox.append(filter);
+        listBox.append(sel, custom);
+
+        filter.addEventListener('input', () => {
+          fill(filter.value);
+          touch();
+        });
+        sel.addEventListener('change', () => {
+          if (sel.value === MANUAL) {
+            manual = true;
+            custom.hidden = false;
+            custom.focus();
+            return;
+          }
+          manual = false;
+          custom.hidden = true;
+          st.modelName = sel.value;
+          touch();
+          result.hidden = true;
+          validate();
+        });
+        custom.addEventListener('input', () => {
+          st.modelName = custom.value;
+          touch();
+          result.hidden = true;
+          validate();
+        });
+        custom.value = st.modelName || '';
+      }
+
+      if (!st.modelName && pl) st.modelName = pl.model;
+      paintModel();
 
       const fetchBtn = h(
         'button',
@@ -650,24 +744,26 @@
         try {
           const r = await api('POST', '/api/llm/models', target());
           if (r.ok && Array.isArray(r.models) && r.models.length) {
-            fetchedModels = r.models;
-            useSelect = true;
-            renderInput();
+            fetched = r.models.map((m) => m.id);
+            catPut(host(), fetched); // 存下来：下次打开不用重新填 key
+            paintModel();
             showResult(
               'ok',
-              `拉到 ${r.models.length} 个模型，请从下拉列表选择`,
+              `拉到 ${r.models.length} 个模型（已缓存，下次打开仍可见）`,
             );
-          } else
+          } else {
             showResult(
               'fail',
               (TEST_HINTS[r.kind] || '拉取失败') +
-                '：这个入口可能不提供模型列表，直接手填即可',
+                '：这个入口可能不提供模型列表，从下拉里选或手填即可',
             );
+          }
         } catch (err) {
           showResult('fail', err.message);
         }
         fetchBtn.disabled = false;
       });
+      wrap.append(listBox, srcNote);
       return field('模型 ID', wrap, fetchBtn);
     }
     function fastToggle() {
