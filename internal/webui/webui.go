@@ -218,9 +218,11 @@ func (s *Server) broadcast(ev sseEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ch := range s.clients {
+		// 用短超时代替纯 non-blocking：慢客户端给 50ms 缓冲，避免瞬时抖动丢事件；
+		// 真卡死的客户端也不会拖住引擎（50ms 后放弃）。
 		select {
 		case ch <- ev:
-		default: // 慢客户端丢弃事件，避免阻塞引擎
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
 }
