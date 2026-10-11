@@ -69,10 +69,10 @@ var Providers = []ProviderPreset{
 			{Kind: PlanCoding, Label: "编程模式（旗舰版，复杂任务）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
 		},
 		// 出处：https://api-docs.deepseek.com/（2026-10-11 核）
-		// 文档另注明旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 仍被接受，未收录。
+		// 旗舰在前。文档另注明旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 仍被接受，未收录。
 		Models: []string{
-			"deepseek-flash",
 			"deepseek-v4-pro",
+			"deepseek-flash",
 		},
 	},
 	{
@@ -83,9 +83,10 @@ var Providers = []ProviderPreset{
 			{Kind: PlanAgent, Label: "Anthropic 兼容入口（Claude Code 同款）", BaseURL: "https://open.bigmodel.cn/api/anthropic", Protocol: ProtocolAnthropic},
 		},
 		// 出处：https://docs.bigmodel.cn/cn/guide/start/quick-start（2026-10-11 核，入口未变）
+		// 旗舰在前：同代里先看到能干的，再看到快的。
 		Models: []string{
-			"glm-5.3-flash",
 			"glm-5.3",
+			"glm-5.3-flash",
 		},
 	},
 	{
@@ -227,10 +228,11 @@ var Providers = []ProviderPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", Protocol: ProtocolOpenAIChat},
 		},
 		// 出处：https://ai.google.dev/gemini-api/docs/openai（2026-10-11 抓取）
+		// 按代次从新到旧；同一家的 flash 与 pro 是两条产品线，不硬把 pro 提前。
 		Models: []string{
 			"gemini-3.8-flash",
-			"gemini-3.1-pro-preview",
 			"gemini-3.5-flash-lite",
+			"gemini-3.1-pro-preview",
 		},
 	},
 	{
