@@ -126,8 +126,16 @@ func compactToolSchema(t types.Tool) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "- %s：%s | 参数：", t.Name(), firstLine(t.Description()))
+	// Schema properties are a map, so ranging over it directly would reorder this
+	// line on every build and cut the cacheable prompt prefix at the menu.
+	names := make([]string, 0, len(props))
+	for name := range props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	first := true
-	for name, prop := range props {
+	for _, name := range names {
+		prop := props[name]
 		if !first {
 			b.WriteString("，")
 		}
