@@ -392,8 +392,11 @@
         hidden: true,
         'aria-label': '供应商',
       });
-      const opt = (id, nm) =>
-        h(
+      const opt = (prov) => {
+        const id = prov.id || prov;
+        const nm = prov.name || prov;
+        const isRecommended = prov.recommended === true;
+        return h(
           'button',
           {
             type: 'button',
@@ -421,16 +424,20 @@
           },
           glyph(nm),
           h('span', { text: nm }),
+          isRecommended
+            ? h('span', { class: 's2-picker-tag', text: '推荐' })
+            : null,
           id === st.prov
             ? h('span', { class: 's2-picker-check', html: ico('check', 14) })
             : null,
         );
+      };
       list.append(
         h('div', { class: 's2-picker-group', text: '厂商' }),
-        ...provs.map((x) => opt(x.id, x.name)),
+        ...provs.map((x) => opt(x)),
         h('div', { class: 's2-picker-group', text: '自定义' }),
-        opt('custom-openai', CUSTOM['custom-openai'].name),
-        opt('custom-anthropic', CUSTOM['custom-anthropic'].name),
+        opt({ id: 'custom-openai', name: CUSTOM['custom-openai'].name }),
+        opt({ id: 'custom-anthropic', name: CUSTOM['custom-anthropic'].name }),
       );
       function close() {
         list.hidden = true;

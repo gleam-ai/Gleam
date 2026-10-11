@@ -34,9 +34,10 @@ type PlanPreset struct {
 
 // ProviderPreset 厂商预设。
 type ProviderPreset struct {
-	ID    string       `json:"id"`
-	Name  string       `json:"name"`
-	Plans []PlanPreset `json:"plans"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Plans       []PlanPreset `json:"plans"`
+	Recommended bool         `json:"recommended,omitempty"` // 推荐厂商（TokenDance/DeepSeek）
 }
 
 // Providers 内置厂商目录（2026-09 经官方文档核实；入口或套餐有变动时可在设置页直接改）。
@@ -44,73 +45,73 @@ type ProviderPreset struct {
 // 阿里云 help.aliyun.com/zh/model-studio/coding-plan、MiniMax platform.minimax.io、Kimi platform.kimi.com。
 var Providers = []ProviderPreset{
 	{
-		ID: "zhipu", Name: "智谱 GLM",
+		ID: "tokendance", Name: "TokenDance 词元跳动（聚合）", Recommended: true,
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://open.bigmodel.cn/api/paas/v4", Protocol: ProtocolOpenAIChat, Model: "glm-5.3-flash"},
-			{Kind: PlanCoding, Label: "GLM Coding Plan 编程套餐（OpenAI 兼容）", BaseURL: "https://open.bigmodel.cn/api/coding/paas/v4", Protocol: ProtocolOpenAIChat, Model: "glm-5.3"},
-			{Kind: PlanAgent, Label: "Anthropic 兼容入口（Claude Code 同款）", BaseURL: "https://open.bigmodel.cn/api/anthropic", Protocol: ProtocolAnthropic, Model: "glm-5.3"},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolAnthropic},
 		},
 	},
 	{
-		ID: "deepseek", Name: "DeepSeek 深度求索",
+		ID: "deepseek", Name: "DeepSeek 深度求索", Recommended: true,
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（快速版，OpenAI 兼容）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat, Model: "deepseek-flash"},
-			{Kind: PlanCoding, Label: "编程模式（旗舰版，复杂任务）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat, Model: "deepseek-v4-pro"},
+			{Kind: PlanToken, Label: "按量 Token（快速版，OpenAI 兼容）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "编程模式（旗舰版，复杂任务）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
+		},
+	},
+	{
+		ID: "zhipu", Name: "智谱 GLM",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://open.bigmodel.cn/api/paas/v4", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "GLM Coding Plan 编程套餐（OpenAI 兼容）", BaseURL: "https://open.bigmodel.cn/api/coding/paas/v4", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanAgent, Label: "Anthropic 兼容入口（Claude Code 同款）", BaseURL: "https://open.bigmodel.cn/api/anthropic", Protocol: ProtocolAnthropic},
 		},
 	},
 	{
 		ID: "moonshot", Name: "月之暗面 Kimi",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.moonshot.cn/v1", Protocol: ProtocolOpenAIChat, Model: "kimi-k2.6"},
-			{Kind: PlanCoding, Label: "Kimi Coding（Anthropic 兼容；托管版经 Kimi Code 登录自动配置）", BaseURL: "https://api.moonshot.cn/anthropic", Protocol: ProtocolAnthropic, Model: "kimi-k2.6"},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.moonshot.cn/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "Kimi Coding（Anthropic 兼容；托管版经 Kimi Code 登录自动配置）", BaseURL: "https://api.moonshot.cn/anthropic", Protocol: ProtocolAnthropic},
 		},
 	},
 	{
 		ID: "qwen", Name: "阿里云百炼（通义 Qwen）",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", Protocol: ProtocolOpenAIChat, Model: "qwen3-coder-plus"},
-			{Kind: PlanCoding, Label: "百炼 Coding Plan（Anthropic 兼容；Key 为 sk-sp- 开头，与按量不互通）", BaseURL: "https://coding.dashscope.aliyuncs.com/anthropic", Protocol: ProtocolAnthropic, Model: "qwen3-coder-plus"},
-			{Kind: PlanAgent, Label: "百炼 Coding Plan（OpenAI 兼容；一个 Key 聚合千问/GLM/Kimi/MiniMax）", BaseURL: "https://coding.dashscope.aliyuncs.com/v1", Protocol: ProtocolOpenAIChat, Model: "qwen3-coder-plus"},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "百炼 Coding Plan（Anthropic 兼容；Key 为 sk-sp- 开头，与按量不互通）", BaseURL: "https://coding.dashscope.aliyuncs.com/anthropic", Protocol: ProtocolAnthropic},
+			{Kind: PlanAgent, Label: "百炼 Coding Plan（OpenAI 兼容；一个 Key 聚合千问/GLM/Kimi/MiniMax）", BaseURL: "https://coding.dashscope.aliyuncs.com/v1", Protocol: ProtocolOpenAIChat},
 		},
 	},
 	{
 		ID: "volc", Name: "火山方舟（豆包）",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", Protocol: ProtocolOpenAIChat, Model: "doubao-seed-1-6"},
-			{Kind: PlanCoding, Label: "方舟 Coding Plan（Lite/Pro，Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic, Model: "doubao-seed-code"},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "方舟 Coding Plan（Lite/Pro，Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic},
 		},
 	},
 	{
 		ID: "minimax", Name: "MiniMax",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国内站）", BaseURL: "https://api.minimaxi.com/v1", Protocol: ProtocolOpenAIChat, Model: "MiniMax-M2.5"},
-			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国内站；国际站为 api.minimax.io）", BaseURL: "https://api.minimaxi.com/anthropic", Protocol: ProtocolAnthropic, Model: "MiniMax-M2.5"},
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国内站）", BaseURL: "https://api.minimaxi.com/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国内站；国际站为 api.minimax.io）", BaseURL: "https://api.minimaxi.com/anthropic", Protocol: ProtocolAnthropic},
 		},
 	},
 	{
 		ID: "openai", Name: "OpenAI",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（Chat Completions）", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIChat, Model: "gpt-4.1"},
-			{Kind: PlanAgent, Label: "Responses API", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIResponses, Model: "gpt-4.1"},
+			{Kind: PlanToken, Label: "按量 Token（Chat Completions）", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanAgent, Label: "Responses API", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIResponses},
 		},
 	},
 	{
 		ID: "anthropic", Name: "Anthropic",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（Messages API）", BaseURL: "https://api.anthropic.com/v1", Protocol: ProtocolAnthropic, Model: "claude-sonnet-4-5"},
+			{Kind: PlanToken, Label: "按量 Token（Messages API）", BaseURL: "https://api.anthropic.com/v1", Protocol: ProtocolAnthropic},
 		},
 	},
 	{
 		ID: "openrouter", Name: "OpenRouter（聚合）",
 		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token", BaseURL: "https://openrouter.ai/api/v1", Protocol: ProtocolOpenAIChat, Model: "openrouter/auto"},
-		},
-	},
-	{
-		ID: "tokendance", Name: "TokenDance 词元跳动（聚合）",
-		Plans: []PlanPreset{
-			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolOpenAIChat, Model: "qwen3.8-flash"},
-			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolAnthropic, Model: "glm-5.3"},
+			{Kind: PlanToken, Label: "按量 Token", BaseURL: "https://openrouter.ai/api/v1", Protocol: ProtocolOpenAIChat},
 		},
 	},
 }
