@@ -206,3 +206,43 @@ func TestFactory_ProtocolSelection(t *testing.T) {
 		t.Error("空协议默认 openai_chat")
 	}
 }
+
+// TestProvidersCatalogInvariants 盯住内置目录的结构不变量。
+//
+// 为什么值这些：界面的模型下拉直接吃这个目录——某家漏了清单，用户在没填 key 时
+// 就选不到任何东西，而编译与既有测试全绿（它们只看 base_url/protocol）。
+func TestProvidersCatalogInvariants(t *testing.T) {
+	seen := map[string]bool{}
+	for _, p := range Providers {
+		if strings.TrimSpace(p.ID) == "" {
+			t.Fatal("有厂商没有 id")
+		}
+		if seen[p.ID] {
+			t.Errorf("厂商 id 重复：%s", p.ID)
+		}
+		seen[p.ID] = true
+
+		if len(p.Plans) == 0 {
+			t.Errorf("%s 没有任何套餐入口", p.ID)
+		}
+		for _, pl := range p.Plans {
+			if !ValidProtocol(pl.Protocol) {
+				t.Errorf("%s/%s 协议非法：%q", p.ID, pl.Kind, pl.Protocol)
+			}
+			if strings.TrimSpace(pl.BaseURL) == "" {
+				t.Errorf("%s/%s 的入口为空", p.ID, pl.Kind)
+			}
+			// 这里**不要求** pl.Model 非空：默认模型已被刻意移除（让用户去拉真实列表，
+			// 而不是依赖可能过时的默认名）。要求它非空就是与那个决定对立。
+		}
+
+		if len(p.Models) == 0 {
+			t.Errorf("%s 没有内置模型清单（界面要能离线选模型）", p.ID)
+		}
+		for _, m := range p.Models {
+			if strings.TrimSpace(m) == "" {
+				t.Errorf("%s 的模型清单里有空条目", p.ID)
+			}
+		}
+	}
+}

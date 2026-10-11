@@ -38,6 +38,11 @@ type ProviderPreset struct {
 	Name        string       `json:"name"`
 	Plans       []PlanPreset `json:"plans"`
 	Recommended bool         `json:"recommended,omitempty"` // 推荐厂商（TokenDance/DeepSeek）
+	// Models 该厂商的内置模型 ID 清单。**定位是离线兜底，不是权威**：联网拉到的永远优先。
+	// 按厂商存而不是按套餐存——同一家的模型跨套餐共用，按套餐存会重复三份。
+	// 只放"能站得住"的几条（文档原文点名 + 该家自己的默认模型），不追求抄全：
+	// 抄全必然过期，聚合商（OpenRouter/TokenDance）更是抄不进去。
+	Models []string `json:"models"`
 }
 
 // Providers 内置厂商目录（2026-09 经官方文档核实；入口或套餐有变动时可在设置页直接改）。
