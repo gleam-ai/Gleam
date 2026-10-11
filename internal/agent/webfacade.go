@@ -911,6 +911,7 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		return a.SettingsView(), fmt.Errorf("没有可应用的有效设置")
 	}
 
+	prevProviderID := a.Cfg.LLM.ProviderID
 	a.Cfg.Apply(sanitized)
 
 	// ---------- 密钥：先定"这次往哪台主机发哪把 key"，再用它重建客户端 ----------
@@ -928,6 +929,21 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 	// 运行时热生效：LLM 客户端按协议工厂重建（mock 保持不变），安全门控就地更新
 	if a.Cfg.LLM.Provider != "mock" {
 		if _, hasLLM := sanitized["llm"]; hasLLM {
+			// 换厂商但没显式给 base_url/model：旧值是上一家的，清掉让 ResolveTarget 从预设取。
+			// 不清的话 ResolveTarget 看到非空就沿用，onboarding/设置页切厂商会指向旧端点。
+			if lm, ok := sanitized["llm"].(map[string]any); ok {
+				_, hasBaseURL := lm["base_url"]
+				_, hasModel := lm["model"]
+				providerIDInPatch, _ := lm["provider_id"].(string)
+				if providerIDInPatch != "" && providerIDInPatch != prevProviderID {
+					if !hasBaseURL {
+						a.Cfg.LLM.BaseURL = ""
+					}
+					if !hasModel {
+						a.Cfg.LLM.Model = ""
+					}
+				}
+			}
 			baseURL, model, protocol := llm.ResolveTarget(a.Cfg.LLM.ProviderID, a.Cfg.LLM.Plan, a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol)
 			a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol = baseURL, model, protocol
 			// 上面 BindLLMKey 已把"可发往这台主机的密钥"写进 Cfg.LLM.APIKey（拿不到就是空串）
@@ -959,6 +975,8 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 // llmFormTarget 把表单覆盖值与当前生效配置解析成完整接入目标（探测与拉模型列表共用）。
 // override 可带 provider_id/plan/base_url/model/protocol/api_key；注意 Cfg 里的 base_url
 // 已含预设回落结果，所以"显式空串"与"缺省"必须区分：缺省取生效值，显式空取显式空。
+// 换厂商时（provider_id 变了）没带 base_url/model：旧值是上一家的，不能拿来用——
+// 留空让 ResolveTarget 从新厂商预设里取，否则 onboarding 切厂商会拿旧 URL 测新 Key。
 func (a *Agent) llmFormTarget(override map[string]any) (base, model, protocol, key string) {
 	str := func(k string) string {
 		if v, ok := override[k].(string); ok {
@@ -968,11 +986,15 @@ func (a *Agent) llmFormTarget(override map[string]any) (base, model, protocol, k
 	}
 	pid := firstNonEmpty(str("provider_id"), a.Cfg.LLM.ProviderID)
 	plan := firstNonEmpty(str("plan"), a.Cfg.LLM.Plan)
+	providerChanged := str("provider_id") != "" && str("provider_id") != a.Cfg.LLM.ProviderID
 	base = str("base_url")
-	if _, ok := override["base_url"].(string); !ok {
+	if _, ok := override["base_url"].(string); !ok && !providerChanged {
 		base = a.Cfg.LLM.BaseURL
 	}
-	model = firstNonEmpty(str("model"), a.Cfg.LLM.Model)
+	model = str("model")
+	if _, ok := override["model"].(string); !ok && !providerChanged {
+		model = a.Cfg.LLM.Model
+	}
 	protocol = firstNonEmpty(str("protocol"), a.Cfg.LLM.Protocol)
 	base, model, protocol = llm.ResolveTarget(pid, plan, base, model, protocol)
 	// 密钥按"这次要发往的主机"取：表单没填就用该主机的已存密钥，别家的一概不发。

@@ -1394,6 +1394,10 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 			"provider_id": body.ProviderID,
 			"plan":        body.Plan,
 			"api_key":     body.APIKey,
+			// 换厂商时必须清空 base_url/model，否则旧厂商的值会保留，
+			// ResolveTarget 看到非空就不从新厂商预设里取，导致指向旧端点。
+			"base_url": "",
+			"model":    "",
 		},
 	}
 	view, err := s.Agent.ApplySettings(patch)
