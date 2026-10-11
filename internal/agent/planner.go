@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"gleam/internal/config"
 	"gleam/internal/harness/memory"
@@ -16,6 +17,14 @@ import (
 	"gleam/internal/textmatch"
 	"gleam/pkg/types"
 )
+
+// planningTimeout 规划是整条链路里最大的单次 LLM 调用：要输出结构化 JSON、
+// 可能带多步拆解，模型思考时间长。但不能无限等——流式响应可以绕过 HTTP 客户端的
+// 总超时（每个 chunk 都在刷新读deadline），卡住时只能靠 context 砍。
+const planningTimeout = 90 * time.Second
+
+// screenTimeout 工具快筛是辅助模型做的轻量调用，输入输出都很短。
+const screenTimeout = 15 * time.Second
 
 // Planner 规划器：将用户目标拆解为结构化 JSON 计划，并做规划校验。
 type Planner struct {
@@ -68,12 +77,15 @@ func (p *Planner) Plan(ctx context.Context, goal, cwd string, recent []memory.Tu
 	sys := p.buildSystemPrompt(goal, cwd, recent, relevant, summary, feedback)
 	req := llm.ChatRequest{System: sys, Messages: []llm.Message{{Role: llm.RoleUser, Content: goal}}, TaskID: p.TaskID}
 
+	pctx, cancel := context.WithTimeout(ctx, planningTimeout)
+	defer cancel()
+
 	var text string
 	var err error
 	if p.OnLLMDelta != nil {
-		text, err = p.LLM.ChatStream(ctx, req, p.OnLLMDelta)
+		text, err = p.LLM.ChatStream(pctx, req, p.OnLLMDelta)
 	} else {
-		text, err = p.LLM.Chat(ctx, req)
+		text, err = p.LLM.Chat(pctx, req)
 	}
 	if err != nil {
 		return types.Plan{}, fmt.Errorf("规划调用失败: %w", err)
@@ -177,6 +189,17 @@ func (p *Planner) selectTools(goal string, tools []types.Tool, n int) []types.To
 	for _, name := range p.RoleTools {
 		if t, ok := p.Reg.Get(name); ok {
 			keep(t)
+		}
+	}
+	// code 模式强制包含文件与命令工具：模型有时不会主动识别这些工具名，
+	// 但 code 模式的任务几乎必然需要读写文件和执行命令。不强制包含的话，
+	// 关键词打分可能把它们过滤掉（12 个 schema 槽位 / 27 个工具），
+	// 模型看到"没附 schema 的工具不可用"就真以为自己做不了。
+	if p.TaskMode == "code" {
+		for _, name := range []string{"file.write", "file.read", "file.list", "file.search", "shell.exec"} {
+			if t, ok := p.Reg.Get(name); ok {
+				keep(t)
+			}
 		}
 	}
 	names := p.screenToolNames(goal, tools, n)
@@ -352,7 +375,9 @@ func (p *Planner) screenToolNames(goal string, tools []types.Tool, n int) []stri
 			Content: "目标：" + types.Shorten(goal, 300) + "\n\n工具菜单：\n" + menu.String()}},
 		Temperature: 0, MaxTokens: 200, TaskID: p.TaskID,
 	}
-	text, err := p.Helper.Chat(context.Background(), req)
+	sctx, cancel := context.WithTimeout(context.Background(), screenTimeout)
+	defer cancel()
+	text, err := p.Helper.Chat(sctx, req)
 	if err != nil {
 		return nil
 	}
