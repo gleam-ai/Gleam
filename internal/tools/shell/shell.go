@@ -68,10 +68,12 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(cctx, "cmd", "/C", command)
+		cmd = exec.Command("cmd", "/C", command)
 	} else {
-		cmd = exec.CommandContext(cctx, "sh", "-c", command)
+		cmd = exec.Command("sh", "-c", command)
 	}
+	// 设置进程组/Job Object，确保可以杀死整棵进程树
+	setProcessGroup(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
@@ -86,15 +88,29 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	//
 	// 为什么必须有：`Stdout`/`Stderr` 不是 `*os.File` 时，`os/exec` 会另起 goroutine
 	// 把管道内容拷进 buffer，而 `Wait` 要等这些 goroutine 结束。管道写端只要还有
-	// **任何**进程持有，这个拷贝就永远不返回——而 `CommandContext` 在 Windows 上
-	// 只杀**直接子进程**，孙进程会存活并继续持有继承来的管道句柄。
-	// 症状不是"这条命令慢"，而是**整个测试包挂到超时**（实测出现过一次：
-	// `go test ./...` 跑到 `internal/tools/shell` 卡满 300s 超时，单跑该包 10s 通过）。
-	// 而一个偶发失败的闸门很快就会被忽略——这正是它必须修而不是"重跑一次"的原因。
-	//
-	// 到点后 `Wait` 返回 `exec.ErrWaitDelay`，由下面的分支如实报告（见 pipeStuck）。
+	// **任何**进程持有，这个拷贝就永远不返回——即使我们杀了进程树，也可能有漏网之鱼。
+	// WaitDelay 是最后一道防线，确保即使有孤儿进程也不会无限挂起。
 	cmd.WaitDelay = 5 * time.Second
-	err = cmd.Run()
+
+	// 启动命令
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("命令启动失败: %w", err)
+	}
+
+	// 监控 context 取消，杀死整棵进程树
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	select {
+	case <-cctx.Done():
+		// context 超时或取消，杀死整棵进程树
+		_ = killProcessTree(cmd)
+		// 等待 Wait 返回（受 WaitDelay 保护）
+		<-done
+	case err = <-done:
+		// 命令正常结束
+	}
 
 	// 超时/取消优先于退出码判定：进程被杀在 Windows 上表现为普通 ExitError（exit 1），
 	// 若先判 ExitError 会把超时误报成普通失败。

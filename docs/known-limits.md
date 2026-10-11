@@ -27,7 +27,7 @@
 | 工具直调（`/api/tools/call`）不快照 | 无任务身份，快照无处归属 |
 | `/api/conversation/reset` 单数、余下复数 | 历史命名；改要两侧同动，收益只有好看 |
 | 反思只看每步 300 字输出 | 上下文经济；产物另有确定性核对兜底 |
-| shell.exec 不杀进程树（只杀直接子进程） | 孤儿孙进程会残留；输出不完整会显式标记 |
+| shell.exec 杀进程树：Unix 用 process group，Windows 杀主进程 + WaitDelay 兜底 | Unix 可杀整组；Windows 完整杀树需 Job Object 枚举，当前用 WaitDelay 5s 防挂起 |
 | Go 工具链偶发读不到 std 或极慢 | 与代码无关，重跑即可；判据在 gonoise.sh |
 | 进程创建 1.5~2.7 秒/次；mktemp 形态不稳 | 脚本因此分钟级；mktemp 须过 cygpath |
 | doctor 的状态段只报位置与体量 | 是地图不是校验：不验完整性，也不判合格 |
