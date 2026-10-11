@@ -1544,7 +1544,15 @@ const I18N_EN = {
   'OpenRouter（聚合）': 'OpenRouter (aggregator)',
   '阶跃星辰 StepFun': 'StepFun',
   百度千帆: 'Baidu Qianfan',
-  腾讯混元: 'Tencent Hunyuan',
+  'Z.ai（智谱国际站）': 'Z.ai (Zhipu International)',
+  'Kimi（国际站）': 'Kimi (International)',
+  '千问AI平台（Qwen）': 'Qwen AI Platform',
+  'BytePlus ModelArk（字节国际站）': 'BytePlus ModelArk',
+  'StepFun（国际站）': 'StepFun (International)',
+  '百度千帆（国际站）': 'Baidu Qianfan (International)',
+  '腾讯云 TokenHub': 'Tencent Cloud TokenHub',
+  '腾讯云 TokenHub（国际站）': 'Tencent Cloud TokenHub (International)',
+  'MuleRouter（聚合）': 'MuleRouter (aggregator)',
   '按量 Token': 'Pay-as-you-go token',
   '按量 Token（OpenAI 兼容）': 'Pay-as-you-go token (OpenAI-compatible)',
   '按量 Token（OpenAI 兼容，国内站）':
@@ -1575,6 +1583,24 @@ const I18N_EN = {
     'MiniMax Coding Plan (Anthropic-compatible, China)',
   'MiniMax Coding Plan（Anthropic 兼容，国际站）':
     'MiniMax Coding Plan (Anthropic-compatible, International)',
+  'Kimi Coding（Anthropic 兼容）': 'Kimi Coding (Anthropic-compatible)',
+  'Token Plan 编程订阅（Anthropic 兼容）':
+    'Token Plan subscription (Anthropic-compatible)',
+  'Token Plan 编程订阅（OpenAI 兼容）':
+    'Token Plan subscription (OpenAI-compatible)',
+  'ModelArk Coding Plan（Anthropic 兼容，适配 Claude Code）':
+    'ModelArk Coding Plan (Anthropic-compatible, works with Claude Code)',
+  'ModelArk Coding Plan（OpenAI 兼容入口）':
+    'ModelArk Coding Plan (OpenAI-compatible endpoint)',
+  'Step Plan（Anthropic 兼容，适配 Claude Code）':
+    'Step Plan (Anthropic-compatible, works with Claude Code)',
+  'Step Plan（OpenAI 兼容入口）': 'Step Plan (OpenAI-compatible endpoint)',
+  'TokenHub Coding Plan（Anthropic 兼容，适配 Claude Code）':
+    'TokenHub Coding Plan (Anthropic-compatible, works with Claude Code)',
+  'TokenHub Coding Plan（OpenAI 兼容入口）':
+    'TokenHub Coding Plan (OpenAI-compatible endpoint)',
+  'Token Plan 订阅（Anthropic 兼容）': 'Token Plan (Anthropic-compatible)',
+  'Token Plan 订阅（OpenAI 兼容）': 'Token Plan (OpenAI-compatible)',
 
   // ---- 模型设置页 ----
   推荐: 'Recommended',
