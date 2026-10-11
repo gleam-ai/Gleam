@@ -1708,6 +1708,45 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 	}, nil
 }
 
+// delegateTimeout 委派调用的硬超时：子任务应该聚焦，60 秒足够。
+const delegateTimeout = 60 * time.Second
+
+// Delegate 把子目标交给独立 LLM 调用处理，不污染主对话上下文。
+// role 为空时使用通用助手角色；非空时注入对应角色的系统提示词。
+func (a *Agent) Delegate(ctx context.Context, goal string, role string) (string, error) {
+	dctx, cancel := context.WithTimeout(ctx, delegateTimeout)
+	defer cancel()
+
+	sys := "你是一个专注的子任务执行者。根据用户目标，直接给出完整、可独立使用的结果。\n" +
+		"要求：\n" +
+		"- 结果自包含，不依赖主对话上下文\n" +
+		"- 如果目标涉及代码，给出可直接运行的代码\n" +
+		"- 如果目标涉及分析，给出结论和关键数据\n" +
+		"- 不要解释你在做什么，直接给结果"
+
+	if role != "" && role != "general" {
+		if r := FindRole(role); r.ID != "general" {
+			sys = r.SystemPrompt + "\n\n" + sys
+		}
+	}
+
+	req := llm.ChatRequest{
+		System:      sys,
+		Messages:    []llm.Message{{Role: llm.RoleUser, Content: goal}},
+		Temperature: 0.3,
+		MaxTokens:   2000,
+	}
+	client := a.LLM
+	if a.FastLLM != nil {
+		client = a.FastLLM
+	}
+	text, err := client.Chat(dctx, req)
+	if err != nil {
+		return "", fmt.Errorf("委派调用失败: %w", err)
+	}
+	return text, nil
+}
+
 // SetNotifier 替换事件出口（服务层装配时调用）。
 func (a *Agent) SetNotifier(n Notifier) {
 	a.Notifier = n

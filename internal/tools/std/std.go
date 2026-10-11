@@ -456,3 +456,36 @@ func (t *skillRunTool) Execute(ctx context.Context, args map[string]any) (any, e
 	}
 	return t.runner.RunSkill(ctx, name, params)
 }
+
+// Delegator 委派接口：由 Agent 实现，把一个子目标交给独立 LLM 调用处理。
+type Delegator interface {
+	Delegate(ctx context.Context, goal string, role string) (string, error)
+}
+
+type agentDelegateTool struct{ d Delegator }
+
+func NewAgentDelegate(d Delegator) types.Tool { return &agentDelegateTool{d} }
+
+func (t *agentDelegateTool) Name() string { return "agent.delegate" }
+func (t *agentDelegateTool) Description() string {
+	return "把子任务委派给独立 LLM 调用处理，适合并行探索、信息检索或隔离上下文的子目标。返回文本结果。"
+}
+func (t *agentDelegateTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *agentDelegateTool) Schema() map[string]any {
+	return toolutil.Schema("委派子任务", []string{"goal"}, map[string]any{
+		"goal": toolutil.SchemaProp("子目标描述：要解决什么、期望什么产出", "string"),
+		"role": toolutil.SchemaProp("可选：专家角色 ID（coder/analyst/writer/researcher/pm/ops），默认 general", "string"),
+	})
+}
+func (t *agentDelegateTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+	goal, err := toolutil.RequireStr(args, "goal")
+	if err != nil {
+		return nil, err
+	}
+	role := toolutil.Str(args, "role")
+	text, err := t.d.Delegate(ctx, goal, role)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"result": text}, nil
+}

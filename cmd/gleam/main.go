@@ -422,6 +422,7 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	}
 	reg.MustRegister(std.NewSkillList(&skillAdapter{s: skills}))
 	reg.MustRegister(std.NewSkillRun(&skillAdapter{s: skills}, a))
+	reg.MustRegister(std.NewAgentDelegate(a))
 
 	// MCP 连接器（尽力而为）
 	startMCP := func() {}
