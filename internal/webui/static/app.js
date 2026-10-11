@@ -7874,7 +7874,9 @@ const SITE_TEMPLATES = [
 function startSiteFromTemplate(t) {
   if (viewingConvo || document.documentElement.dataset.view !== 'goals')
     showView('goals');
-  goalInput.value = `在工作区新建 sites/${t.id}/index.html：${t.prompt}单文件 HTML + CSS，不依赖外部资源，桌面和手机都能看。`;
+  goalInput.value = i18nValue(
+    `在工作区新建 sites/${t.id}/index.html：${t.prompt}单文件 HTML + CSS，不依赖外部资源，桌面和手机都能看。`,
+  );
   goalInput.dispatchEvent(new Event('input', { bubbles: true }));
   setSiteMode(true);
   goalInput.focus();
@@ -8154,7 +8156,7 @@ function renderSites(body, sites) {
     more.type = 'button';
     more.addEventListener('click', () => {
       showView('goals');
-      goalInput.value = `继续完善 ${rel}：`;
+      goalInput.value = i18nValue(`继续完善 ${rel}：`);
       goalInput.dispatchEvent(new Event('input', { bubbles: true }));
       addRef('file', rel, '@' + s.file);
       setSiteMode(true);
@@ -8745,6 +8747,7 @@ const VoiceInput = (() => {
   loadGoals();
   loadConvoList();
   loadWorkspace();
+  loadGoStatus();
   loadRoles();
   loadContext(); // 输入区的水位条：首屏就得有数，否则那一格永远停在「—」
   loadCues(); // 候补目标同理：它只在有话说时露出来，首屏不拉就没人知道它存在
