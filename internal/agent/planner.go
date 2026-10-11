@@ -82,11 +82,10 @@ func (p *Planner) Plan(ctx context.Context, goal, cwd string, recent []memory.Tu
 
 	var text string
 	var err error
-	if p.OnLLMDelta != nil {
-		text, err = p.LLM.ChatStream(pctx, req, p.OnLLMDelta)
-	} else {
-		text, err = p.LLM.Chat(pctx, req)
-	}
+	// 规划调用统一用非流式：流式在 TokenDance 等网关上会卡住（reasoning_content
+	// 大量输出但 content 为空，看门狗抓不到有效数据）。规划结果本身就是 JSON，
+	// 不需要逐 token 展示，非流式更可靠。
+	text, err = p.LLM.Chat(pctx, req)
 	if err != nil {
 		return types.Plan{}, fmt.Errorf("规划调用失败: %w", err)
 	}
