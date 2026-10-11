@@ -17,6 +17,7 @@
 | `internal/webui/static` | 前端，`//go:embed` 编进 sidecar |
 | `pkg/` | 可复用类型 |
 | `desktop/` | Electron 壳 |
+| `vscode-gleam/` | VS Code 扩展（`src/rpc.js` 纯协议层 + `src/extension.js` 宿主胶水） |
 | `scripts/` | 闸门、冒烟、打包 |
 | `docs/known-limits.md` | **刻意不做**的唯一口径 |
 
@@ -29,6 +30,7 @@
 | 编译 | `go build ./...` |
 | 行为 | `go test ./... -count=1 -timeout 300s` |
 | 端到端 | `bash scripts/smoke.sh`；`bash scripts/smoke-replay.sh` |
+| 编辑器协议 | `node vscode-gleam/scripts/smoke-engine.js ./bin/gleam.exe`（随第 6 层跑） |
 | 就绪与评测 | `bin/gleam.exe doctor --strict`；`bin/gleam.exe eval --layer smoke --strict` |
 
 六层一次跑：`bash scripts/verify.sh`（`--quick` 只到第 4 层）。各层职责与「为什么是这个顺序」写在 `scripts/verify.sh` 头部。
