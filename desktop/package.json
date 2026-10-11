@@ -30,5 +30,11 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+  "overrides": {
+    "sprintf-js": {
+      "version": "1.1.3",
+      "reason": "Transitive dep: roarr → global-agent → @electron/get → electron-builder. No patched version exists. Vulnerability requires attacker-controlled format strings, not possible in this logging chain. Low risk for desktop app."
+    }
   }
 }
