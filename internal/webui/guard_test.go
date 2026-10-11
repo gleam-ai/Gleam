@@ -11,15 +11,53 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gleam/pkg/types"
 )
 
-// 守卫的拒绝路径必须对着「真的不带口令」的服务测，所以这里不用 newTokenTestServer。
 func newGuardedServer(t *testing.T) (*fixture, *httptest.Server) {
 	t.Helper()
 	f := newFixture(t, nil)
 	ts := httptest.NewServer(f.srv.Handler())
-	t.Cleanup(ts.Close)
+	// A goal goroutine outlives the test and keeps archiving into the fixture's
+	// TempDir. Cleanup deletes that directory out from under it, which surfaces on
+	// Windows as a remove failure attributed to whichever test happens to be next.
+	// Cancel whatever is still running and let it land before the teardown moves on.
+	t.Cleanup(func() {
+		f.srv.drainTasks(3 * time.Second)
+		ts.Close()
+	})
 	return f, ts
+}
+
+// drainTasks cancels every running goal and waits for the goroutines to finish.
+func (s *Server) drainTasks(timeout time.Duration) {
+	s.mu.Lock()
+	pending := make([]context.CancelFunc, 0, len(s.tasks))
+	for _, task := range s.tasks {
+		if task.Cancel != nil {
+			pending = append(pending, task.Cancel)
+		}
+	}
+	s.mu.Unlock()
+	for _, cancel := range pending {
+		cancel()
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		running := 0
+		for _, task := range s.tasks {
+			if task.Status == types.GoalRunning {
+				running++
+			}
+		}
+		s.mu.Unlock()
+		if running == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 type reqOpt func(*http.Request)
@@ -63,7 +101,6 @@ func TestGuard_MissingOrWrongTokenRejected(t *testing.T) {
 	if resp := doReq(t, "GET", ts.URL+"/api/events", ""); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("SSE 无口令 = %d，应为 401", resp.StatusCode)
 	}
-	// 401 也要带上服务标识：单实例探测靠它认出「端口上已经是 Gleam」。
 	resp := doReq(t, "GET", ts.URL+"/api/info", "")
 	if resp.StatusCode != http.StatusUnauthorized || resp.Header.Get(serverHeader) != "gleam" {
 		t.Errorf("GET /api/info 无口令 = %d / %q", resp.StatusCode, resp.Header.Get(serverHeader))
@@ -98,7 +135,6 @@ func TestGuard_CrossOriginPostRejected(t *testing.T) {
 			t.Errorf("%s: = %d，应为 403", name, resp.StatusCode)
 		}
 	}
-	// 同源 Origin 放行
 	resp := doReq(t, "POST", ts.URL+"/api/goals", goalBody, tok, ct, withHeader("Origin", ts.URL), withHeader("Sec-Fetch-Site", "same-origin"))
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("同源 POST = %d，应为 200", resp.StatusCode)
@@ -114,16 +150,13 @@ func TestGuard_NonJSONBodyRejected(t *testing.T) {
 			t.Errorf("Content-Type %q = %d，应为 415", ct, resp.StatusCode)
 		}
 	}
-	// 有体但没声明类型也不行
 	resp := doReq(t, "POST", ts.URL+"/api/goals", goalBody, tok)
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Errorf("有体无 Content-Type = %d，应为 415", resp.StatusCode)
 	}
-	// 无体的 POST（心跳）照常
 	if resp := doReq(t, "POST", ts.URL+"/api/heartbeat", "", tok); resp.StatusCode != http.StatusOK {
 		t.Errorf("无体心跳 = %d，应为 200", resp.StatusCode)
 	}
-	// 带参数的 JSON 类型放行
 	if resp := doReq(t, "POST", ts.URL+"/api/goals", goalBody, tok, withHeader("Content-Type", "application/json; charset=utf-8")); resp.StatusCode != http.StatusOK {
 		t.Errorf("application/json; charset=utf-8 = %d，应为 200", resp.StatusCode)
 	}
@@ -134,10 +167,10 @@ func TestGuard_BadHostRejected(t *testing.T) {
 	_, port, _ := strings.Cut(strings.TrimPrefix(ts.URL, "http://"), ":")
 	tok := withHeader(TokenHeader, f.srv.Token())
 	for _, h := range []string{
-		"evil.example:" + port,     // DNS 重绑定的典型形态：外部域名指向 127.0.0.1
-		"127.0.0.1.nip.io:" + port, // 解析到回环的域名也不行
-		"127.0.0.1:1",              // 端口不对
-		"192.168.1.10:" + port,     // 回环监听时不认非回环 IP
+		"evil.example:" + port,
+		"127.0.0.1.nip.io:" + port,
+		"127.0.0.1:1",
+		"192.168.1.10:" + port,
 	} {
 		for _, path := range []string{"/api/info", "/"} {
 			resp := doReq(t, "GET", ts.URL+path, "", tok, withHost(h))
@@ -242,14 +275,12 @@ func TestGuard_ShowWindowLoopbackWithoutToken(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("ShowWindowFunc 没被调用")
 	}
-	// 免口令不等于免其他校验：浏览器跨站发来的仍然拒绝。
 	resp = doReq(t, "POST", ts.URL+"/api/show-window", "", withHeader("Origin", "https://evil.example"))
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("跨站 show-window = %d，应为 403", resp.StatusCode)
 	}
 }
 
-// TestGuard_HappyPathWithSSE 正常形态：首页拿口令 → 请求头带口令提交目标 → SSE 用查询参数带口令收到事件。
 func TestGuard_HappyPathWithSSE(t *testing.T) {
 	f, ts := newGuardedServer(t)
 	tok := f.srv.Token()
