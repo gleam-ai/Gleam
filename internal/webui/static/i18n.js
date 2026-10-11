@@ -1516,6 +1516,86 @@ const I18N_EN = {
   '拉取失败：': 'Fetch failed: ',
   '获取失败：': 'Fetch failed: ',
   '更新失败：': 'Update failed: ',
+  // ---- 连接台账与候补目标：app.js 现场拼的那几句。句子的本体归后端两份
+  // （connections.go / cues.go 的 bi），这里只管前端自己长出来的字。
+  '条 · 可撤销': 'entries · undoable',
+  '没有查到任何常驻边界。': 'No standing boundaries found.',
+  填进输入区: 'Fill into input',
+  '把这句话填进下方输入区——按回车才会开始跑':
+    'Puts this line into the input box below — press Enter to start a run',
+  别再提: 'Dismiss',
+  '按下去之后不再提这一条，可以在下面的「已按下」里撤销':
+    'Stops suggesting this one; undo it in the pressed list below',
+  '这张卡已经不成立了（历史变了），重新拉一次':
+    'This cue no longer applies (history changed) — refetching',
+  '这张卡已经不成立了，重新拉一次':
+    'This cue no longer applies — refetching',
+  '已填进输入区。还没有开始跑——按回车才会提交':
+    'Filled into the input box. Nothing is running yet — press Enter to submit',
+  '候补目标读不出来：': 'Follow-up goals are unreadable: ',
+  '这句话已填好，但没能记下「已采纳」：':
+    'The line is filled in, but "adopted" could not be recorded: ',
+  '记下「别再提」失败：': 'Failed to record the dismissal: ',
+  '撤销失败：': 'Failed to undo: ',
+  '加载台账失败：': 'Failed to load the ledger: ',
+  '最近的任务里没有反复出问题的地方，这一轮没什么可提的。':
+    'Nothing keeps going wrong in recent tasks — nothing to suggest this round.',
+
+  // ---- 键盘页 / 终端栏 / 任务卡 / 模型弹层 / 市场与导入：各文件现场拼的字 ----
+  // 带分隔符的键是给「前缀查表」用的 head：整节点是「head+尾巴」拼出来的，
+  // head 查到就把前缀换成英文、尾巴递归走一遍词条与规则。
+  未连接: 'Not connected',
+  替换: 'Replace',
+  '按下新的组合键…': 'Press a new combo…',
+  '没有匹配的快捷键': 'No matching shortcuts',
+  '每条命令经 Gleam 安全门控执行 · 非交互式':
+    'Every command runs through the Gleam safety gate · non-interactive',
+  '桌面版里所有快捷键都由 Gleam 接管。':
+    'In the desktop app, every shortcut is handled by Gleam.',
+  '在浏览器里，Ctrl+N / Ctrl+T / Ctrl+Shift+N 这类组合键会先被浏览器拦下；换一个组合，或使用桌面版。':
+    'In a browser, combos like Ctrl+N / Ctrl+T / Ctrl+Shift+N are caught by the browser first; pick another combo, or use the desktop app.',
+  浏览器内被占用: 'Used inside the browser',
+  '浏览器会先拦下这个组合键；在桌面版里生效':
+    'The browser catches this combo first; it works in the desktop app',
+  '本机还没有已配置的模型。去设置里添加一个，或拉取厂商模型列表。':
+    'No model is configured on this machine yet. Add one in Settings, or fetch the provider list.',
+  '切换模型失败：': 'Switching models failed: ',
+  '停用后保留命令与参数，工具暂时从注册表摘掉':
+    'Disabling keeps the command and arguments; the tools are temporarily detached from the registry',
+  '启用后重新连接并挂回工具':
+    'Re-enabling reconnects and mounts the tools back',
+  '已停用，工具已从注册表摘掉':
+    'Disabled; the tools are detached from the registry',
+  '该服务器无需额外参数。': 'This server needs no extra parameters.',
+  '该服务器已安装。重装会用下面填的命令与参数替换现有配置；只想临时别跑，请取消后到「已安装」里点停用。':
+    'This server is already installed. Reinstalling replaces its configuration with the command and arguments below; to just pause it, cancel and hit Disable under Installed.',
+  '没有匹配的技能模板': 'No matching skill templates',
+  '尚未安装任何 MCP 服务器': 'No MCP servers installed yet',
+  '从上方目录选择安装，或使用自定义接入。':
+    'Install from the catalog above, or use a custom entry.',
+  '安装失败：': 'Install failed: ',
+  '本机检测到的 MCP': 'MCP found on this machine',
+  '本机检测到的技能': 'Skills found on this machine',
+  '没检测到 MCP 配置': 'No MCP configuration found',
+  '本机这些工具都没配过 MCP 服务器。':
+    'None of these local tools have MCP servers configured.',
+  'Gleam 的技能是「可执行的步骤清单」，别的工具留下的是 Markdown 说明——两者不是同一种东西，硬导进来只会得到一个空壳，所以这里只列出、不导入。':
+    'A Gleam skill is an executable checklist; what other tools leave behind is Markdown prose — a different thing entirely. Importing one would only produce an empty shell, so they are listed here without importing.',
+  同名已存在: 'Same-name entry exists',
+  '没检测到技能': 'No skills found',
+  '在 ~/.claude/skills 或 ~/.codex/skills 下放过 SKILL.md 才会出现在这里。':
+    'Shows up only when a SKILL.md exists under ~/.claude/skills or ~/.codex/skills.',
+  '没找到可导入的记忆': 'No memories available to import',
+  '只在本机找 Claude Code、Codex、Cursor 等工具写过的记忆与规则文件；它们没装过或没写过，这里就是空的。':
+    'Only memory and rule files written locally by Claude Code, Codex, Cursor and the like are scanned; if none of them ever wrote one, this list is empty.',
+  '已停用 · ': 'Disabled · ',
+  '请我批准 · ': 'Needs my approval · ',
+  '需我批准 · ': 'Needs my approval · ',
+  '只读放行 · ': 'Read-only · ',
+  '完全访问 · ': 'Full access · ',
+  '等你批准 · ': 'Waiting for you · ',
+  '自动压缩已关闭 · ': 'Auto-compress off · ',
+  '绑定文件夹：': 'Bound folder: ',
   '过滤模型…': 'Filter models…',
   '手动输入模型 ID': 'Enter a model ID manually',
   '或手动输入…': 'Or enter one manually…',
@@ -1720,11 +1800,23 @@ const I18N_PATTERNS = [
     /^切换到「(.+?)」时自动换成这个主题色。$/,
     (m, n) => `Accent switches to this when you switch to ${I18N_EN[n] || n}.`,
   ],
-  [/^(.*) · 无密钥$/, (m, host) => host + ' · no key'],
+  // 组合尾缀（默认/辅助 + 无密钥）必须排在单尾缀之前，否则「· 无密钥」先把
+  // 前半截当 host 吞掉，剩下的「默认」永远翻不动。
+  [
+    /^(.+) · 默认 · 无密钥$/,
+    (m, p) => `${I18N_EN[p] || p} · default · no key`,
+  ],
+  [/^(.+) · 辅助 · 无密钥$/, (m, p) => `${I18N_EN[p] || p} · fast · no key`],
+  [/^(.*) · 无密钥$/, (m, host) => `${I18N_EN[host] || host} · no key`],
   [
     /^上下文窗口占用 (\d+)%（模型窗口 (.+?)，(.+?)；最近一次请求 (\d+) tokens）$/,
     (m, pct, win, src, tok) =>
-      `Context window ${pct}% used (model window ${win}, ${src}; last request ${tok} tokens)`,
+      `Context window ${pct}% used (model window ${win}, ${I18N_EN[src] || src}; last request ${tok} tokens)`,
+  ],
+  [
+    /^上下文窗口占用 (\d+)%（模型窗口 (.+?)，(.+?)；最近一次请求 (\d+) tokens，估算）$/,
+    (m, pct, win, src, tok) =>
+      `Context window ${pct}% used (model window ${win}, ${I18N_EN[src] || src}; last request ${tok} tokens, estimated)`,
   ],
   [
     /^窗口内 (\d+)\/(\d+) 轮 · 待压缩 (\d+) 轮 · 摘要 (\d+) 字$/,
@@ -1741,6 +1833,128 @@ const I18N_PATTERNS = [
   ],
   [/^来源: 系统 PATH · (.*)$/, (m, p) => `Source: system PATH · ${p}`],
   [/^预算闸 · (.+)$/, (m, rest) => `Budget · ${rest}`],
+  // 候补卡的时间戳「最近一次 2026-01-02 15:04」：没有全角分隔符，前缀查表够不着。
+  [/^最近一次 (.+)$/, (m, when) => `Last seen ${when}`],
+  // ---- 计数与拼装句：app.js / market.js / importer.js / chrome.js 各处现拼的 ----
+  // 数字典插在句中，词条够不着；一个形状一条规则，运行期数字原样保留。
+  [/^(\d+) 项需要处理$/, (m, n) => `${n} items need attention`],
+  [/^(\d+) 个目标正在推进$/, (m, n) => `${n} goals in progress`],
+  [/^(\d+) 个工具$/, (m, n) => `${n} tools`],
+  [/^(\d+) 项$/, (m, n) => `${n} items`],
+  [/^(\d+) 条$/, (m, n) => `${n} entries`],
+  [/^完成度 (\d+) \/ 100$/, (m, n) => `score ${n} / 100`],
+  [
+    /^(.+) · 完成度 (.+)\/100$/,
+    (m, st, s) => `${I18N_EN[st] || st} · score ${s}/100`,
+  ],
+  [/^用时 (\d+) 分钟$/, (m, n) => `Took ${n} min`],
+  [/^用时 (\d+(?:\.\d+)?) 秒$/, (m, n) => `Took ${n} s`],
+  [/^待压缩 (\d+) 轮$/, (m, n) => `${n} turns to compress`],
+  [
+    /^(已连接|已停用|未连接) · (\d+) 个工具$/,
+    (m, st, n) => `${I18N_EN[st] || st} · ${n} tools`,
+  ],
+  [
+    /^信任 (需我批准|只读放行|完全访问)(?: · (\d+) 个工具)?$/,
+    (m, p, n) => `Trust ${I18N_EN[p] || p}${n ? ` · ${n} tools` : ''}`,
+  ],
+  [
+    /^(停用|启用)工具服务 (.+)$/,
+    (m, on, name) => `${I18N_EN[on] || on} server ${name}`,
+  ],
+  [/^卸载 (.+)$/, (m, name) => `Uninstall ${name}`],
+  [
+    /^已卸载（移除 (\d+) 个工具）$/,
+    (m, n) => `Uninstalled (${n} tools removed)`,
+  ],
+  [/^已启用（(\d+) 个工具）$/, (m, n) => `Enabled (${n} tools)`],
+  [/^已连接（(\d+) 个工具）$/, (m, n) => `Connected (${n} tools)`],
+  [
+    /^(.+) 已连接（(\d+) 个工具已注册）$/,
+    (m, name, n) => `${name} connected (${n} tools registered)`,
+  ],
+  [
+    /^(重装|安装) (.+)$/,
+    (m, v, name) => `${I18N_EN[v] || v} ${name}`,
+  ],
+  [
+    /^移除工具服务「(.+?)」？移除后它提供的工具将不再可用。$/,
+    (m, name) =>
+      `Remove server "${name}"? Its tools will no longer be available.`,
+  ],
+  [/^缺 (.+)$/, (m, rt) => `Missing ${rt}`],
+  [/^本机没有 (.+)$/, (m, rt) => `Not present on this machine: ${rt}`],
+  [/^(.+) · 按量$/, (m, p) => `${I18N_EN[p] || p} · pay as you go`],
+  [/^(.+) · 编程套餐$/, (m, p) => `${I18N_EN[p] || p} · coding plan`],
+  [/^(.+) · 智能体套餐$/, (m, p) => `${I18N_EN[p] || p} · agent plan`],
+  [/^(.+) · 默认$/, (m, p) => `${I18N_EN[p] || p} · default`],
+  [/^(.+) · 辅助$/, (m, p) => `${I18N_EN[p] || p} · fast`],
+  [
+    /^(.+) · 没填密钥，现在跑不了$/,
+    (m, id) => `${id} · key missing — cannot run yet`,
+  ],
+  [
+    /^已切到 (.+?)，下一个任务开始用它$/,
+    (m, id) => `Switched to ${id}; it takes over from the next task`,
+  ],
+  [
+    /^已拉取 (\d+) 个模型，点一下就切$/,
+    (m, n) => `Fetched ${n} models — click one to switch`,
+  ],
+  [
+    /^(校验失败|鉴权失败：API Key 不正确或已过期|找不到地址或模型：核对 Base URL 与 Model ID|被限流（429），稍后再试|连接超时（15 秒）：检查网络或 Base URL|网络不通：检查 Base URL、代理或防火墙|拉取失败)（([\s\S]+)）$/,
+    (m, hint, msg) => `${I18N_EN[hint] || hint} (${msg})`,
+  ],
+  [/^恢复默认（(.+)）$/, (m, combo) => `Restore default (${combo})`],
+  [
+    /^修改「(.+?)」的快捷键$/,
+    (m, t) => `Change shortcut for "${I18N_EN[t] || t}"`,
+  ],
+  [/^已导入 (\d+) 份记忆$/, (m, n) => `Imported ${n} memories`],
+  [
+    /^已导入 (\d+) 份记忆，跳过 (\d+) 份$/,
+    (m, n, s) => `Imported ${n} memories, skipped ${s}`,
+  ],
+  [/^导入选中（(\d+)）$/, (m, n) => `Import selected (${n})`],
+  [
+    /^已导入 (\d+) 台(?:，已存在跳过 (\d+) 台)?(?:，失败 (\d+) 台)?$/,
+    (m, a, b, c) =>
+      `Imported ${a}${b ? `, skipped ${b} already present` : ''}${c ? `, ${c} failed` : ''}`,
+  ],
+  [
+    /^(.+?) · 环境变量 (.+)$/,
+    (m, where, keys) => `${where} · env: ${keys}`,
+  ],
+  [
+    /^来自 Claude Code \/ Claude Desktop \/ Cursor \/ VS Code \/ Codex 的配置文件。只读命令与参数，环境变量的值不会读出来；同名服务器已安装的会跳过，不覆盖你现在的配置。(?: 另有 (\d+) 台是 URL\/SSE 型，Gleam 目前只支持 stdio 接入，没有列出。)?$/,
+    (m, skipped) =>
+      `Comes from the configuration files of Claude Code / Claude Desktop / Cursor / VS Code / Codex. Commands and arguments are read-only; environment variable values are not read. Same-name servers already installed are skipped and never overwrite your configuration.${skipped ? ` ${skipped} more are URL/SSE type — Gleam currently supports stdio only, so they are not listed.` : ''}`,
+  ],
+  [
+    /^技能「(.+?)」已经装过了。重装会把它恢复成市场模板，你改过的步骤会被替换；只想临时别用它，请取消后到技能页点停用。$/,
+    (m, name) =>
+      `Skill "${name}" is already installed. Reinstalling restores the market template and replaces your edited steps; to just pause it, cancel and hit Disable on the Skills page.`,
+  ],
+  [
+    /^技能「(.+?)」已(重装|安装)，可在技能页运行$/,
+    (m, name, v) =>
+      `Skill "${name}" ${v === '安装' ? 'installed' : 'reinstalled'} — run it on the Skills page`,
+  ],
+  [
+    /^占用 (\d+)% · 模型窗口 (.+?)（(.+?)，(.+?)） · 最近一次请求 (\d+) tokens(（估算）)? · 下一轮带 (\d+) 轮最近对话 · 短期窗口 (\d+)\/(\d+) 轮，待压缩 (\d+) 轮(?: · 累计已省约 (\d+) tokens)?$/,
+    (m, pct, win, src, note, tok, est, carry, sa, sb, sc, saved) =>
+      `Used ${pct}% · model window ${win} (${I18N_EN[src] || src}, ${note}) · last request ${tok} tokens${est ? ' (estimated)' : ''} · ${carry} turns carried next round · short window ${sa}/${sb} turns, ${sc} to compress${saved ? ` · ~${saved} tokens saved so far` : ''}`,
+  ],
+  [
+    /^自动压缩已关闭：短期窗口 (\d+)\/(\d+) 轮，窗口外的对话不会被摘要接住，水位越线时也不会自动收紧$/,
+    (m, a, b) =>
+      `Auto-compress is off: short window ${a}/${b} turns; conversation beyond the window is not caught by a summary, and crossing the level line tightens nothing automatically`,
+  ],
+  [
+    /^占用是「最近一次请求的输入 ÷ 模型窗口」。溢出窗口的旧对话随时汇总成摘要，不会丢；占用到 (\d+)%（任务已结束）或 (\d+)%（任务进行中）时会自动收紧下一轮携带的对话，压完接着把任务做完。$/,
+    (m, end, mid) =>
+      `Usage is "the last request's input ÷ the model window". Older turns beyond the window are summarized as they overflow — nothing is lost; at ${end}% (task finished) or ${mid}% (task running), the next round automatically carries fewer turns, and the task keeps going after compressing.`,
+  ],
   // 前缀查表：界面里大量「中文前缀 + 拼出来的尾巴」（像 '工作区 · ' + 名字、'操作失败：' + 原因）。
   // 这类整节点是拼好的句子，精确匹配不到；这里把第一个分隔符前的那段当键去查表，
   // 查得到就换掉前缀、保留尾巴（尾巴多是运行期内容，本来就不该翻）。查不到就整句不翻。
@@ -1749,8 +1963,9 @@ const I18N_PATTERNS = [
     (m, head, tail) => {
       const has = (k) => Object.prototype.hasOwnProperty.call(I18N_EN, k);
       if (!has(head)) return null;
-      // 尾巴也查一次表：「我的 · 本地模式」这种，尾巴本身就是另一个词条。
-      return I18N_EN[head] + (has(tail) ? I18N_EN[tail] : tail);
+      // 尾巴也递归翻一次：「请我批准 · 编程」的尾巴是词条、「等你批准 · 8 项」的
+      // 尾巴要走计数规则——尾巴里全剩运行期值时原样保留。
+      return I18N_EN[head] + (i18nText(tail) || tail);
     },
   ],
   [/^钩子（(\d+)）$/, (m, n) => `Hooks (${n})`],
@@ -1922,4 +2137,9 @@ function applyLang(lang) {
   } finally {
     i18nApplying = false;
   }
+  // 后端按界面语言组句子的面板（/api/connections、/api/cues 的 lang 参数）
+  // 得拿新语言的数据重取一遍：静态文案上面已经翻完，动态面板的字在响应里。
+  window.dispatchEvent(
+    new CustomEvent('langchange', { detail: { lang: i18nLang } }),
+  );
 }

@@ -2842,12 +2842,17 @@ const CX_FIELD_LABEL = [
   ['off', '想关掉动哪里'],
 ];
 
+// 连接台账与候补目标的句子由 Go 后端按界面语言拼好（connections.go / cues.go），
+// 前端不翻句子，只把当前语言递过去。切换语言时 applyLang 广播 langchange，那侧重取。
+const langQS = () =>
+  document.documentElement.getAttribute('lang') === 'en' ? '?lang=en' : '';
+
 async function loadConnections() {
   const box = $('#cx-conn-list');
   if (!box) return;
   const scope = $('#cx-conn-scope');
   try {
-    const data = await api('GET', '/api/connections');
+    const data = await api('GET', '/api/connections' + langQS());
     if (scope) scope.textContent = data.egressScope || '';
     const rows = data.rows || [];
     if (!rows.length) {
@@ -2903,7 +2908,7 @@ async function loadCues() {
   const deck = $('#cu-deck');
   if (!deck) return;
   try {
-    renderCues(await api('GET', '/api/cues'));
+    renderCues(await api('GET', '/api/cues' + langQS()));
   } catch (err) {
     // 读不动就明说，并清掉上一轮的卡片：那些卡可能早已被处置，留着就是拿旧账当现状。
     cueGoals = new Map();
@@ -3040,6 +3045,12 @@ $('#cu-restore-toggle').addEventListener('click', () => {
 });
 
 $('#cu-refresh').addEventListener('click', () => loadCues().catch(() => {}));
+
+// 语言切换后重取两块由后端组句子的面板；静态文案由 applyLang 自己翻，不在这里管。
+window.addEventListener('langchange', () => {
+  loadConnections().catch(() => {});
+  loadCues().catch(() => {});
+});
 
 /* ---------- 上下文窗口：预设下拉 + 自定义 ----------
  * 预设覆盖常见档（128K / 200K / 400K / 1M），另留「自动」交给内置表认（见 llm.ContextWindowFor）。

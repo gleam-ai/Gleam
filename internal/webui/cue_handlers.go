@@ -12,8 +12,10 @@ import (
 //
 // 为什么**不在这里执行任何东西**：提议层没有手。POST adopt 也只改状态，
 // 真正的执行是用户把那句话发出去的那一下。
-func (s *Server) handleCues(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.Agent.CueView())
+//
+// 卡片句子是插值成品句，翻译归引擎侧（bi）：`?lang=en` 要英文，不带参数给中文。
+func (s *Server) handleCues(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.Agent.CueView(r.URL.Query().Get("lang") == "en"))
 }
 
 // handleCueDismiss 记下「别再提这一条」。

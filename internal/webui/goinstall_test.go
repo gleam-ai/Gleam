@@ -239,7 +239,7 @@ func TestInstallGoToolchainRejectsBadChecksum(t *testing.T) {
 // TestGoToolchainRowPresent 台账必须为这条新出网路径画出行，且每格都有话。
 func TestGoToolchainRowPresent(t *testing.T) {
 	f := newFixture(t, nil)
-	r, ok := rowByID(f.agent.ConnectionView("127.0.0.1:8787"), "go.toolchain")
+	r, ok := rowByID(f.agent.ConnectionView("127.0.0.1:8787", false), "go.toolchain")
 	if !ok {
 		t.Fatal("缺少 go.toolchain 台账行")
 	}
