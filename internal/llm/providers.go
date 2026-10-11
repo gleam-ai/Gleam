@@ -55,12 +55,24 @@ var Providers = []ProviderPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanAgent, Label: "Anthropic 兼容入口", BaseURL: "https://tokendance.space/gateway/v1", Protocol: ProtocolAnthropic},
 		},
+		// ⚠ 未核到：这家不在用户给的文档清单里，也没有可读的官方文档入口。
+		//   同 OpenRouter：聚合商的完整清单只存在于它的模型端点，这里只放「一定能用」的入口。
+		Models: []string{
+			"qwen3.8-flash",
+			"glm-5.3",
+		},
 	},
 	{
 		ID: "deepseek", Name: "DeepSeek 深度求索", Recommended: true,
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（快速版，OpenAI 兼容）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanCoding, Label: "编程模式（旗舰版，复杂任务）", BaseURL: "https://api.deepseek.com/v1", Protocol: ProtocolOpenAIChat},
+		},
+		// 出处：https://api-docs.deepseek.com/（2026-10-11 核）
+		// 文档另注明旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 仍被接受，未收录。
+		Models: []string{
+			"deepseek-flash",
+			"deepseek-v4-pro",
 		},
 	},
 	{
@@ -70,12 +82,24 @@ var Providers = []ProviderPreset{
 			{Kind: PlanCoding, Label: "GLM Coding Plan 编程套餐（OpenAI 兼容）", BaseURL: "https://open.bigmodel.cn/api/coding/paas/v4", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanAgent, Label: "Anthropic 兼容入口（Claude Code 同款）", BaseURL: "https://open.bigmodel.cn/api/anthropic", Protocol: ProtocolAnthropic},
 		},
+		// 出处：https://docs.bigmodel.cn/cn/guide/start/quick-start（2026-10-11 核，入口未变）
+		Models: []string{
+			"glm-5.3-flash",
+			"glm-5.3",
+		},
 	},
 	{
 		ID: "moonshot", Name: "月之暗面 Kimi",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://api.moonshot.cn/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanCoding, Label: "Kimi Coding（Anthropic 兼容；托管版经 Kimi Code 登录自动配置）", BaseURL: "https://api.moonshot.cn/anthropic", Protocol: ProtocolAnthropic},
+		},
+		// 出处：https://platform.kimi.com/docs/get-api-key（2026-10-11 核，OpenAI 兼容入口未变）
+		Models: []string{
+			"kimi-k3",
+			"kimi-k2.7-code",
+			"kimi-k2.7-code-highspeed",
+			"kimi-k2.6",
 		},
 	},
 	{
@@ -85,6 +109,16 @@ var Providers = []ProviderPreset{
 			{Kind: PlanCoding, Label: "百炼 Coding Plan（Anthropic 兼容；Key 为 sk-sp- 开头，与按量不互通）", BaseURL: "https://coding.dashscope.aliyuncs.com/anthropic", Protocol: ProtocolAnthropic},
 			{Kind: PlanAgent, Label: "百炼 Coding Plan（OpenAI 兼容；一个 Key 聚合千问/GLM/Kimi/MiniMax）", BaseURL: "https://coding.dashscope.aliyuncs.com/v1", Protocol: ProtocolOpenAIChat},
 		},
+		// 出处：https://platform.qianwenai.com/docs/developer-guides/getting-started/introduction（2026-10-11 核）
+		// ⚠ 该文档给的兼容入口主机是 maas.qianwenaiapi.com，与本表的 dashscope 不是同一主机。
+		//   本表**没改入口**（改它会动到既有用户的配置），此事记在待确认清单里由人工定夺。
+		//   qwen3-coder-plus 是本表既有默认，文档未列，保留在末尾以免默认值选不出来。
+		Models: []string{
+			"qwen3.8-max",
+			"qwen3.7-plus",
+			"qwen3.8-flash",
+			"qwen3-coder-plus",
+		},
 	},
 	{
 		ID: "volc", Name: "火山方舟（豆包）",
@@ -92,12 +126,51 @@ var Providers = []ProviderPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容）", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanCoding, Label: "方舟 Coding Plan（Lite/Pro，Anthropic 兼容，适配 Claude Code）", BaseURL: "https://ark.cn-beijing.volces.com/api/coding", Protocol: ProtocolAnthropic},
 		},
+		// ⚠ 未核到：仓库注释引用的 docs.volcengine.com/docs/82379/1925114 只返回控制台元数据，
+		//   平台概览页同样没有入口与模型清单。所以这里**只放本表自己的两个默认模型**（它们
+		//   本来就写在上面，是一定可用的入口），不猜任何别的 ID。待人工补文档后再扩。
+		Models: []string{
+			"doubao-seed-1-6",
+			"doubao-seed-code",
+		},
 	},
 	{
-		ID: "minimax", Name: "MiniMax",
+		ID: "minimax", Name: "MiniMax（国内站）",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国内站）", BaseURL: "https://api.minimaxi.com/v1", Protocol: ProtocolOpenAIChat},
-			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国内站；国际站为 api.minimax.io）", BaseURL: "https://api.minimaxi.com/anthropic", Protocol: ProtocolAnthropic},
+			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国内站）", BaseURL: "https://api.minimaxi.com/anthropic", Protocol: ProtocolAnthropic},
+		},
+		// 出处：https://platform.minimax.io/docs/api-reference/api-overview（2026-10-11 核；该页给的是国际站）
+		Models: []string{
+			"MiniMax-M3.1-Flash-Preview",
+			"MiniMax-M3",
+			"MiniMax-M2.7",
+			"MiniMax-M2.7-highspeed",
+			"MiniMax-M2.5",
+			"MiniMax-M2.5-highspeed",
+			"MiniMax-M2.1",
+			"MiniMax-M2.1-highspeed",
+			"MiniMax-M2",
+		},
+	},
+	{
+		// 国际站独立成一家：混在国内站的 label 里用户根本选不到，而两家主体与入口都不同。
+		// 入口主机取自本表原有的 label 记载（文档页未给出 base URL），故标注为"仓库既有记载"。
+		ID: "minimax-intl", Name: "MiniMax（国际站）",
+		Plans: []PlanPreset{
+			{Kind: PlanToken, Label: "按量 Token（OpenAI 兼容，国际站）", BaseURL: "https://api.minimax.io/v1", Protocol: ProtocolOpenAIChat},
+			{Kind: PlanCoding, Label: "MiniMax Coding Plan（Anthropic 兼容，国际站）", BaseURL: "https://api.minimax.io/anthropic", Protocol: ProtocolAnthropic},
+		},
+		Models: []string{
+			"MiniMax-M3.1-Flash-Preview",
+			"MiniMax-M3",
+			"MiniMax-M2.7",
+			"MiniMax-M2.7-highspeed",
+			"MiniMax-M2.5",
+			"MiniMax-M2.5-highspeed",
+			"MiniMax-M2.1",
+			"MiniMax-M2.1-highspeed",
+			"MiniMax-M2",
 		},
 	},
 	{
@@ -106,11 +179,26 @@ var Providers = []ProviderPreset{
 			{Kind: PlanToken, Label: "按量 Token（Chat Completions）", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIChat},
 			{Kind: PlanAgent, Label: "Responses API", BaseURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAIResponses},
 		},
+		// ⚠ 未核到：platform.openai.com 的文档页返回 403，抓不到模型清单。
+		//   只放本表自己的默认模型，不猜别的 ID。待人工补。
+		Models: []string{
+			"gpt-4.1",
+		},
 	},
 	{
 		ID: "anthropic", Name: "Anthropic",
 		Plans: []PlanPreset{
 			{Kind: PlanToken, Label: "按量 Token（Messages API）", BaseURL: "https://api.anthropic.com/v1", Protocol: ProtocolAnthropic},
+		},
+		// 出处：https://platform.claude.com/docs/zh-CN/about-claude/models/overview（2026-10-11 核）
+		// 该页同时给出窗口（四个都是 1M），Task 5 的窗口表用它。
+		// claude-sonnet-4-5 是本表既有默认，文档未列（它在 legacy 链接里），保留在末尾不改行为。
+		Models: []string{
+			"claude-opus-5-5",
+			"claude-sonnet-5-5",
+			"claude-haiku-5-5",
+			"claude-fable-5-1",
+			"claude-sonnet-4-5",
 		},
 	},
 	{
