@@ -24,12 +24,15 @@
           <span>Gleam</span>
         </a>
         <div class="nav-links">
-          <a href="#features">Features</a>
-          <a href="#how-it-works">How it works</a>
-          <a href="#download">Download</a>
+          <a href="#features" data-i18n="nav.features">Features</a>
+          <a href="#how-it-works" data-i18n="nav.showcase">How it works</a>
+          <a href="#download" data-i18n="nav.download">Download</a>
           <a href="https://github.com/gleam-ai/Gleam" target="_blank">GitHub</a>
         </div>
-        <a href="#download" class="nav-cta">Get Started</a>
+        <div class="nav-actions">
+          <button class="lang-toggle" id="lang-toggle" title="切换语言">中文</button>
+          <a href="#download" class="nav-cta" data-i18n="nav.cta">Get Started</a>
+        </div>
       </div>
     </nav>
 
@@ -38,19 +41,19 @@
       <div class="container">
         <div class="hero-badge reveal">
           <span class="badge-dot"></span>
-          <span>v0.0.8 · Open Source · MIT License</span>
+          <span data-i18n="hero.badge">v0.0.8 · Open Source · MIT License</span>
         </div>
-        <h1 class="hero-title reveal reveal-delay-1">
+        <h1 class="hero-title reveal reveal-delay-1" data-i18n="hero.title">
           Your tasks,<br />
           <span class="glow-text">handled.</span>
         </h1>
-        <p class="hero-subtitle reveal reveal-delay-2">
+        <p class="hero-subtitle reveal reveal-delay-2" data-i18n="hero.subtitle">
           Gleam is a local-first AI agent that plans, executes, and reflects on
           your work. One 10 MB binary. Zero cloud dependency. Your data stays on
           your machine.
         </p>
         <div class="hero-actions reveal reveal-delay-3">
-          <a href="#download" class="btn btn-primary">
+          <a href="#download" class="btn btn-primary" data-i18n="hero.download">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path
                 d="M8 1v10m0 0l-3-3m3 3l3-3M2 13h12"
@@ -66,6 +69,7 @@
             href="https://github.com/gleam-ai/Gleam"
             target="_blank"
             class="btn btn-ghost"
+            data-i18n="hero.github"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path
@@ -98,19 +102,19 @@
         <div class="hero-stats reveal">
           <div class="stat">
             <div class="stat-value" data-target="10" data-suffix=" MB">0</div>
-            <div class="stat-label">Binary size</div>
+            <div class="stat-label" data-i18n="stats.size">Binary size</div>
           </div>
           <div class="stat">
             <div class="stat-value" data-target="27" data-suffix="">0</div>
-            <div class="stat-label">Built-in tools</div>
+            <div class="stat-label" data-i18n="stats.tools">Built-in tools</div>
           </div>
           <div class="stat">
             <div class="stat-value" data-target="55" data-suffix="%">0</div>
-            <div class="stat-label">Token savings</div>
+            <div class="stat-label" data-i18n="stats.tokens">Token savings</div>
           </div>
           <div class="stat">
             <div class="stat-value" data-target="0" data-suffix="">0</div>
-            <div class="stat-label">External deps</div>
+            <div class="stat-label" data-i18n="stats.deps">External deps</div>
           </div>
         </div>
       </div>
@@ -120,8 +124,8 @@
     <section id="features" class="features">
       <div class="container">
         <div class="section-header reveal">
-          <p class="section-eyebrow">Capabilities</p>
-          <h2>Not a chatbot.<br /><span class="glow-text">A reliable colleague.</span></h2>
+          <p class="section-eyebrow" data-i18n="features.eyebrow">Capabilities</p>
+          <h2 data-i18n="features.title">Not a chatbot.<br /><span class="glow-text">A reliable colleague.</span></h2>
         </div>
 
         <div class="bento-grid">
@@ -132,17 +136,17 @@
                 <path d="M12 6v6l4 2"/>
               </svg>
             </div>
-            <h3>Plan → Execute → Reflect</h3>
-            <p>
+            <h3 data-i18n="features.plan.title">Plan → Execute → Reflect</h3>
+            <p data-i18n="features.plan.desc">
               Every task runs through a closed loop: decompose into steps, execute with DAG concurrency, then self-score 0–100. Low scores trigger automatic replanning. No more forgotten follow-ups.
             </p>
             <div class="bento-visual">
               <div class="flow-steps">
-                <div class="flow-step flow-step--active">Plan</div>
+                <div class="flow-step flow-step--active" data-i18n="features.plan.step1">Plan</div>
                 <div class="flow-arrow">→</div>
-                <div class="flow-step">Execute</div>
+                <div class="flow-step" data-i18n="features.plan.step2">Execute</div>
                 <div class="flow-arrow">→</div>
-                <div class="flow-step">Reflect</div>
+                <div class="flow-step" data-i18n="features.plan.step3">Reflect</div>
                 <div class="flow-arrow flow-arrow--loop">↻</div>
               </div>
             </div>
@@ -155,8 +159,8 @@
                 <path d="M7 11V7a5 5 0 0110 0v4"/>
               </svg>
             </div>
-            <h3>Local-first</h3>
-            <p>
+            <h3 data-i18n="features.local.title">Local-first</h3>
+            <p data-i18n="features.local.desc">
               Conversations, memory, tasks, and audit logs default to your machine. Only real LLM calls leave your network — and you pick the provider.
             </p>
           </div>
@@ -169,8 +173,8 @@
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <h3>9 LLM providers</h3>
-            <p>
+            <h3 data-i18n="features.llm.title">9 LLM providers</h3>
+            <p data-i18n="features.llm.desc">
               GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and more. Multi-model tier routing — use a strong model for planning, a fast one for summaries.
             </p>
           </div>
@@ -181,8 +185,8 @@
                 <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
               </svg>
             </div>
-            <h3>27 built-in tools</h3>
-            <p>
+            <h3 data-i18n="features.tools.title">27 built-in tools</h3>
+            <p data-i18n="features.tools.desc">
               File, shell, web, git, clipboard, screenshots, memory, scheduling — plus MCP for unlimited extensions. Install from the marketplace in one click.
             </p>
           </div>
@@ -196,8 +200,8 @@
                 <path d="M16 3.13a4 4 0 010 7.75"/>
               </svg>
             </div>
-            <h3>7 expert roles</h3>
-            <p>
+            <h3 data-i18n="features.roles.title">7 expert roles</h3>
+            <p data-i18n="features.roles.desc">
               Analyst, engineer, PM, researcher, ops, creator — or define your own. Each role brings its own system prompt, tool set, and model tier.
             </p>
           </div>
@@ -208,15 +212,15 @@
                 <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
               </svg>
             </div>
-            <h3>Skill crystallization</h3>
-            <p>
+            <h3 data-i18n="features.skills.title">Skill crystallization</h3>
+            <p data-i18n="features.skills.desc">
               Successful executions become reusable, versioned skills with success-rate tracking. Failed runs auto-optimize parameters via LLM revision. Your workflows get better every time.
             </p>
             <div class="bento-visual">
               <div class="skill-bars">
-                <div class="skill-bar"><span class="skill-label">Code review</span><span class="skill-fill" style="--fill:92%"></span><span class="skill-pct">92%</span></div>
-                <div class="skill-bar"><span class="skill-label">File organize</span><span class="skill-fill" style="--fill:87%"></span><span class="skill-pct">87%</span></div>
-                <div class="skill-bar"><span class="skill-label">Git workflow</span><span class="skill-fill" style="--fill:95%"></span><span class="skill-pct">95%</span></div>
+                <div class="skill-bar"><span class="skill-label" data-i18n="features.skills.s1">Code review</span><span class="skill-fill" style="--fill:92%"></span><span class="skill-pct">92%</span></div>
+                <div class="skill-bar"><span class="skill-label" data-i18n="features.skills.s2">File organize</span><span class="skill-fill" style="--fill:87%"></span><span class="skill-pct">87%</span></div>
+                <div class="skill-bar"><span class="skill-label" data-i18n="features.skills.s3">Git workflow</span><span class="skill-fill" style="--fill:95%"></span><span class="skill-pct">95%</span></div>
               </div>
             </div>
           </div>
@@ -228,21 +232,21 @@
     <section id="how-it-works" class="showcase">
       <div class="container">
         <div class="section-header reveal">
-          <p class="section-eyebrow">Interface</p>
-          <h2>Designed to stay<br /><span class="glow-text">out of your way.</span></h2>
+          <p class="section-eyebrow" data-i18n="showcase.eyebrow">Interface</p>
+          <h2 data-i18n="showcase.title">Designed to stay<br /><span class="glow-text">out of your way.</span></h2>
         </div>
         <div class="showcase-grid">
           <div class="showcase-card showcase-card--large reveal">
             <img src="images/gleam-desktop-01.png" alt="Main interface" loading="lazy" />
-            <div class="showcase-label">Conversation & task execution</div>
+            <div class="showcase-label" data-i18n="showcase.s1">Conversation & task execution</div>
           </div>
           <div class="showcase-card reveal" data-delay="100">
             <img src="images/settings-llm.png" alt="Model configuration" loading="lazy" />
-            <div class="showcase-label">Multi-provider model config</div>
+            <div class="showcase-label" data-i18n="showcase.s2">Multi-provider model config</div>
           </div>
           <div class="showcase-card reveal" data-delay="200">
             <img src="images/settings-engine.png" alt="Engine settings" loading="lazy" />
-            <div class="showcase-label">Fine-grained engine controls</div>
+            <div class="showcase-label" data-i18n="showcase.s3">Fine-grained engine controls</div>
           </div>
         </div>
       </div>
@@ -252,9 +256,9 @@
     <section id="download" class="download">
       <div class="container">
         <div class="section-header reveal">
-          <p class="section-eyebrow">Get started</p>
-          <h2>One binary.<br /><span class="glow-text">Zero setup.</span></h2>
-          <p class="section-sub">
+          <p class="section-eyebrow" data-i18n="download.eyebrow">Get started</p>
+          <h2 data-i18n="download.title">One binary.<br /><span class="glow-text">Zero setup.</span></h2>
+          <p class="section-sub" data-i18n="download.sub">
             Released <time id="dl-date" datetime="2026-10-12">2026-10-12</time> · MIT License
           </p>
         </div>
@@ -272,9 +276,9 @@
             <div class="download-card-body">
               <div class="download-card-title">
                 Windows
-                <span class="download-badge">Recommended</span>
+                <span class="download-badge" data-i18n="download.badge">Recommended</span>
               </div>
-              <div class="download-card-desc">
+              <div class="download-card-desc" data-i18n="download.winDesc">
                 One-click installer · Tray icon · Auto-update · Bundled runtimes
               </div>
             </div>
@@ -292,8 +296,8 @@
               </svg>
             </div>
             <div class="download-card-body">
-              <div class="download-card-title">Windows CLI</div>
-              <div class="download-card-desc">Single-file binary</div>
+              <div class="download-card-title" data-i18n="download.winCli">Windows CLI</div>
+              <div class="download-card-desc" data-i18n="download.winCliDesc">Single-file binary</div>
             </div>
             <div class="download-card-meta">~12 MB</div>
           </a>
@@ -309,8 +313,8 @@
               </svg>
             </div>
             <div class="download-card-body">
-              <div class="download-card-title">macOS</div>
-              <div class="download-card-desc">Apple Silicon</div>
+              <div class="download-card-title" data-i18n="download.mac">macOS</div>
+              <div class="download-card-desc" data-i18n="download.macDesc">Apple Silicon</div>
             </div>
             <div class="download-card-meta">~15 MB</div>
           </a>
@@ -328,14 +332,14 @@
               </svg>
             </div>
             <div class="download-card-body">
-              <div class="download-card-title">Linux</div>
-              <div class="download-card-desc">x86_64 binary</div>
+              <div class="download-card-title" data-i18n="download.linux">Linux</div>
+              <div class="download-card-desc" data-i18n="download.linuxDesc">x86_64 binary</div>
             </div>
             <div class="download-card-meta">~15 MB</div>
           </a>
         </div>
 
-        <p class="download-alt">
+        <p class="download-alt" data-i18n="download.alt">
           Or install from source:
           <code>go install gleam/cmd/gleam@latest</code>
         </p>
@@ -352,13 +356,27 @@
           </div>
           <div class="footer-links">
             <a href="https://github.com/gleam-ai/Gleam" target="_blank">GitHub</a>
-            <a href="https://github.com/gleam-ai/Gleam/releases" target="_blank">Releases</a>
-            <a href="https://github.com/gleam-ai/Gleam/blob/master/LICENSE" target="_blank">MIT License</a>
-            <a href="https://github.com/gleam-ai/Gleam/issues" target="_blank">Issues</a>
+            <a href="https://github.com/gleam-ai/Gleam/releases" target="_blank" data-i18n="footer.releases">Releases</a>
+            <a href="https://github.com/gleam-ai/Gleam/blob/master/LICENSE" target="_blank" data-i18n="footer.license">MIT License</a>
+            <a href="https://github.com/gleam-ai/Gleam/issues" target="_blank" data-i18n="footer.issues">Issues</a>
+          </div>
+        </div>
+        <div class="footer-qr">
+          <div class="qr-item">
+            <img src="images/wechat-qr.png" alt="WeChat" />
+            <div data-i18n="footer.wechat">WeChat</div>
+          </div>
+          <div class="qr-item">
+            <img src="images/mp-qr.jpg" alt="WeChat Official Account" />
+            <div data-i18n="footer.mp">Official Account · 宁的AI小站</div>
+          </div>
+          <div class="qr-item">
+            <img src="images/appreciate-qr.png" alt="Appreciate" />
+            <div data-i18n="footer.appreciate">Appreciate</div>
           </div>
         </div>
         <div class="footer-bottom">
-          <p>Built with Go, running locally. &copy; 2026 Gleam</p>
+          <p data-i18n="footer.bottom">Built with Go, running locally. &copy; 2026 Gleam</p>
         </div>
       </div>
     </footer>
