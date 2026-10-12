@@ -1,5 +1,17 @@
 # Gleam 优化变更日志
 
+## 2026-10-12
+
+### 发布 0.0.8：版本号统一回 owner（含 0.0.6 / 0.0.7 的漂移）＋ 注释闸门与守护进程批次
+
+- **版本号统一回 owner**：`internal/buildinfo` 仍是「这是哪个版本」的唯一 owner，本次 `0.0.6 → 0.0.8`；同步 `desktop/package.json` 与 `desktop/package-lock.json`（锁文件此前停在 `0.0.5`，比清单落后两个版本），官网 `id="dl-version"` 随之改为 `v0.0.8`。三处一致，`check-version-owner.py` 的判据不写死数字，升版后自动跟着挪。
+- **0.0.6 / 0.0.7 是两次只改一半的升版，本次一并找平**：0.0.6 改了 owner 与官网徽标（`c4516fb`、`79a3860`）；0.0.7 只改了 `desktop/package.json`（`2f1a495`），官网随后被改成 `v0.0.7`（`2324ff0`）而 owner 还停在 `0.0.6`——三处口径互不相同，而它们看起来都像"从后端来的"。官网重做时又把 `id="dl-version"` / `id="dl-date"` 两个标记整块丢掉，版本闸门因此报"判据失效"而不是"通过"。PR #43 把标记找回并按 owner 归位，本次升版把三处重新对齐。**`dl-date` 不手写**：它的 owner 是 `dist/` 下最新那份 `SHA256SUMS-<date>.txt`（`scripts/package.sh` 打包时写出），所以现在仍是 `2026-10-10`——等这一版的包打出来，闸门会自己要求改它，不需要有人记得。
+- **0.0.8 内容之一（PR #43，注释口径与三处静默失效）**：注释清掉后把规则做成可执行闸门（`prune-comments.py` / `check-comments.py` / `comment-policy.json`）。清理过程翻出三个"每层都绿、其实没在跑"的问题：变异锚点指在被删的注释上，负例控制因此集体失效；`app.js` 顶层一句在 TDZ 里读了几千行后才声明的 `const`，整个文件从那行起不再执行；能力菜单按 map 顺序渲染工具参数，于是"可缓存提示词前缀"的长度每次构建都不一样、就绪判定跟着翻转——这就是 `internal/webui` 大约三跑一红的那个 flake 的根因，master 上同样在红。其余：工具事件按步流式推送、样式表重分层、VS Code 扩展走 JSON-RPC 驱动引擎、桌面打包瘦身、skill 参数收窄前的边界检查（CodeQL `incorrect-integer-conversion`）、守护进程的 plist / unit 改走 `atomicfile`。
+- **0.0.8 内容之二（守护进程，`a71c4c2`）**：`gleam daemon install / uninstall / start / stop / status / queue`，开机自启的服务定义（launchd / systemd / Windows）与落盘任务队列；`internal/harness/daemon` 随 PR #43 一并套用注释口径与持久化规则。
+- **0.0.6 / 0.0.7 期间的其余上游内容（当时未记，补在此处）**：官网落地页重做；provider 内置模型目录与新 preset（Gemini / StepFun / Qianfan / Hunyuan / Grok）、OpenRouter 刻意保持小目录、上下文窗口表扩展到新模型族；LLM 指数退避重试、compact tool schema 省约 40% token、role prompt 精简省约 15%；WebUI 语音输入、界面全英文化、模型下拉、SSE 广播加 50 ms 超时、去掉启动时的 Go 检测；桌面端退出确认、托盘菜单空白修复、截图路径转义；CodeQL 的 unsafe quoting 告警处置。
+- **历史条目的版本号不改**：0.0.5 及更早条目里的 `v1.x` 与 `0.0.5` 是当时界面上真实写着的东西，把它们改成新版本号等于篡改记录。
+
+
 ## 2026-10-10
 
 ### 发布 0.0.5：版本号重编号（旧 1.x → 0.0.N）＋ 桌面壳重构批次
