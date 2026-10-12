@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"gleam/internal/atomicfile"
 )
 
 type ServiceState string
@@ -211,7 +213,7 @@ func (m *Manager) installMacOS() error {
 </dict>
 </plist>`, m.name, m.binPath, m.dataDir, m.dataDir, m.dataDir)
 
-	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
+	if err := atomicfile.Write(plistPath, []byte(plist), 0o644); err != nil {
 		return fmt.Errorf("写入 plist 失败：%w", err)
 	}
 
@@ -319,7 +321,7 @@ RestartSec=10
 WantedBy=default.target
 `, m.name, m.binPath, m.dataDir)
 
-	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
+	if err := atomicfile.Write(unitPath, []byte(unit), 0o644); err != nil {
 		return fmt.Errorf("写入 systemd unit 失败：%w", err)
 	}
 
