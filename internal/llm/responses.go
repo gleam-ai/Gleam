@@ -1,6 +1,3 @@
-// responses.go OpenAI Responses API 协议客户端（自研，纯标准库）。
-// 线协议：POST {base}/responses，system 走 instructions，消息走 input 数组；
-// 非流式解析 output[].content[].output_text；流式消费 response.output_text.delta 事件。
 package llm
 
 import (
@@ -12,7 +9,6 @@ import (
 	"time"
 )
 
-// ResponsesClient OpenAI Responses API 客户端。
 type ResponsesClient struct {
 	BaseURL     string
 	APIKey      string
@@ -22,7 +18,6 @@ type ResponsesClient struct {
 	HTTP        *http.Client
 }
 
-// NewResponses 创建 Responses API 客户端。
 func NewResponses(baseURL, apiKey, model string, temperature float64, maxTokens int, timeout time.Duration) *ResponsesClient {
 	return &ResponsesClient{
 		BaseURL:     normalizeBase(baseURL, "/responses"),
@@ -89,10 +84,9 @@ type responsesOutput struct {
 	} `json:"output"`
 	OutputText string `json:"output_text"`
 	Usage      *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-		// InputTokensDetails 缓存命中量（OpenAI Responses 风格）
+		InputTokens        int `json:"input_tokens"`
+		OutputTokens       int `json:"output_tokens"`
+		TotalTokens        int `json:"total_tokens"`
 		InputTokensDetails *struct {
 			CachedTokens int `json:"cached_tokens"`
 		} `json:"input_tokens_details"`
@@ -102,8 +96,6 @@ type responsesOutput struct {
 	} `json:"error"`
 }
 
-// textFromOutput 聚合 output 数组中的 output_text 片段；空时回退顶层 output_text。
-// 同时返回响应中的 token 用量（缺失时为零值，由 reportUsage 估算兜底）。
 func textFromOutput(raw []byte) (string, Usage, error) {
 	var out responsesOutput
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -136,7 +128,6 @@ func textFromOutput(raw []byte) (string, Usage, error) {
 	return "", u, fmt.Errorf("llm: 响应中无内容")
 }
 
-// Chat 非流式调用。
 func (c *ResponsesClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
 	body, err := json.Marshal(c.payload(req, false))
 	if err != nil {
@@ -154,7 +145,6 @@ func (c *ResponsesClient) Chat(ctx context.Context, req ChatRequest) (string, er
 	return text, nil
 }
 
-// ChatStream 流式调用（SSE：response.output_text.delta 事件）。
 func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDelta func(string)) (string, error) {
 	body, err := json.Marshal(c.payload(req, true))
 	if err != nil {
@@ -168,7 +158,6 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 
 	var full strings.Builder
 	var u Usage
-	// 三级超时看门狗（TTFB / 块间）：只靠 http.Client 的总超时抓不住"吐着吐着停了"
 	err = scanStream(ctx, rc, func(line string) bool {
 		if !strings.HasPrefix(line, "data:") {
 			return true
@@ -178,10 +167,8 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 			return true
 		}
 		var ev struct {
-			Type  string `json:"type"`
-			Delta string `json:"delta"`
-			// response.completed 事件带完整 response（含 usage），
-			// 不接住它就只能退化成估算，缓存命中量也就无从得知。
+			Type     string `json:"type"`
+			Delta    string `json:"delta"`
 			Response *struct {
 				Usage *struct {
 					InputTokens        int `json:"input_tokens"`
@@ -211,7 +198,7 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 					u.CachedTokens = ru.InputTokensDetails.CachedTokens
 				}
 			}
-			return false // 终态事件：正常停止读取
+			return false
 		}
 		return true
 	})
@@ -221,7 +208,6 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 	if full.Len() == 0 {
 		return "", fmt.Errorf("llm: 流式响应为空")
 	}
-	// 拿到 response.completed 的 usage 就用真的（含缓存命中量），否则估算兜底。
 	ReportUsage(req, full.String(), u)
 	return full.String(), nil
 }

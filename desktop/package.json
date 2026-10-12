@@ -15,8 +15,9 @@
     "build": "npm run build:sidecar && npm run build:ts",
     "dev": "npm run build && electron .",
     "start": "electron .",
-    "pack:win": "npm run build && node scripts/fetch-runtimes.mjs win32 x64 && node scripts/pack-desktop.mjs --win nsis",
-    "pack:linux": "npm run build && node scripts/pack-desktop.mjs --linux dir"
+    "trim:runtimes": "node scripts/trim-runtimes.mjs",
+    "pack:win": "npm run build && node scripts/fetch-runtimes.mjs win32 x64 && npm run trim:runtimes -- win32 x64 && node scripts/pack-desktop.mjs --win nsis",
+    "pack:linux": "npm run build && node scripts/fetch-runtimes.mjs linux x64 && npm run trim:runtimes -- linux x64 && node scripts/pack-desktop.mjs --linux dir"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

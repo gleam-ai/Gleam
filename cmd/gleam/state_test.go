@@ -14,13 +14,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ── 表的形状 ──
-
-// TestStateCategories_FourArticleCategoriesInOrder 四类必须齐、且在「资产」之前。
-//
-// 顺序是有意的：前四类来自资料的框架（配置 / 会话 / 记忆 / 任务），「资产」是
-// Gleam 多出来的一类（资料的云上多租户里"能力"由平台提供，用户不持有技能文件）。
-// 把资产插在四类中间，读者会以为它也是资料里的那一类。
 func TestStateCategories_FourArticleCategoriesInOrder(t *testing.T) {
 	want := []string{"配置", "会话", "记忆", "任务", "资产"}
 	if len(stateCategories) != len(want) {
@@ -38,10 +31,6 @@ func TestStateCategories_FourArticleCategoriesInOrder(t *testing.T) {
 	}
 }
 
-// TestStateEntries_Shape 每条落盘位置的形状：类别已声明、路径是相对的、不含 `..`。
-//
-// 路径安全在这里不是安全问题（这段只读），而是**可读性**问题：一个绝对路径写进表里，
-// 换个数据目录就印出别人的路径；一个 `..` 则说明表里混进了"数据目录之外"却没标 Outside。
 func TestStateEntries_Shape(t *testing.T) {
 	known := map[string]bool{}
 	for _, c := range stateCategories {
@@ -79,10 +68,6 @@ func TestStateEntries_Shape(t *testing.T) {
 	}
 }
 
-// ── 渲染 ──
-
-// TestStateReport_RendersCategoriesAndEntries 渲染必须带上四类名、每条的路径与说明，
-// 并且明确写出「这一段不是判定」——否则读的人会拿它当体检结论。
 func TestStateReport_RendersCategoriesAndEntries(t *testing.T) {
 	out := stateReport(t.TempDir())
 	for _, want := range []string{
@@ -97,10 +82,6 @@ func TestStateReport_RendersCategoriesAndEntries(t *testing.T) {
 	}
 }
 
-// TestDescribeStatePath_MissingIsQuiet 缺路径打印 `[无]`，不报错、不 panic。
-//
-// 数据目录里大部分东西是"用起来才有"（没用过记忆就没有 memory/）。把它变成错误，
-// 等于让每个调用点都得先绕开一次预期中的失败——而真正该被看见的读取错误会淹没在里面。
 func TestDescribeStatePath_MissingIsQuiet(t *testing.T) {
 	dir := t.TempDir()
 	e := stateEntry{Category: "记忆", Path: "memory/longterm.json", Role: "长期记忆"}
@@ -109,13 +90,8 @@ func TestDescribeStatePath_MissingIsQuiet(t *testing.T) {
 	}
 }
 
-// TestDescribeStatePath_CountsRecursively 目录要递归数文件。
-//
-// 只看一层的话 `tool-output/<taskID>/<stepID>.txt` 永远显示"0 个文件"——
-// 而它恰恰是最需要知道体量的那个（它是缓存，裁剪失效时第一个涨起来的就是它）。
 func TestDescribeStatePath_CountsRecursively(t *testing.T) {
 	dir := t.TempDir()
-	// 两层：tool-output/t1/s1.txt 与 tool-output/t1/s2.txt
 	deep := filepath.Join(dir, "tool-output", "t1")
 	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatal(err)
@@ -134,7 +110,6 @@ func TestDescribeStatePath_CountsRecursively(t *testing.T) {
 	}
 }
 
-// TestHumanBytes 体量格式化：1024 进制、KB 起保留一位小数。
 func TestHumanBytes(t *testing.T) {
 	cases := []struct {
 		n    int64
@@ -154,25 +129,12 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
-// ── 表必须覆盖代码真的会落盘的东西 ──
-
-// TestStateEntries_CoverWhatRuntimeCreates 这是这张表唯一防得住漂移的测试。
-//
-// 表是路径清单的唯一 owner（见 state.go 文件头），所以它最容易出的错不是"写错"，
-// 而是**代码新加了一处落盘、表没跟上**——那时报告会漏报一个目录，
-// 而漏报的形态是"看起来数据目录里就这些东西"，比不报更坏。
-//
-// 做法：真装配一套 runtime、真跑一个任务、再把 buildRuntime 不会碰到的几处显式触发，
-// 然后**walk 数据目录顶层**，把盘上真实出现的条目与表逐一对账。
-// 这是"从盘上验回来"，不是"断言函数被调用过"——后者对这张表毫无意义。
 func TestStateEntries_CoverWhatRuntimeCreates(t *testing.T) {
 	dataDir := t.TempDir()
 	ws := t.TempDir()
 	script := filepath.Join(t.TempDir(), "script.json")
 	body, err := json.Marshal([]map[string]any{
 		{"kind": "plan", "texts": []string{
-			// 刻意含一步 file.write：snapshots/ 只会在**真的写文件**时出现。
-			// 光跑一个回复任务的话，这条对账永远看不见那处新落盘——正是它要防的漂移。
 			`{"steps":[
 				{"id":"s1","description":"写对账文件","tool":"file.write","args":{"path":"state-probe.txt","content":"对账用"}},
 				{"id":"s2","description":"回复","tool":"reply","args":{"text":"好"},"depends_on":["s1"]}
@@ -197,8 +159,6 @@ func TestStateEntries_CoverWhatRuntimeCreates(t *testing.T) {
 
 	rt.agent.RunGoal(context.Background(), types.GoalRequest{Goal: "打个招呼", Mode: "auto"})
 
-	// buildRuntime 不会碰到的几处，显式触发一次——不然它们永远不会出现在盘上，
-	// 这条测试也就只覆盖了五个目录。
 	rt.growth.Record(growth.Entry{Type: "task_completed", Goal: "对账用"})
 	if rt.sched != nil {
 		if _, err := rt.sched.AddJob("state-probe", "", 3600, "对账用", "auto"); err != nil {
@@ -213,8 +173,6 @@ func TestStateEntries_CoverWhatRuntimeCreates(t *testing.T) {
 		t.Logf("写覆盖层失败（不影响对账）: %v", err)
 	}
 
-	// 先证明这套装配真的落了东西：盘上空着的话，下面的对账会**空对空地通过**，
-	// 那种"以错误的理由通过"比直接失败更坏。
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +187,6 @@ func TestStateEntries_CoverWhatRuntimeCreates(t *testing.T) {
 		}
 	}
 
-	// 对账：每个顶层条目都要能在表里找到（按路径首段比对）。
 	covered := map[string]bool{}
 	for _, e := range stateEntries {
 		first := strings.SplitN(e.Path, "/", 2)[0]
@@ -242,23 +199,18 @@ func TestStateEntries_CoverWhatRuntimeCreates(t *testing.T) {
 	}
 }
 
-// TestStateEntries_KnownMembersPresent 已知成员不许被删掉。
-//
-// 与上一条互补：上一条防"代码加了、表没跟上"，这条防"表被删了行、代码还在写"。
-// 两条都是清单类断言的正当形状——**清单的失效方式是"少一条"，不是"写错一条"**。
-// 这里刻意把名字再列一遍：它不是第二个 owner，是"不许悄悄变短"的哨兵。
 func TestStateEntries_KnownMembersPresent(t *testing.T) {
 	have := map[string]bool{}
 	for _, e := range stateEntries {
 		have[e.Path] = true
 	}
 	for _, want := range []string{
-		"settings.yaml", "credentials.json", // 配置
-		"conversations", "spaces", "memory/context.json", // 会话
-		"memory/longterm.json", "growth.json", // 记忆
+		"settings.yaml", "credentials.json",
+		"conversations", "spaces", "memory/context.json",
+		"memory/longterm.json", "growth.json",
 		"tasks", "runs", "replays", "schedules.json", "pending_approvals.json",
-		"audit.jsonl", "tool-output", "snapshots", "geo_history.json", // 任务
-		"skills", "snippets.json", // 资产
+		"audit.jsonl", "tool-output", "snapshots", "geo_history.json",
+		"skills", "snippets.json",
 	} {
 		if !have[want] {
 			t.Errorf("表里缺 %q——要么删错了行，要么真删了这处落盘（那就该同时改代码）", want)

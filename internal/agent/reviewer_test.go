@@ -12,8 +12,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 审核模型（执行前快筛） ----------
-
 type stubReviewer struct {
 	approved bool
 	reason   string
@@ -25,7 +23,6 @@ func (s *stubReviewer) Review(_, _ string, _ map[string]any) (bool, string) {
 	return s.approved, s.reason
 }
 
-// mediumTool 中风险工具（user_approved）：默认会被自动放行，正好是审核模型该盯的场景。
 type mediumTool struct{}
 
 func (m *mediumTool) Name() string                 { return "medium.write" }
@@ -52,7 +49,6 @@ func reviewPlan() types.Plan {
 	}}
 }
 
-// TestReviewer_BlockedActionEscalatesToHuman 审核模型不通过时应升级为人工确认，而不是直接放行。
 func TestReviewer_BlockedActionEscalatesToHuman(t *testing.T) {
 	rev := &stubReviewer{approved: false, reason: "目标只是整理文档，不该写文件"}
 	gate := safety.New("auto", nil, nil, nil, time.Second)
@@ -64,7 +60,6 @@ func TestReviewer_BlockedActionEscalatesToHuman(t *testing.T) {
 	if rev.calls != 1 {
 		t.Fatalf("应做一次快筛，实际 %d", rev.calls)
 	}
-	// NopNotifier 不批准 → 步骤应失败（说明确实走了审批通道）
 	if res.ByID["s1"].Status != types.StepFailed {
 		t.Errorf("被审核模型标记的动作必须经人工确认，实际 %v", res.ByID["s1"].Status)
 	}
@@ -74,7 +69,6 @@ func TestReviewer_BlockedActionEscalatesToHuman(t *testing.T) {
 	}
 }
 
-// TestReviewer_ApprovedActionRuns 审核通过时照常执行，不打扰用户。
 func TestReviewer_ApprovedActionRuns(t *testing.T) {
 	rev := &stubReviewer{approved: true}
 	gate := safety.New("auto", nil, nil, nil, time.Second)
@@ -88,7 +82,6 @@ func TestReviewer_ApprovedActionRuns(t *testing.T) {
 	}
 }
 
-// TestReviewer_ReadOnlyNotReviewed 只读动作不该被送去审核——白花钱还拖慢速度。
 func TestReviewer_ReadOnlyNotReviewed(t *testing.T) {
 	rev := &stubReviewer{approved: true}
 	e := &Executor{
@@ -102,7 +95,6 @@ func TestReviewer_ReadOnlyNotReviewed(t *testing.T) {
 	}
 }
 
-// TestReviewer_LLMVerdict 审核模型的输出决定放行与否。
 func TestReviewer_LLMVerdict(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -130,7 +122,6 @@ func TestReviewer_LLMVerdict(t *testing.T) {
 	}
 }
 
-// TestReviewer_UnavailableFailsOpen 审核模型挂掉时不能把主流程卡死。
 func TestReviewer_UnavailableFailsOpen(t *testing.T) {
 	m := llm.NewMock()
 	m.FailNext(errReviewDown)
@@ -141,7 +132,6 @@ func TestReviewer_UnavailableFailsOpen(t *testing.T) {
 	}
 }
 
-// TestReviewer_NilMeansNoBlocking 未配置审核器时完全不介入。
 func TestReviewer_NilMeansNoBlocking(t *testing.T) {
 	var r *llmReviewer
 	if ok, _ := r.Review("g", "t", nil); !ok {
@@ -155,7 +145,6 @@ type reviewDownError struct{}
 
 func (e *reviewDownError) Error() string { return "审核模型不可用" }
 
-// TestAudit_RecordsDeniedAndApproved 门控留痕要能同时查到被拒与被放行的记录。
 func TestAudit_RecordsDeniedAndApproved(t *testing.T) {
 	gate := safety.New("auto", nil, nil, nil, time.Second)
 	gate.Record(safety.AuditEntry{Tool: "shell.exec", Risk: "high", Action: "denied", Reason: "高风险"})
@@ -172,7 +161,6 @@ func TestAudit_RecordsDeniedAndApproved(t *testing.T) {
 	}
 }
 
-// TestAudit_Bounded 留痕有上限，长期运行不会无限增长。
 func TestAudit_Bounded(t *testing.T) {
 	gate := safety.New("auto", nil, nil, nil, time.Second)
 	for i := 0; i < 500; i++ {

@@ -2,7 +2,6 @@ package eval
 
 import "testing"
 
-// 分层校验：非法 layer 必须在 Validate 拒绝，不能等到运行时静默跑错层。
 func TestValidate_LayerInvalid(t *testing.T) {
 	bad := []Case{{ID: "x", Goal: "g", WantTools: []string{"file.read"}, Layer: "premium"}}
 	if err := Validate(bad); err == nil {
@@ -16,12 +15,11 @@ func TestValidate_LayerInvalid(t *testing.T) {
 	}
 }
 
-// 空层回落 regression；FilterLayer 按 有效分层 过滤。
 func TestFilterLayer(t *testing.T) {
 	cases := []Case{
 		{ID: "s1", Goal: "g", Layer: "smoke"},
 		{ID: "s2", Goal: "g", Layer: "smoke"},
-		{ID: "r1", Goal: "g"}, // 空 = regression
+		{ID: "r1", Goal: "g"},
 		{ID: "h1", Goal: "g", Layer: "holdout"},
 	}
 	if got := LayerOf(cases[2]); got != LayerRegression {
@@ -39,7 +37,6 @@ func TestFilterLayer(t *testing.T) {
 	}
 }
 
-// 保留池聚合：单条结果不进调试视图，但聚合必须留在报告里。
 func TestTally_HoldoutAggregate(t *testing.T) {
 	rep := Report{Depth: DepthSelect, Total: 3}
 	h1 := CaseResult{ID: "h1", Holdout: true, Passed: true}
@@ -51,7 +48,6 @@ func TestTally_HoldoutAggregate(t *testing.T) {
 	if rep.HoldoutTotal != 2 || rep.HoldoutPassed != 1 {
 		t.Errorf("保留池聚合 = %d/%d，应 1/2", rep.HoldoutPassed, rep.HoldoutTotal)
 	}
-	// 保留池照常计入总数：它是真实质量，只是不看单条
 	if rep.Passed != 2 || rep.Failed != 1 {
 		t.Errorf("Passed/Failed = %d/%d，应 2/1", rep.Passed, rep.Failed)
 	}

@@ -1,6 +1,3 @@
-// Package market 内置市场目录：常见 MCP 服务器预设与技能模板，
-// 支持关键词搜索与一键安装；全部为本地声明，安装即写配置（自研，零外部依赖）。
-// 命令模板中的 {key} 占位符在安装时由用户填写的参数替换。
 package market
 
 import (
@@ -11,23 +8,15 @@ import (
 	"gleam/pkg/types"
 )
 
-// Param MCP 预设的安装参数。
 type Param struct {
 	Key         string `json:"key"`
 	Label       string `json:"label"`
 	Placeholder string `json:"placeholder,omitempty"`
 	Required    bool   `json:"required,omitempty"`
-	// Secret 这个值是不是凭据。界面据此用密码框、并且不回显已保存的值。
-	Secret bool `json:"secret,omitempty"`
-	// Kind 这个值填到哪里去："arg"（替换命令参数里的 {key}，空=arg）| "env"（作为环境变量传给子进程）
-	// | "header"（替换远端请求头模板里的 {key}）。
-	// 为什么要有这一位：两种值的去处完全不同——把 API_KEY 当成参数塞进命令行，它就会出现在
-	// 进程列表和日志里；把路径当成环境变量传，服务器又收不到。
-	Kind string `json:"kind,omitempty"`
+	Secret      bool   `json:"secret,omitempty"`
+	Kind        string `json:"kind,omitempty"`
 }
 
-// SplitParams 按 Kind 把用户填的值分成两组：替换命令参数的、与作为环境变量的。
-// 分组的判据只有这一处，安装的两个入口（内置目录 / 远端目录）共用它。
 func SplitParams(p []Param, values map[string]string) (argVals, envVals map[string]string) {
 	argVals, envVals = map[string]string{}, map[string]string{}
 	for _, pm := range p {
@@ -44,7 +33,6 @@ func SplitParams(p []Param, values map[string]string) (argVals, envVals map[stri
 	return argVals, envVals
 }
 
-// BuildEnv 校验必填的环境变量并返回它们。
 func BuildEnv(p MCPPreset, envVals map[string]string) (map[string]string, error) {
 	out := map[string]string{}
 	for _, pm := range p.Params {
@@ -63,37 +51,30 @@ func BuildEnv(p MCPPreset, envVals map[string]string) (map[string]string, error)
 	return out, nil
 }
 
-// MCPPreset 常见 MCP 服务器预设。
 type MCPPreset struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
 	Desc     string   `json:"desc"`
-	Command  string   `json:"command"`          // npx | uvx
-	BaseArgs []string `json:"base_args"`        // 固定参数（含 {key} 占位符）
-	Params   []Param  `json:"params,omitempty"` // 安装时需填写的参数
-	Trust    string   `json:"trust"`            // readonly | user_approved
+	Command  string   `json:"command"`
+	BaseArgs []string `json:"base_args"`
+	Params   []Param  `json:"params,omitempty"`
+	Trust    string   `json:"trust"`
 	Tags     []string `json:"tags,omitempty"`
 }
 
-// SkillPreset 技能模板。
 type SkillPreset struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	// Category 是给「分类」那一排用的**单一归属**；Tags 是关键词，两个用途不同。
-	// 只用一个字段兼两职的话，筛选栏就会长出一堆同义标签（写作/文档/文案各占一格）。
-	Category string       `json:"category,omitempty"`
-	Params   []string     `json:"params,omitempty"`
-	Steps    []types.Step `json:"steps"`
-	Tags     []string     `json:"tags,omitempty"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Category    string       `json:"category,omitempty"`
+	Params      []string     `json:"params,omitempty"`
+	Steps       []types.Step `json:"steps"`
+	Tags        []string     `json:"tags,omitempty"`
 }
 
-// SkillCategories 分类的固定顺序（界面按这个顺序排 chips）。
-// 固定而不是按出现顺序：否则收录顺序一变，整排筛选就跟着跳。
 func SkillCategories() []string {
 	return []string{"效率办公", "文档写作", "代码开发", "代码评审", "安全与测试", "数据分析", "运维部署", "知识研究", "设计", "工作流"}
 }
 
-// MCPCatalog 常见 MCP 服务器目录（官方与社区广泛使用的服务器；命令依赖本机 npx/uvx）。
 var MCPCatalog = []MCPPreset{
 	{
 		ID: "filesystem", Name: "Filesystem 文件系统", Desc: "让 Gleam 读写指定目录之外的文件（可授予额外工作区）",
@@ -145,7 +126,6 @@ var MCPCatalog = []MCPPreset{
 	},
 }
 
-// SkillCatalog 技能模板目录（基于内置工具，安装即可运行/继续改造）。
 var SkillCatalog = []SkillPreset{
 	{
 		Name: "quick-note", Category: "效率办公", Description: "速记入库：把一句话存进长期记忆，随时按关键词找回",
@@ -197,7 +177,6 @@ var SkillCatalog = []SkillPreset{
 	},
 }
 
-// SearchMCP 关键词搜索 MCP 目录（命中 id/名称/描述/标签；空关键词返回全部）。
 func SearchMCP(q string) []MCPPreset {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {
@@ -212,13 +191,9 @@ func SearchMCP(q string) []MCPPreset {
 	return out
 }
 
-// SearchSkill 关键词搜索技能模板。
 func SearchSkill(q string) []SkillPreset {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {
-		// 默认「新收录在前」：目录是**手工点顺序**的，最后加的往往是最想让人先看到的。
-		// 这就是技能页那个「最新」的含义——收录顺序，不是热度；我们没有热度数据，
-		// 编一个"热门"出来比不排更坏。
 		out := make([]SkillPreset, 0, len(SkillCatalog))
 		for i := len(SkillCatalog) - 1; i >= 0; i-- {
 			out = append(out, SkillCatalog[i])
@@ -235,7 +210,6 @@ func SearchSkill(q string) []SkillPreset {
 	return out
 }
 
-// FindMCP 按 ID 取 MCP 预设。
 func FindMCP(id string) (MCPPreset, error) {
 	for _, p := range MCPCatalog {
 		if p.ID == id {
@@ -245,7 +219,6 @@ func FindMCP(id string) (MCPPreset, error) {
 	return MCPPreset{}, fmt.Errorf("市场目录中不存在 MCP 预设 %q", id)
 }
 
-// FindSkill 按名取技能模板。
 func FindSkill(name string) (SkillPreset, error) {
 	for _, s := range SkillCatalog {
 		if s.Name == name {
@@ -255,7 +228,6 @@ func FindSkill(name string) (SkillPreset, error) {
 	return SkillPreset{}, fmt.Errorf("市场目录中不存在技能模板 %q", name)
 }
 
-// BuildCommand 用参数替换命令模板中的 {key} 占位符，返回最终 args。
 func BuildCommand(p MCPPreset, values map[string]string) (string, []string, error) {
 	args := make([]string, 0, len(p.BaseArgs))
 	for _, a := range p.BaseArgs {
@@ -264,7 +236,6 @@ func BuildCommand(p MCPPreset, values map[string]string) (string, []string, erro
 			replaced = strings.ReplaceAll(replaced, "{"+k+"}", v)
 		}
 		if strings.Contains(replaced, "{") && strings.Contains(replaced, "}") {
-			// 仍有未填参数：确认是否为必填
 			for _, pm := range p.Params {
 				if strings.Contains(a, "{"+pm.Key+"}") && pm.Required && strings.TrimSpace(values[pm.Key]) == "" {
 					return "", nil, fmt.Errorf("缺少必填参数 %q（%s）", pm.Key, pm.Label)

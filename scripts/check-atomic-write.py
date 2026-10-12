@@ -26,9 +26,8 @@ import os
 import re
 import sys
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
-# 允许直接写文件的唯一位置：原子写这一层自己。
 ALLOW_PREFIX = os.path.join("internal", "atomicfile")
 RAW_WRITE = re.compile(r"\bos\.WriteFile\s*\(")
 SKIP_DIRS = {
@@ -68,9 +67,7 @@ def main() -> int:
                     print("读不到 %s：%s" % (p, e))
                     return 1
                 for i, line in enumerate(text.splitlines(), 1):
-                    code = line.split("//", 1)[
-                        0
-                    ]  # 注释里提它是在解释规矩，不算越界
+                    code = line.split("//", 1)[0]
                     if RAW_WRITE.search(code):
                         bad.append("%s:%d" % (p.replace("\\", "/"), i))
 

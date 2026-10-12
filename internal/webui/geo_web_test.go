@@ -25,12 +25,10 @@ import (
 	"gleam/internal/tools/std"
 )
 
-// stubLLM 确定性假模型：创作请求回一篇够长的正文，GEO 请求回固定评分。
 type stubLLM struct {
-	mu       sync.Mutex
-	geoCalls int
-	planJSON string // 非空时，规划请求返回该 JSON（走完整 Plan-Execute 链路）
-	// reflectJSON 非空时，反思请求返回该 JSON（用于验证逐条验收判定）
+	mu          sync.Mutex
+	geoCalls    int
+	planJSON    string
 	reflectJSON string
 }
 
@@ -61,7 +59,6 @@ func (s *stubLLM) Chat(_ context.Context, req llm.ChatRequest) (string, error) {
 }
 
 func (s *stubLLM) ChatStream(ctx context.Context, req llm.ChatRequest, onDelta func(string)) (string, error) {
-	// 流式分支不能复用 Chat，否则用量会被重复上报一次
 	var text string
 	switch {
 	case s.planJSON != "" && strings.Contains(req.System, llm.MarkerPlan):
@@ -80,7 +77,6 @@ func (s *stubLLM) ChatStream(ctx context.Context, req llm.ChatRequest, onDelta f
 
 func (s *stubLLM) Name() string { return "stub" }
 
-// callsN 读取 GEO 调用次数（异步分析线程写入，需加锁读）。
 func (s *stubLLM) callsN() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -95,7 +91,6 @@ func newGEOFixtureWithPlan(t *testing.T, planJSON string) (*fixture, *stubLLM) {
 	return newGEOFixtureFull(t, planJSON, "")
 }
 
-// newGEOFixtureFull 同时桩掉规划与反思两个环节，用于验证逐条验收判定贯通到前端。
 func newGEOFixtureFull(t *testing.T, planJSON, reflectJSON string) (*fixture, *stubLLM) {
 	t.Helper()
 	ws := t.TempDir()
@@ -136,7 +131,6 @@ func newGEOFixtureFull(t *testing.T, planJSON, reflectJSON string) (*fixture, *s
 	return &fixture{t: t, ts: ts, agent: a, srv: srv, ws: ws, dataDir: dataDir}, stub
 }
 
-// waitGEO 轮询直到 GEO 历史出现记录（自动分析在任务完成后异步执行）。
 func waitGEO(f *fixture, want int, timeout time.Duration) []geo.Record {
 	f.t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -155,9 +149,6 @@ func waitGEO(f *fixture, want int, timeout time.Duration) []geo.Record {
 	return nil
 }
 
-// waitGEOPersisted 等待 GEO 历史文件完成落盘。自动分析先写内存再异步落盘，
-// 若测试在落盘（写 tmp + rename）结束前返回，t.TempDir 的 RemoveAll 会在
-// Windows 上偶发「文件被占用」清理失败，表现为与本断言无关的假红。
 func waitGEOPersisted(f *fixture, want int) {
 	f.t.Helper()
 	path := filepath.Join(f.dataDir, "geo_history.json")
@@ -175,7 +166,6 @@ func waitGEOPersisted(f *fixture, want int) {
 	f.t.Fatalf("GEO 历史未完成落盘（期望至少 %d 条）: %s", want, path)
 }
 
-// TestGEO_AutoAnalyzeAfterCreativeTask 创作任务完成后应自动留档一条 GEO 建议。
 func TestGEO_AutoAnalyzeAfterCreativeTask(t *testing.T) {
 	f, stub := newGEOFixture(t)
 	res := f.call("POST", "/api/goals", map[string]any{
@@ -211,7 +201,6 @@ func TestGEO_AutoAnalyzeAfterCreativeTask(t *testing.T) {
 	}
 }
 
-// TestGEO_AutoAnalyzeByIntent 未选创作者角色、但目标本身是创作时也应给出建议。
 func TestGEO_AutoAnalyzeByIntent(t *testing.T) {
 	f, _ := newGEOFixture(t)
 	res := f.call("POST", "/api/goals", map[string]any{
@@ -230,7 +219,6 @@ func TestGEO_AutoAnalyzeByIntent(t *testing.T) {
 	}
 }
 
-// TestGEO_SkipsNonCreative 非创作任务（工程类）不应打扰用户。
 func TestGEO_SkipsNonCreative(t *testing.T) {
 	f, stub := newGEOFixture(t)
 	res := f.call("POST", "/api/goals", map[string]any{
@@ -251,7 +239,6 @@ func TestGEO_SkipsNonCreative(t *testing.T) {
 	}
 }
 
-// TestGEO_ManualAnalyzeAndClear 板块手动分析与清空。
 func TestGEO_ManualAnalyzeAndClear(t *testing.T) {
 	f, _ := newGEOFixture(t)
 	out := f.call("POST", "/api/geo/analyze", map[string]any{
@@ -279,7 +266,6 @@ func TestGEO_ManualAnalyzeAndClear(t *testing.T) {
 	}
 }
 
-// TestGEO_RejectsTooShort 过短内容应被拒绝，避免无意义调用。
 func TestGEO_RejectsTooShort(t *testing.T) {
 	f, _ := newGEOFixture(t)
 	req, _ := http.NewRequest("POST", f.ts.URL+"/api/geo/analyze", strings.NewReader(`{"content":"hi"}`))
@@ -294,7 +280,6 @@ func TestGEO_RejectsTooShort(t *testing.T) {
 	}
 }
 
-// TestGEO_ToggleEnabled 设置开关可关闭自动分析。
 func TestGEO_ToggleEnabled(t *testing.T) {
 	f, _ := newGEOFixture(t)
 	out := f.call("POST", "/api/settings", map[string]any{"agent": map[string]any{"geo_enabled": false}})
@@ -305,7 +290,6 @@ func TestGEO_ToggleEnabled(t *testing.T) {
 	if f.agent.Cfg.Agent.GEOEnabled {
 		t.Fatal("运行时配置未同步关闭")
 	}
-	// 恢复开启，断言视图回显
 	out = f.call("POST", "/api/settings", map[string]any{"agent": map[string]any{"geo_enabled": true}})
 	agentView, _ = out["agent"].(map[string]any)
 	if agentView["geo_enabled"] != true {

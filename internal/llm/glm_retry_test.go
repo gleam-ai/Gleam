@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// GLM 客户端瞬时故障自动重试（丝滑：网关抖动不直接打断任务）。
-
 func TestGLM_RetriesOnTransientStatus(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

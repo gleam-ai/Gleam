@@ -8,21 +8,16 @@ import (
 	"strings"
 )
 
-// GoStatus represents the Go toolchain detection result.
 type GoStatus struct {
 	Found   bool   `json:"found"`
 	Path    string `json:"path,omitempty"`
 	Version string `json:"version,omitempty"`
 	BinDir  string `json:"bin_dir,omitempty"`
 	Root    string `json:"root,omitempty"`
-	Source  string `json:"source,omitempty"` // PATH | common-path | goroot | user-specified
+	Source  string `json:"source,omitempty"`
 }
 
-// DetectGo checks whether a Go toolchain is available on the system.
-// If customPath is provided, only that path is checked (no system fallback).
-// Otherwise it searches PATH, common installation directories, and GOROOT.
 func DetectGo(customPath ...string) GoStatus {
-	// 1. User-specified path: only check this path, no fallback
 	for _, p := range customPath {
 		if p == "" {
 			continue
@@ -35,11 +30,9 @@ func DetectGo(customPath ...string) GoStatus {
 			st.Source = "user-specified"
 			return st
 		}
-		// Not found at user-specified path: return immediately, do not fall through
 		return GoStatus{Found: false, Source: "user-specified"}
 	}
 
-	// 2. System PATH lookup
 	if path, err := exec.LookPath("go"); err == nil {
 		v, _ := exec.Command(path, "version").Output()
 		st := GoStatus{
@@ -53,7 +46,6 @@ func DetectGo(customPath ...string) GoStatus {
 		return st
 	}
 
-	// 3. Common installation directories
 	var candidates []string
 	if runtime.GOOS == "windows" {
 		candidates = []string{
@@ -84,7 +76,6 @@ func DetectGo(customPath ...string) GoStatus {
 		}
 	}
 
-	// 4. GOROOT environment variable
 	if goroot := os.Getenv("GOROOT"); goroot != "" {
 		if st := checkGoAt(filepath.Join(goroot, "bin")); st.Found {
 			st.Source = "GOROOT"
@@ -95,7 +86,6 @@ func DetectGo(customPath ...string) GoStatus {
 	return GoStatus{Found: false}
 }
 
-// checkGoAt checks if go.exe/go exists in the given directory.
 func checkGoAt(dir string) GoStatus {
 	if dir == "" {
 		return GoStatus{}

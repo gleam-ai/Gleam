@@ -8,11 +8,8 @@ import (
 	"gleam/internal/harness/space"
 )
 
-// errSpaceUnavailable 空间存储未装配时返回。
 var errSpaceUnavailable = errors.New("空间存储未启用")
 
-// SpaceView 返回左侧空间分组所需的完整视图：空间列表（含会话计数）、
-// 当前激活空间 ID、当前工作区路径。
 func (a *Agent) SpaceView() map[string]any {
 	if a.Spaces == nil {
 		return map[string]any{"active_id": conversation.DefaultSpaceID, "spaces": []any{}, "workspace": a.Cfg.Workspace}
@@ -46,8 +43,6 @@ func (a *Agent) SpaceView() map[string]any {
 	}
 }
 
-// SpaceCreate 新建微光空间。path 非空时校验并立即切换到该工作文件夹，
-// 随后把新空间设为激活空间；path 为空则仅创建并激活（工作区保持不变）。
 func (a *Agent) SpaceCreate(name, path string) (map[string]any, error) {
 	if a.Spaces == nil {
 		return nil, errSpaceUnavailable
@@ -68,7 +63,6 @@ func (a *Agent) SpaceCreate(name, path string) (map[string]any, error) {
 	return a.SpaceView(), nil
 }
 
-// SpaceRename 重命名空间。
 func (a *Agent) SpaceRename(id, name string) (map[string]any, error) {
 	if a.Spaces == nil {
 		return nil, errSpaceUnavailable
@@ -79,7 +73,6 @@ func (a *Agent) SpaceRename(id, name string) (map[string]any, error) {
 	return a.SpaceView(), nil
 }
 
-// SpaceSetPath 更新空间绑定的工作文件夹（仅保存，不改变当前工作区）。
 func (a *Agent) SpaceSetPath(id, path string) (map[string]any, error) {
 	if a.Spaces == nil {
 		return nil, errSpaceUnavailable
@@ -90,7 +83,6 @@ func (a *Agent) SpaceSetPath(id, path string) (map[string]any, error) {
 	return a.SpaceView(), nil
 }
 
-// SpaceActivate 切换激活空间；若该空间绑定了文件夹，同时切换任务工作区。
 func (a *Agent) SpaceActivate(id string) (map[string]any, error) {
 	if a.Spaces == nil {
 		return nil, errSpaceUnavailable
@@ -110,8 +102,6 @@ func (a *Agent) SpaceActivate(id string) (map[string]any, error) {
 	return a.SpaceView(), nil
 }
 
-// SpaceDelete 删除非默认空间：其下会话回迁到默认空间；若删除的是当前空间，
-// 激活回落默认空间并应用默认空间绑定的文件夹。
 func (a *Agent) SpaceDelete(id string) (map[string]any, error) {
 	if a.Spaces == nil {
 		return nil, errSpaceUnavailable

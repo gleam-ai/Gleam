@@ -1,14 +1,3 @@
-// Package prompt 把「问模型一次」做成一个普通工具——也就是「提示词步骤」。
-//
-// **为什么是一个工具，而不是给技能加一种新步骤**：Gleam 的技能就是"每步调一个工具"
-// 的步骤表（`types.Step.Tool`）。要让外部技能（Claude 的 SKILL.md 那类**提示词包**）
-// 真能跑，缺的不是新的步骤语义，而是"一个能把提示词交给模型的工具"。做成工具之后：
-//   - 技能格式、执行器、门控、留痕全都不用动；
-//   - 它在计划里和别的步骤一样能被批准、重试、复盘、看用量。
-//
-// **权限为什么是只读放行**：这一步不写盘、也不发往新地方——它发的正是模型服务，
-// 而那条边界本来就在任务全程被使用（台账里由 `kind=llm` 那一行交代）。
-// 只拦中间这一步既拦不住什么，又让技能没法用。
 package prompt
 
 import (
@@ -21,11 +10,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// ClientProvider 每次执行时现取模型客户端。用 provider 而不是直接持有：
-// 设置页换模型/厂商之后，下一次调用就该用新的那一个（与 git 工具同一个理由）。
 type ClientProvider func() llm.Client
 
-// GenerateTool 把一段提示词交给模型并返回它的回答。
 type GenerateTool struct {
 	provider ClientProvider
 }

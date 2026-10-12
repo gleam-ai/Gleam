@@ -1,6 +1,3 @@
-// Package auth 实现云端账号（Supabase Auth）：邮箱密码注册登录、
-// GitHub/Google OAuth（PKCE + 本地回环回调）、会话刷新与登出。
-// 仅"登录身份"存云端；会话令牌保存在本地凭证文件，其他业务数据一律不离开本机。
 package auth
 
 import (
@@ -21,16 +18,10 @@ import (
 	"gleam/internal/harness/credentials"
 )
 
-// Manager 云端认证管理器。
 type Manager struct {
 	creds *credentials.Store
 	http  *http.Client
 
-	// OnEgress 出网留痕回调：每次向云端发包时记一笔（只给主机与字节）。
-	//
-	// 为什么必须有它：登录/续期/登出都会出网，而此前这条路径在审计里**不存在**——
-	// 「连接与出网」台账要么漏列一行，要么列了却说不出留痕在哪。
-	// 与 llm.EgressFunc 同一条边界：签名里没有正文，调用方也就不可能不小心把它写进去。
 	OnEgress func(host string, nbytes int)
 
 	mu       sync.Mutex
@@ -47,7 +38,6 @@ type pendingOAuth struct {
 	expectedState string
 }
 
-// New 创建认证管理器。
 func New(creds *credentials.Store) *Manager {
 	return &Manager{
 		creds: creds,
@@ -56,10 +46,8 @@ func New(creds *credentials.Store) *Manager {
 }
 
 var (
-	// ErrNotConfigured 尚未填写 Supabase 连接信息。
 	ErrNotConfigured = errors.New("云端登录尚未配置：请先在「我的 → 账号」填写 Supabase 项目地址与 anon key")
-	// ErrNotSignedIn 未登录。
-	ErrNotSignedIn = errors.New("尚未登录")
+	ErrNotSignedIn   = errors.New("尚未登录")
 )
 
 func (m *Manager) cfg() (*credentials.CloudConfig, error) {
@@ -70,13 +58,11 @@ func (m *Manager) cfg() (*credentials.CloudConfig, error) {
 	return c, nil
 }
 
-// Configured 是否已填写云端连接配置。
 func (m *Manager) Configured() bool {
 	_, err := m.cfg()
 	return err == nil
 }
 
-// Configure 保存 Supabase 连接信息（anon key 为公开客户端标识，非机密）。
 func (m *Manager) Configure(supabaseURL, anonKey string) error {
 	supabaseURL = strings.TrimRight(strings.TrimSpace(supabaseURL), "/")
 	anonKey = strings.TrimSpace(anonKey)
@@ -89,7 +75,6 @@ func (m *Manager) Configure(supabaseURL, anonKey string) error {
 	return m.creds.SetCloudConfig(credentials.CloudConfig{SupabaseURL: supabaseURL, SupabaseAnonKey: anonKey})
 }
 
-// SessionView 返回脱敏后的当前会话视图（供前端）。
 type SessionView struct {
 	SignedIn    bool   `json:"signed_in"`
 	Email       string `json:"email,omitempty"`
@@ -100,7 +85,6 @@ type SessionView struct {
 	Configured  bool   `json:"configured"`
 }
 
-// Session 返回当前会话（供需要强类型的调用方）。
 func (m *Manager) View() SessionView {
 	v := SessionView{Configured: m.Configured()}
 	if s := m.creds.GetSession(); s != nil {
@@ -116,7 +100,6 @@ func (m *Manager) View() SessionView {
 	return v
 }
 
-// Session 返回当前会话的 JSON 友好映射（实现 agent.AuthProvider）。
 func (m *Manager) Session() map[string]any {
 	v := m.View()
 	out := map[string]any{
@@ -128,7 +111,6 @@ func (m *Manager) Session() map[string]any {
 		"provider":     v.Provider,
 		"expires_at":   v.ExpiresAt,
 	}
-	// 回显连接配置（anon key 为公开客户端标识，可回显便于修改）。
 	if c := m.creds.GetCloudConfig(); c != nil {
 		out["supabase_url"] = c.SupabaseURL
 		out["supabase_anon_key"] = c.SupabaseAnonKey
@@ -136,7 +118,6 @@ func (m *Manager) Session() map[string]any {
 	return out
 }
 
-// sbUser Supabase user 字段子集。
 type sbUser struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`
@@ -144,7 +125,6 @@ type sbUser struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
-// sbToken token 端点返回。
 type sbToken struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -170,7 +150,6 @@ func (m *Manager) post(path string, body url.Values) (*sbToken, error) {
 	return m.doToken(req)
 }
 
-// postJSON 用于 JSON body 的端点（signup）。
 func (m *Manager) postJSON(path string, payload any) (*sbToken, error) {
 	c, err := m.cfg()
 	if err != nil {
@@ -186,11 +165,6 @@ func (m *Manager) postJSON(path string, payload any) (*sbToken, error) {
 	return m.doToken(req)
 }
 
-// do 云端外发的唯一出口：先发，再把这次出网记进审计。
-//
-// **为什么收成一处**：登录、注册、PKCE 换 token、续期、登出五件事都要发包，
-// 留痕写在调用方就有五处可能漏写一处，而"少记一笔"在审计里长得和"没发生过"一模一样。
-// 字节数取 req.ContentLength——那是请求体的大小，不含响应；响应内容本来也不该留痕。
 func (m *Manager) do(req *http.Request) (*http.Response, error) {
 	if m.OnEgress != nil && req.URL != nil {
 		n := int(req.ContentLength)
@@ -217,7 +191,6 @@ func (m *Manager) doToken(req *http.Request) (*sbToken, error) {
 		return nil, fmt.Errorf("解析云端响应失败：%w", err)
 	}
 	if t.AccessToken == "" {
-		// signup 在"需邮箱确认"时不返回会话
 		var hint struct {
 			ConfirmationSentAt string `json:"confirmation_sent_at"`
 			Msg                string `json:"msg"`
@@ -250,7 +223,6 @@ func (m *Manager) saveSession(t *sbToken, provider string) error {
 	return m.creds.SetSession(sess)
 }
 
-// SignUp 邮箱密码注册。
 func (m *Manager) SignUp(email, password string) error {
 	email, password = strings.TrimSpace(email), strings.TrimSpace(password)
 	if email == "" || len(password) < 6 {
@@ -261,12 +233,11 @@ func (m *Manager) SignUp(email, password string) error {
 		return err
 	}
 	if t == nil || t.AccessToken == "" {
-		return nil // 需要邮箱确认
+		return nil
 	}
 	return m.saveSession(t, "email")
 }
 
-// SignIn 邮箱密码登录。
 func (m *Manager) SignIn(email, password string) error {
 	email, password = strings.TrimSpace(email), strings.TrimSpace(password)
 	if email == "" || password == "" {
@@ -282,7 +253,6 @@ func (m *Manager) SignIn(email, password string) error {
 	return m.saveSession(t, "email")
 }
 
-// SignOut 登出（尽力通知云端撤销令牌），无论成败都清除本地会话。
 func (m *Manager) SignOut() error {
 	if s := m.creds.GetSession(); s != nil && s.AccessToken != "" {
 		if c, err := m.cfg(); err == nil {
@@ -297,8 +267,6 @@ func (m *Manager) SignOut() error {
 	return m.creds.ClearSession()
 }
 
-// ---------- OAuth（PKCE + 本地回环） ----------
-
 func pkcePair() (verifier, challenge string, err error) {
 	b := make([]byte, 32)
 	if _, err = rand.Read(b); err != nil {
@@ -310,8 +278,6 @@ func pkcePair() (verifier, challenge string, err error) {
 	return verifier, challenge, nil
 }
 
-// StartOAuth 启动第三方登录：生成本地回环地址并返回供浏览器打开的授权 URL。
-// 授权完成后令牌自动换好并存入本地凭证；前端随后轮询 Session 即可。
 func (m *Manager) StartOAuth(provider string) (string, error) {
 	provider = strings.TrimSpace(strings.ToLower(provider))
 	if provider != "github" && provider != "google" {
@@ -325,15 +291,12 @@ func (m *Manager) StartOAuth(provider string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// CSRF 防护：随机 state 随授权 URL 发出，回调必须原样带回并核对，
-	// 否则攻击者可用自己发起的 code 顶替当前登录（session fixation）。
 	stateBytes := make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
 		return "", err
 	}
 	state := base64.RawURLEncoding.EncodeToString(stateBytes)
 
-	// 本地回环监听器：接收 provider 重定向回来的 code
 	ln, err := newLoopbackListener()
 	if err != nil {
 		return "", err
@@ -341,8 +304,6 @@ func (m *Manager) StartOAuth(provider string) (string, error) {
 	redirect := fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Port())
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
-	// 校验失败的回调只回页面、不进 channel：errCh 只有 1 格，塞进去会让后续
-	// 合法回调的 code 永久阻塞（缓冲满）。取消登录由 5 分钟超时兜底。
 	reject := func(w http.ResponseWriter, reason string) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, callbackPage(false, "登录失败："+reason))
@@ -351,7 +312,6 @@ func (m *Manager) StartOAuth(provider string) (string, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		// 先核对 state：不匹配说明回调不是本会话发起，直接拒绝，绝不接受 code。
 		if got := q.Get("state"); got == "" || got != state {
 			reject(w, "登录状态校验失败，请重新发起登录")
 			return
@@ -431,7 +391,6 @@ func (m *Manager) finishOAuth(ln io.Closer, srv *http.Server, p *pendingOAuth) {
 	_ = m.saveSession(t, p.provider)
 }
 
-// EnsureFreshToken 访问令牌临近过期时用 refresh_token 续期。
 func (m *Manager) EnsureFreshToken() error {
 	s := m.creds.GetSession()
 	if s == nil {
@@ -492,7 +451,6 @@ func callbackPage(ok bool, msg string) string {
 	if !ok {
 		color = "#EF4444"
 	}
-	// msg 可能含 provider 回传的 error_description（外部可控），必须转义后再进 HTML。
 	msg = html.EscapeString(msg)
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>登录</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0B0D12;color:#E6EAF2;

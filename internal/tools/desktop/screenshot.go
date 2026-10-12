@@ -13,7 +13,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ScreenshotTool 截取屏幕画面并保存为文件。
 type ScreenshotTool struct{}
 
 func NewScreenshot() *ScreenshotTool { return &ScreenshotTool{} }
@@ -23,13 +22,9 @@ func (t *ScreenshotTool) Description() string {
 	return "截取当前屏幕画面并保存为 PNG 文件。返回文件路径（会写入磁盘，需要用户批准）"
 }
 func (t *ScreenshotTool) Permission() types.Permission {
-	// 这个工具会把 PNG 落到磁盘上，原先声明 PermissionReadOnly 是错的——
-	// 只读会走自动放行通道，等于绕过审批闸门。
 	return types.PermissionUserApproved
 }
 
-// Paths 实现 types.PathAware：截屏会落盘，把目标路径交给门控判断是否在信任路径内。
-// 未指定 path 时返回 nil（= 无法确认操作路径），由门控要求人工确认，而不是默认放行。
 func (t *ScreenshotTool) Paths(ctx context.Context, args map[string]any) []string {
 	if p := toolutil.Str(args, "path"); p != "" {
 		return []string{p}
@@ -64,10 +59,7 @@ func (t *ScreenshotTool) Execute(ctx context.Context, args map[string]any) (any,
 	return map[string]any{"path": path, "absolute": abs}, nil
 }
 
-// Windows: 使用 PowerShell + .NET 截屏
-// 路径通过参数传递而非字符串拼接，避免引号注入风险。
 func takeScreenshotWindows(path string) error {
-	// 使用 -Command 与参数分离：$args[0] 接收路径，不经过字符串插值。
 	script := `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $path=$args[0]; $b=[System.Drawing.Rectangle]::new(0,0,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $bmp=[System.Drawing.Bitmap]::new($b.Width,$b.Height); $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen(0,0,0,0,$b.Size); $bmp.Save($path,[System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()`
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", script, path)
 	return cmd.Run()
@@ -78,7 +70,6 @@ func takeScreenshotMac(path string) error {
 }
 
 func takeScreenshotLinux(path string) error {
-	// 优先 scrot，回退 gnome-screenshot
 	if _, err := exec.LookPath("scrot"); err == nil {
 		return exec.Command("scrot", path).Run()
 	}
@@ -88,7 +79,6 @@ func takeScreenshotLinux(path string) error {
 	if _, err := exec.LookPath("import"); err == nil {
 		return exec.Command("import", "-window", "root", path).Run()
 	}
-	// 检查文件是否被创建
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("未找到截屏工具（scrot/gnome-screenshot/import）")
 	}

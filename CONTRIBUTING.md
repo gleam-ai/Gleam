@@ -16,10 +16,19 @@ build it, and what has to pass before a change can land.
   issue, pull request, review and discussion.
 - **Security**: never open a public issue for a vulnerability — follow
   [SECURITY.md](./SECURITY.md).
+- **Code commenting budget**: comments are **English**, **sparse**, and never
+  restate what the code already says. Write one only when a reader would get it
+  wrong without it — a constraint, a failure mode, or a decision whose reason is
+  invisible in the code. Long design rationale belongs in `AGENTS.md` and
+  `docs/known-limits.md`, not above a function. Anything else (banners, emojis,
+  numbered walkthroughs, "AI-assistant" narration) gets deleted.<br>
+  Enforced by `python scripts/check-comments.py`, wired into
+  [`scripts/verify.sh`](./scripts/verify.sh) layer 1. The budget lives in
+  `scripts/comment-policy.json` and **may only move down**; feed leftover
+  backlog through `python scripts/prune-comments.py --trailing`.
 - **Language**: commit messages, pull requests, release notes and these community
-  documents are written in **English**. Code and code comments are **Chinese**,
-  matching the existing codebase — keep a file's existing language rather than
-  translating it.
+  documents are written in **English**. UI strings stay Chinese with an English
+  companion where the interface is translatable (`internal/agent/bilingual.go`).
 - **No CLA.** Contributions are accepted under the repository's license
   ([MIT](./LICENSE)); signing off each commit is enough (see below).
 

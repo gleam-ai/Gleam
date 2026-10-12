@@ -25,13 +25,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// mcpNameRe MCP 服务器名合法性（用于工具名 mcp.<name>.<tool>）。
 var mcpNameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,32}$`)
 
-// 本文件实现 internal/webui 所需的引擎门面方法：
-// 工具直调（带审批）、记忆、技能、调度的统一入口。
-
-// LLMName 模型标识。
 func (a *Agent) LLMName() string {
 	if a.LLM == nil {
 		return "unavailable"
@@ -39,10 +34,8 @@ func (a *Agent) LLMName() string {
 	return a.LLM.Name()
 }
 
-// ToolNames 工具名列表。
 func (a *Agent) ToolNames() []string { return a.Reg.Names() }
 
-// ToolList 工具详情列表（含 schema、有效权限与覆盖标记）。
 func (a *Agent) ToolList() []map[string]any {
 	list := make([]map[string]any, 0)
 	for _, t := range a.Reg.List() {
@@ -59,8 +52,6 @@ func (a *Agent) ToolList() []map[string]any {
 	return list
 }
 
-// ToolPermissionSet 设置工具权限覆盖（"readonly"/"user_approved"/"full_access"/"default"）。
-// "default" 清除覆盖恢复内置；其余持久化到覆盖层并热生效。
 func (a *Agent) ToolPermissionSet(name, perm string) (map[string]any, error) {
 	if _, ok := a.Reg.Get(name); !ok {
 		return nil, fmt.Errorf("工具 %q 不存在", name)
@@ -80,7 +71,6 @@ func (a *Agent) ToolPermissionSet(name, perm string) (map[string]any, error) {
 		}
 	}
 	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		// 权限已在内存生效，持久化失败不影响当前会话，但下次重启会丢失
 		return map[string]any{
 			"name":       name,
 			"permission": a.PermissionOf(name).String(),
@@ -97,7 +87,6 @@ func (a *Agent) ToolPermissionSet(name, perm string) (map[string]any, error) {
 	}, nil
 }
 
-// DirectToolCall 直接调用工具；需要审批时经 approve 回调裁决。
 func (a *Agent) DirectToolCall(ctx context.Context, name string, args map[string]any,
 	approve func(types.ApprovalRequest) types.ApprovalResponse) (map[string]any, error) {
 	tool, ok := a.Reg.Get(name)
@@ -122,7 +111,6 @@ func (a *Agent) DirectToolCall(ctx context.Context, name string, args map[string
 	return map[string]any{"name": tool.Name(), "output": out}, nil
 }
 
-// MemorySearch 长期记忆检索。
 func (a *Agent) MemorySearch(query string, k int) []types.MemoryHitView {
 	if a.Mem == nil {
 		return nil
@@ -135,8 +123,6 @@ func (a *Agent) MemorySearch(query string, k int) []types.MemoryHitView {
 	return out
 }
 
-// MemoryCount 长期记忆条目总数（含软删条目，口径与就绪体检里的「长期记忆 N 条」一致）。
-// 界面上任何一处"条数"都必须问这里：自己数一遍就会和别处对不上。
 func (a *Agent) MemoryCount() int {
 	if a.Mem == nil || a.Mem.Long == nil {
 		return 0
@@ -144,7 +130,6 @@ func (a *Agent) MemoryCount() int {
 	return a.Mem.Long.Count()
 }
 
-// MemoryDelete 软删除一条长期记忆（检索立即跳过，条目保留可改判）。
 func (a *Agent) MemoryDelete(id string) bool {
 	if a.Mem == nil || a.Mem.Long == nil {
 		return false
@@ -152,7 +137,6 @@ func (a *Agent) MemoryDelete(id string) bool {
 	return a.Mem.Long.SoftDelete(id)
 }
 
-// MemorySave 写入长期记忆。
 func (a *Agent) MemorySave(content string, tags []string) (string, error) {
 	if a.Mem == nil {
 		return "", errors.New("记忆系统未启用")
@@ -160,8 +144,6 @@ func (a *Agent) MemorySave(content string, tags []string) (string, error) {
 	return a.Mem.RememberScoped(content, "", a.MemoryScope(), tags)
 }
 
-// MemoryScope 当前记忆归属的工作区。开了「项目级记忆」才返回工作区路径，否则空串（全局）。
-// 读的是**当下**的配置与工作区：切换工作区、开关设置都即时生效，不用重启。
 func (a *Agent) MemoryScope() string {
 	if a.Cfg == nil || !a.Cfg.Memory.ProjectScope {
 		return ""
@@ -169,15 +151,10 @@ func (a *Agent) MemoryScope() string {
 	return strings.TrimSpace(a.Cfg.Workspace)
 }
 
-// SkillList 技能列表。
 func (a *Agent) SkillList() []skill.Skill { return a.Skills.List() }
 
-// SkillGet 读取单个技能（含步骤）：外部入口要看内容只能走这里，别直摸 harness。
 func (a *Agent) SkillGet(name string) (*skill.Skill, error) { return a.Skills.Get(name) }
 
-// SkillSave 保存技能。首次落库（v1）记一条 skill_created——等级公式里
-// TotalSkills 占 20 分，而这个事件此前没有任何生产者：技能那一栏永远是 0，
-// 用户攒了一堆技能，等级却一动不动。
 func (a *Agent) SkillSave(sk skill.Skill) (int, error) {
 	v, err := a.Skills.Save(sk)
 	if err == nil && v == 1 {
@@ -186,7 +163,6 @@ func (a *Agent) SkillSave(sk skill.Skill) (int, error) {
 	return v, err
 }
 
-// recordSkillCreated 记一条技能入库事件（Growth 未启用时静默跳过，与任务日志同一条规则）。
 func (a *Agent) recordSkillCreated(name, description string) {
 	if a.Growth == nil {
 		return
@@ -194,15 +170,12 @@ func (a *Agent) recordSkillCreated(name, description string) {
 	a.Growth.Record(growth.Entry{Type: "skill_created", SkillName: name, Goal: description})
 }
 
-// SkillRun 运行技能。
 func (a *Agent) SkillRun(ctx context.Context, name string, params map[string]string) (map[string]any, error) {
 	return a.RunSkill(ctx, name, params)
 }
 
-// SkillDelete 删除技能。
 func (a *Agent) SkillDelete(name string) error { return a.Skills.Delete(name) }
 
-// SkillSetEnabled 启用 / 停用技能：留在库里、保留统计，只是不再进技能清单、不再可运行。
 func (a *Agent) SkillSetEnabled(name string, enabled bool) (map[string]any, error) {
 	s, err := a.Skills.SetDisabled(name, !enabled)
 	if err != nil {
@@ -215,7 +188,6 @@ func (a *Agent) SkillSetEnabled(name string, enabled bool) (map[string]any, erro
 	}, nil
 }
 
-// ScheduleList 定时任务列表。
 func (a *Agent) ScheduleList() []types.ScheduleJobView {
 	if a.Sched == nil {
 		return nil
@@ -228,20 +200,14 @@ func (a *Agent) ScheduleList() []types.ScheduleJobView {
 	return out
 }
 
-// ScheduleCreate 用 cron 或固定间隔创建定时任务（兼容旧入口）。
 func (a *Agent) ScheduleCreate(name, cron string, intervalSec int, goal, mode string) (types.ScheduleJobView, error) {
 	return a.ScheduleCreateNatural(name, goal, mode, "", cron, intervalSec)
 }
 
-// ScheduleCreateNatural 创建定时任务：when 为自然语言时间描述，cron/intervalSec 为显式方式（优先级更高）。
 func (a *Agent) ScheduleCreateNatural(name, goal, mode, when, cron string, intervalSec int) (types.ScheduleJobView, error) {
 	return a.ScheduleCreateWithNotify(name, goal, mode, when, cron, intervalSec, "")
 }
 
-// ScheduleCreateWithNotify 创建定时任务并设置通知策略（notify 为空则用默认）。
-//
-// **先校验策略再创建**：策略非法时直接返回，不留下一个"任务建好了但策略没设上"的
-// 半成品——那种状态最难排查，因为任务看起来一切正常，只是跑完不通知。
 func (a *Agent) ScheduleCreateWithNotify(name, goal, mode, when, cron string, intervalSec int, notify string) (types.ScheduleJobView, error) {
 	if a.Sched == nil {
 		return types.ScheduleJobView{}, fmt.Errorf("调度器未启用")
@@ -266,7 +232,6 @@ func (a *Agent) ScheduleCreateWithNotify(name, goal, mode, when, cron string, in
 	return a.scheduleView(j.Name), nil
 }
 
-// ScheduleSetNotify 修改已有任务的通知策略（空串恢复默认）。
 func (a *Agent) ScheduleSetNotify(name, policy string) (types.ScheduleJobView, error) {
 	if a.Sched == nil {
 		return types.ScheduleJobView{}, fmt.Errorf("调度器未启用")
@@ -277,7 +242,6 @@ func (a *Agent) ScheduleSetNotify(name, policy string) (types.ScheduleJobView, e
 	return a.scheduleView(name), nil
 }
 
-// ScheduleSetEnabled 启停已有定时任务（暂停/恢复）。
 func (a *Agent) ScheduleSetEnabled(name string, enabled bool) (types.ScheduleJobView, error) {
 	if a.Sched == nil {
 		return types.ScheduleJobView{}, fmt.Errorf("调度器未启用")
@@ -288,7 +252,6 @@ func (a *Agent) ScheduleSetEnabled(name string, enabled bool) (types.ScheduleJob
 	return a.scheduleView(name), nil
 }
 
-// ScheduleDelete 删除定时任务。
 func (a *Agent) ScheduleDelete(name string) (bool, error) {
 	if a.Sched == nil {
 		return false, fmt.Errorf("调度器未启用")
@@ -296,7 +259,6 @@ func (a *Agent) ScheduleDelete(name string) (bool, error) {
 	return a.Sched.DeleteJob(name)
 }
 
-// ScheduleTrigger HTTP 回调触发：立即执行指定定时任务。
 func (a *Agent) ScheduleTrigger(name string) (bool, error) {
 	if a.Sched == nil {
 		return false, fmt.Errorf("调度器未启用")
@@ -304,25 +266,18 @@ func (a *Agent) ScheduleTrigger(name string) (bool, error) {
 	return a.Sched.TriggerNow(name)
 }
 
-// ---------- 设置与上下文（设置页） ----------
-
-// settingsStyles 设置页允许的协作风格。
 var settingsStyles = map[string]bool{"rigorous": true, "gentle": true, "efficient": true}
 
-// settingsModes 设置页允许的安全模式。
 var settingsModes = map[string]bool{"auto": true, "plan_first": true, "interactive": true}
 
-// SettingsView 返回设置页所需的完整视图（api_key 掩码，不回传明文）。
 func (a *Agent) SettingsView() map[string]any {
 	cfg := a.Cfg
-	// 多模型时代：api_key_set 看默认模型有没有密钥，不再看旧的全局凭证文件。
 	var apiKeySet bool
 	var keyHost string
 	if def := a.defaultModelEntry(); def != nil {
 		apiKeySet = strings.TrimSpace(def.APIKey) != ""
 		keyHost = llm.KeyScope(def.BaseURL)
 	} else {
-		// 没有多模型配置时回退到旧逻辑
 		activeKey, kh := a.llmKeyFor(cfg.LLM.BaseURL, "")
 		apiKeySet = activeKey != ""
 		keyHost = kh
@@ -399,8 +354,6 @@ func (a *Agent) SettingsView() map[string]any {
 	}
 }
 
-// tiersView 把模型档位表转成前端可直接消费的形式：档位名 → 模型 ID。
-// 空表也返回空 map 而不是 nil，前端才好判断"没配"与"没这个字段"。
 func tiersView(tiers map[string]string) map[string]any {
 	out := map[string]any{}
 	for name, model := range tiers {
@@ -409,7 +362,6 @@ func tiersView(tiers map[string]string) map[string]any {
 	return out
 }
 
-// modelsView 把多模型列表转成前端可消费的形式：密钥掩码，不回传明文。
 func modelsView(models []config.ModelEntry, _ string) []map[string]any {
 	out := make([]map[string]any, 0, len(models))
 	for _, m := range models {
@@ -418,7 +370,6 @@ func modelsView(models []config.ModelEntry, _ string) []map[string]any {
 	return out
 }
 
-// modelEntryView 单条模型条目转前端视图（密钥掩码）。
 func modelEntryView(m config.ModelEntry) map[string]any {
 	keySet := strings.TrimSpace(m.APIKey) != ""
 	return map[string]any{
@@ -430,7 +381,6 @@ func modelEntryView(m config.ModelEntry) map[string]any {
 	}
 }
 
-// maskAPIKey 密钥掩码：前 4 + **** + 后 2，过短则全遮。
 func maskAPIKey(key string) string {
 	n := len([]rune(key))
 	if n <= 6 {
@@ -440,9 +390,6 @@ func maskAPIKey(key string) string {
 	return string(runes[:4]) + "****" + string(runes[n-2:])
 }
 
-// ---------- 多模型 CRUD ----------
-
-// modelEntryFromMap 从前端 JSON 解析一条模型条目（校验必填字段）。
 func modelEntryFromMap(m map[string]any) (config.ModelEntry, error) {
 	e := config.ModelEntry{}
 	str := func(k string) string {
@@ -474,7 +421,6 @@ func modelEntryFromMap(m map[string]any) (config.ModelEntry, error) {
 	return e, nil
 }
 
-// modelIndex 按 ID 查找模型条目在列表中的位置，未找到返回 -1。
 func (a *Agent) modelIndex(id string) int {
 	for i, m := range a.Cfg.LLM.Models {
 		if m.ID == id {
@@ -484,7 +430,6 @@ func (a *Agent) modelIndex(id string) int {
 	return -1
 }
 
-// defaultModelEntry 返回标记为默认的模型条目，没有则返回列表第一条。
 func (a *Agent) defaultModelEntry() *config.ModelEntry {
 	for i := range a.Cfg.LLM.Models {
 		if a.Cfg.LLM.Models[i].IsDefault {
@@ -497,12 +442,10 @@ func (a *Agent) defaultModelEntry() *config.ModelEntry {
 	return nil
 }
 
-// ModelsList 返回当前多模型列表（密钥掩码）。
 func (a *Agent) ModelsList() []map[string]any {
 	return modelsView(a.Cfg.LLM.Models, "")
 }
 
-// ModelAdd 添加一条模型配置。ID 为空时自动生成。
 func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	entry, err := modelEntryFromMap(raw)
 	if err != nil {
@@ -514,19 +457,33 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	if a.modelIndex(entry.ID) >= 0 {
 		return nil, fmt.Errorf("模型 ID %q 已存在", entry.ID)
 	}
-	if entry.IsDefault {
-		for i := range a.Cfg.LLM.Models {
-			a.Cfg.LLM.Models[i].IsDefault = false
-		}
+	if entry.IsDefault || !a.hasDefaultModel() {
+		a.setDefaultFlag(entry.ID)
+		entry.IsDefault = true
 	}
 	a.Cfg.LLM.Models = append(a.Cfg.LLM.Models, entry)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"model": modelEntryView(entry), "models": a.ModelsList()}, nil
+	a.syncModelRuntime()
+	return map[string]any{"model": modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
-// ModelUpdate 修改一条模型配置（按 ID 匹配，字段覆盖）。
+func (a *Agent) hasDefaultModel() bool {
+	for i := range a.Cfg.LLM.Models {
+		if a.Cfg.LLM.Models[i].IsDefault {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Agent) setDefaultFlag(id string) {
+	for i := range a.Cfg.LLM.Models {
+		a.Cfg.LLM.Models[i].IsDefault = a.Cfg.LLM.Models[i].ID == id
+	}
+}
+
 func (a *Agent) ModelUpdate(id string, raw map[string]any) (map[string]any, error) {
 	idx := a.modelIndex(id)
 	if idx < 0 {
@@ -537,23 +494,20 @@ func (a *Agent) ModelUpdate(id string, raw map[string]any) (map[string]any, erro
 		return nil, err
 	}
 	entry.ID = id
-	// 没带 api_key 字段时保留原密钥（前端编辑对话框留空表示不修改）。
 	if _, hasKey := raw["api_key"]; !hasKey {
 		entry.APIKey = a.Cfg.LLM.Models[idx].APIKey
 	}
 	if entry.IsDefault {
-		for i := range a.Cfg.LLM.Models {
-			a.Cfg.LLM.Models[i].IsDefault = false
-		}
+		a.setDefaultFlag(id)
 	}
 	a.Cfg.LLM.Models[idx] = entry
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"model": modelEntryView(entry), "models": a.ModelsList()}, nil
+	a.syncModelRuntime()
+	return map[string]any{"model": modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
-// ModelDelete 删除一条模型配置。
 func (a *Agent) ModelDelete(id string) (map[string]any, error) {
 	idx := a.modelIndex(id)
 	if idx < 0 {
@@ -563,48 +517,44 @@ func (a *Agent) ModelDelete(id string) (map[string]any, error) {
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"deleted": id, "models": a.ModelsList()}, nil
+	a.syncModelRuntime()
+	return map[string]any{"deleted": id, "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
-// ModelSetDefault 把某条模型设为新对话默认。
 func (a *Agent) ModelSetDefault(id string) (map[string]any, error) {
 	idx := a.modelIndex(id)
 	if idx < 0 {
 		return nil, fmt.Errorf("模型 %q 不存在", id)
 	}
-	for i := range a.Cfg.LLM.Models {
-		a.Cfg.LLM.Models[i].IsDefault = (i == idx)
-	}
+	a.setDefaultFlag(id)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"model": modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList()}, nil
+	a.syncModelRuntime()
+	return map[string]any{"model": modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
-// SetActiveModel 切换当前对话使用的模型（运行时热生效，不改配置列表）。
 func (a *Agent) SetActiveModel(id string) (map[string]any, error) {
 	idx := a.modelIndex(id)
 	if idx < 0 {
 		return nil, fmt.Errorf("模型 %q 不存在", id)
 	}
-	entry := a.Cfg.LLM.Models[idx]
-	if err := a.applyModelEntry(entry); err != nil {
+	a.setDefaultFlag(id)
+	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"active": modelEntryView(entry)}, nil
+	a.syncModelRuntime()
+	return map[string]any{"active": modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList()}, nil
 }
 
-// ActiveModel 返回当前激活的模型条目视图（对话页下拉框高亮用）。
 func (a *Agent) ActiveModel() map[string]any {
-	for _, m := range a.Cfg.LLM.Models {
-		if m.IsDefault {
-			return modelEntryView(m)
-		}
+	entry := a.defaultModelEntry()
+	if entry == nil {
+		return nil
 	}
-	return nil
+	return modelEntryView(*entry)
 }
 
-// applyModelEntry 用一条 ModelEntry 重建主模型客户端（运行时热切换）。
 func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
 	if a.Cfg.LLM.Provider == "mock" {
 		return nil
@@ -616,10 +566,28 @@ func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
 	}
 	a.LLM = llm.New(protocol, baseURL, key, model,
 		a.Cfg.LLM.Temperature, a.Cfg.LLM.MaxTokens, a.Cfg.LLM.TimeoutSecs)
+	a.Cfg.LLM.BaseURL = baseURL
+	a.Cfg.LLM.Model = model
+	a.Cfg.LLM.Protocol = protocol
+	a.Cfg.LLM.APIKey = key
 	return nil
 }
 
-// saveModelsOverlay 把多模型列表持久化到覆盖层（重启后仍生效）。
+func (a *Agent) syncModelRuntime() {
+	if a == nil || a.Cfg == nil {
+		return
+	}
+	entry := a.defaultModelEntry()
+	if entry == nil {
+		return
+	}
+	if err := a.applyModelEntry(*entry); err != nil {
+		return
+	}
+	a.RebuildFastClient()
+	a.RebuildTierClients()
+}
+
 func (a *Agent) saveModelsOverlay() error {
 	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
 		return fmt.Errorf("已生效但保存失败: %w", err)
@@ -627,8 +595,6 @@ func (a *Agent) saveModelsOverlay() error {
 	return nil
 }
 
-// ApplySettings 校验并把设置补丁应用到运行时（模型/风格/安全模式等即改即用），
-// 持久化覆盖层后返回新视图。api_key 仅在非空时更新。
 func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 	sanitized := map[string]any{}
 	sub := func(section string) map[string]any {
@@ -655,8 +621,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 		return 0, false
 	}
-	// 越界字段收集器：posInt 曾因只有下限，done_threshold=150 / max_replans=999
-	// 被"保存成功"静默接受并写进 overlay。现在越界整次拒绝、明确报错。
 	var outOfRange []string
 	asFloat := func(v any) (float64, bool) {
 		switch n := v.(type) {
@@ -672,7 +636,7 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 	posInt := func(section, key string, v any, min, max int) {
 		i, ok := asInt(v)
 		if !ok {
-			return // 非数字维持旧语义：忽略该字段
+			return
 		}
 		if i < min || i > max {
 			outOfRange = append(outOfRange, fmt.Sprintf("%s=%d（允许 %d–%d）", key, i, min, max))
@@ -680,7 +644,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 		sub(section)[key] = i
 	}
-	// zeroOr：0 表示"关闭/不限"，开启时必须在 [min,max] 内才有意义
 	zeroOr := func(section, key string, v any, min, max int) {
 		if i, ok := asInt(v); ok && i == 0 {
 			sub(section)[key] = 0
@@ -712,8 +675,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 	}
 	if am, ok := patch["agent"].(map[string]any); ok {
-		// 上限是"配置还能叫配置"的边界：done_threshold>100 永不达标、max_replans 数百
-		// 等于烧钱开关。max_steps=0 合法（回退 DefaultMaxSteps，见 config.go）。
 		for _, f := range []struct {
 			key      string
 			min, max int
@@ -750,19 +711,15 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		if i, ok := am["max_task_duration_seconds"]; ok {
 			zeroOr("agent", "max_task_duration_seconds", i, 10, 86400)
 		}
-		// 防打转阈值：0 关闭，开启时至少 2 轮才有意义
 		if i, ok := am["stuck_threshold"]; ok {
 			zeroOr("agent", "stuck_threshold", i, 2, 100)
 		}
-		// 工具输出预算：0 不限，开启时给个下限避免设成无意义的极小值
 		if i, ok := am["max_output_runes"]; ok {
 			zeroOr("agent", "max_output_runes", i, 500, 1000000)
 		}
-		// 能力菜单阈值：0 不限（始终全量），开启时至少要够放下常用工具
 		if i, ok := am["max_tool_schemas"]; ok {
 			zeroOr("agent", "max_tool_schemas", i, 5, 1000)
 		}
-		// 对话模式自检：布尔开关，无需范围校验
 		if b, ok := am["chat_acceptance"].(bool); ok {
 			sub("agent")["chat_acceptance"] = b
 		}
@@ -800,18 +757,15 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 				sub("llm")["plan"] = v
 			}
 		}
-		// base_url 允许显式清空以回落厂商预设
 		if v, ok := lm["base_url"].(string); ok {
 			sub("llm")["base_url"] = strings.TrimSpace(v)
 		}
 		if v, ok := lm["model"].(string); ok && strings.TrimSpace(v) != "" {
 			sub("llm")["model"] = strings.TrimSpace(v)
 		}
-		// 辅助模型允许清空（清空即回退到主模型）
 		if v, ok := lm["fast_model"].(string); ok {
 			sub("llm")["fast_model"] = strings.TrimSpace(v)
 		}
-		// 模型档位表允许整表替换（也允许清空：清空即所有场景都用主模型）
 		if v, ok := lm["tiers"].(map[string]any); ok {
 			tiers := map[string]any{}
 			for name, model := range v {
@@ -824,16 +778,12 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 			}
 			sub("llm")["tiers"] = tiers
 		}
-		// 密钥两档语义：api_key 非空=更新；clear_api_key=true=显式清除。
-		// 空串不算清除（前端留空表示"不修改"），必须走显式标志。
 		if cv, ok := lm["clear_api_key"].(bool); ok && cv {
 			sub("llm")["api_key"] = ""
 			sub("llm")["clear_api_key"] = true
 		} else if v, ok := lm["api_key"].(string); ok && strings.TrimSpace(v) != "" {
 			sub("llm")["api_key"] = strings.TrimSpace(v)
 		}
-		// 温度 0 是合法取值（确定性输出），旧的 v > 0 判断把用户输入的 0 静默丢回默认值。
-		// 越界与 posInt 同语义：整次拒绝并说明范围，不静默。
 		if v, ok := asFloat(lm["temperature"]); ok {
 			if v < 0 || v > 2 {
 				outOfRange = append(outOfRange, fmt.Sprintf("temperature=%g（允许 0–2）", v))
@@ -847,8 +797,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		if v, ok := lm["timeout_seconds"]; ok {
 			posInt("llm", "timeout_seconds", v, 3, 600)
 		}
-		// 上下文窗口：0 = 用内置兜底表（默认这条路），手填时才要求落在一个像样的范围里。
-		// 下界 4k：比这更小的窗口是配错了，不是一个可用配置。
 		if raw, ok := lm["context_window"]; ok {
 			zeroOr("llm", "context_window", raw, 4096, 10000000)
 		}
@@ -875,8 +823,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 				sub("worktrees")[k] = b
 			}
 		}
-		// 上限 0 = 不限制（默认）。给下限 1，是因为"上限 0"和"上限 1"是两件事：
-		// 前者是关掉裁剪，后者是"只留一个"，混起来读的人会把关掉当成只剩一个。
 		if raw, ok := v["max_count"]; ok {
 			zeroOr("worktrees", "max_count", raw, 1, 100)
 		}
@@ -893,8 +839,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		if raw, ok := v["proxy_url"].(string); ok {
 			sub("network")["proxy_url"] = strings.TrimSpace(raw)
 		}
-		// 手动模式当场校验一次地址：保存成功却在启动时才发现填错了，等于把错误拖到下一次重启。
-		// 这里顺带把传输层换掉，之后新建的客户端就用新的；已经有连接的不会切，界面里写明了要重启。
 		if m := sub("network"); m["proxy_mode"] == "manual" {
 			raw, _ := m["proxy_url"].(string)
 			if err := llm.SetProxyMode("manual", raw); err != nil {
@@ -903,8 +847,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 	}
 	if len(outOfRange) > 0 {
-		// 整次拒绝：静默丢掉越界字段会让用户以为"保存了但没生效"，
-		// 静默接受更糟——非法值直接进 overlay 影响每次重启。
 		return a.SettingsView(), fmt.Errorf("参数越界：%s", strings.Join(outOfRange, "；"))
 	}
 	if len(sanitized) == 0 {
@@ -914,9 +856,6 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 	prevProviderID := a.Cfg.LLM.ProviderID
 	a.Cfg.Apply(sanitized)
 
-	// ---------- 密钥：先定"这次往哪台主机发哪把 key"，再用它重建客户端 ----------
-	// 顺序不能反：重建客户端用的就是这个值。原先是先重建、后落盘，于是换了厂商的
-	// 那次保存，新客户端里装的还是上一家的密钥（而且界面上显示"已设置"）。
 	if lm, ok := sanitized["llm"].(map[string]any); ok {
 		formKey, _ := lm["api_key"].(string)
 		clearKey, _ := lm["clear_api_key"].(bool)
@@ -926,11 +865,8 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 	}
 
-	// 运行时热生效：LLM 客户端按协议工厂重建（mock 保持不变），安全门控就地更新
 	if a.Cfg.LLM.Provider != "mock" {
 		if _, hasLLM := sanitized["llm"]; hasLLM {
-			// 换厂商但没显式给 base_url/model：旧值是上一家的，清掉让 ResolveTarget 从预设取。
-			// 不清的话 ResolveTarget 看到非空就沿用，onboarding/设置页切厂商会指向旧端点。
 			if lm, ok := sanitized["llm"].(map[string]any); ok {
 				_, hasBaseURL := lm["base_url"]
 				_, hasModel := lm["model"]
@@ -946,11 +882,9 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 			}
 			baseURL, model, protocol := llm.ResolveTarget(a.Cfg.LLM.ProviderID, a.Cfg.LLM.Plan, a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol)
 			a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol = baseURL, model, protocol
-			// 上面 BindLLMKey 已把"可发往这台主机的密钥"写进 Cfg.LLM.APIKey（拿不到就是空串）
 			a.LLM = llm.New(protocol, baseURL, a.Cfg.LLM.APIKey, model,
 				a.Cfg.LLM.Temperature, a.Cfg.LLM.MaxTokens, a.Cfg.LLM.TimeoutSecs)
 			a.RebuildFastClient()
-			// 档位映射可能变了（换了 base_url / 改了 tiers），缓存的客户端必须作废
 			a.RebuildTierClients()
 		}
 	}
@@ -965,18 +899,12 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 	}
 
-	// 持久化覆盖层（重启后仍生效）
 	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
 		return a.SettingsView(), fmt.Errorf("设置已生效但保存失败: %w", err)
 	}
 	return a.SettingsView(), nil
 }
 
-// llmFormTarget 把表单覆盖值与当前生效配置解析成完整接入目标（探测与拉模型列表共用）。
-// override 可带 provider_id/plan/base_url/model/protocol/api_key；注意 Cfg 里的 base_url
-// 已含预设回落结果，所以"显式空串"与"缺省"必须区分：缺省取生效值，显式空取显式空。
-// 换厂商时（provider_id 变了）没带 base_url/model：旧值是上一家的，不能拿来用——
-// 留空让 ResolveTarget 从新厂商预设里取，否则 onboarding 切厂商会拿旧 URL 测新 Key。
 func (a *Agent) llmFormTarget(override map[string]any) (base, model, protocol, key string) {
 	str := func(k string) string {
 		if v, ok := override[k].(string); ok {
@@ -997,30 +925,19 @@ func (a *Agent) llmFormTarget(override map[string]any) (base, model, protocol, k
 	}
 	protocol = firstNonEmpty(str("protocol"), a.Cfg.LLM.Protocol)
 	base, model, protocol = llm.ResolveTarget(pid, plan, base, model, protocol)
-	// 密钥按"这次要发往的主机"取：表单没填就用该主机的已存密钥，别家的一概不发。
-	// 这里以前是 `firstNonEmpty(str("api_key"), a.Cfg.LLM.APIKey)`，等于把上一家厂商的
-	// 凭证发给用户正在预验证的新端点。
 	key, _ = a.llmKeyFor(base, str("api_key"))
 	return
 }
 
-// probeHasExplicitTarget 表单里带了非空 base_url：用户正在预验证一套尚未生效的接入
-// （典型：还停在 mock 就填了真实网关想先测一把）。此时 mock 短路必须让位，
-// 否则"测试连接/拉取模型"在最需要它的时刻恰好失灵（2026-09-23 QA 报告 M4）。
 func probeHasExplicitTarget(override map[string]any) bool {
 	v, ok := override["base_url"].(string)
 	return ok && strings.TrimSpace(v) != ""
 }
 
-// TestLLMConnection 连通性探测：用当前生效配置（或表单覆盖值）发一次最小请求，
-// 把失败分类成人能看懂的结论。设置页"测试连接"用——配错不必等任务失败才暴露。
-// override 可带 protocol/provider_id/plan/base_url/model/api_key/model_id；
-// api_key 留空表示用已保存的；model_id 用于编辑时查找现有模型的密钥。
 func (a *Agent) TestLLMConnection(override map[string]any) map[string]any {
 	if a.Cfg.LLM.Provider == "mock" && !probeHasExplicitTarget(override) {
 		return map[string]any{"ok": true, "kind": "mock", "message": "当前为离线 Mock 模型，未发起真实网络调用"}
 	}
-	// 如果提供了 model_id 且没带 api_key，尝试从现有模型中获取密钥
 	if _, hasKey := override["api_key"]; !hasKey {
 		if mid, ok := override["model_id"].(string); ok && mid != "" {
 			idx := a.modelIndex(mid)
@@ -1059,14 +976,10 @@ func (a *Agent) TestLLMConnection(override map[string]any) map[string]any {
 	}
 }
 
-// ListLLMModels 在线拉取厂商可用模型列表（表单覆盖值，不必先保存）。
-// 尽力而为：不少 Coding/Agent 套餐网关不实现 /models，失败按连接诊断同一套 kind 分类，
-// 前端拉不到就回到手输。
 func (a *Agent) ListLLMModels(override map[string]any) map[string]any {
 	if a.Cfg.LLM.Provider == "mock" && !probeHasExplicitTarget(override) {
 		return map[string]any{"ok": true, "kind": "mock", "models": []llm.ModelInfo{}, "message": "离线 Mock 模型没有在线模型列表"}
 	}
-	// 如果提供了 model_id 且没带 api_key，尝试从现有模型中获取密钥
 	if _, hasKey := override["api_key"]; !hasKey {
 		if mid, ok := override["model_id"].(string); ok && mid != "" {
 			idx := a.modelIndex(mid)
@@ -1103,7 +1016,6 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// classifyLLMError 把调用错误归到诊断类别（前端按类别给中文提示与修复建议）。
 func classifyLLMError(ctx context.Context, err error) string {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return "timeout"
@@ -1124,7 +1036,6 @@ func classifyLLMError(ctx context.Context, err error) string {
 	}
 }
 
-// ContextView 上下文状态视图（含 token 估算，供设置页展示压缩收益）。
 func (a *Agent) ContextView() map[string]any {
 	if a.Mem == nil {
 		return map[string]any{"enabled": false}
@@ -1132,17 +1043,14 @@ func (a *Agent) ContextView() map[string]any {
 	st := a.Mem.Stats()
 	rd := a.windowReading()
 	return map[string]any{
-		"enabled":       a.Cfg.Agent.ContextCompress,
-		"short_turns":   st.ShortTurns,
-		"short_cap":     st.ShortCap,
-		"fill_pct":      st.FillPct, // 轮数口径：短期窗口攒了多少轮（上限是配置的轮数容量，与模型无关）
-		"overflow":      st.Overflow,
-		"summary":       st.Summary,
-		"summary_chars": st.SummaryRunes,
-		// est_tokens_saved 累计压缩节省（原始溢出与摘要的估算差）
+		"enabled":          a.Cfg.Agent.ContextCompress,
+		"short_turns":      st.ShortTurns,
+		"short_cap":        st.ShortCap,
+		"fill_pct":         st.FillPct,
+		"overflow":         st.Overflow,
+		"summary":          st.Summary,
+		"summary_chars":    st.SummaryRunes,
 		"est_tokens_saved": st.SavedTokens,
-		// token 口径：最近一次请求的输入占模型上下文窗口的几成（见 ctxwindow.go）。
-		// 两套口径都给：轮数回答"攒了多少"，窗口回答"下一轮还能塞多少"，不是一回事。
 		"prompt_tokens":    rd.LastTokens,
 		"prompt_estimated": rd.Estimated,
 		"window_tokens":    rd.Window,
@@ -1155,16 +1063,12 @@ func (a *Agent) ContextView() map[string]any {
 	}
 }
 
-// ResetConversation 开始新对话：清空短期对话与滚动摘要上下文（长期记忆保留）。
 func (a *Agent) ResetConversation() {
 	if a.Mem != nil {
 		a.Mem.ResetConversation()
 	}
 }
 
-// ---------- 云端账号 ----------
-
-// AuthSession 返回当前云端登录状态。
 func (a *Agent) AuthSession() map[string]any {
 	if a.Auth == nil {
 		return map[string]any{"signed_in": false, "configured": false}
@@ -1172,7 +1076,6 @@ func (a *Agent) AuthSession() map[string]any {
 	return a.Auth.Session()
 }
 
-// AuthConfigure 保存 Supabase 连接配置（可稍后填写，框架先行）。
 func (a *Agent) AuthConfigure(supabaseURL, anonKey string) error {
 	if a.Auth == nil {
 		return errors.New("云端账号模块未启用")
@@ -1180,7 +1083,6 @@ func (a *Agent) AuthConfigure(supabaseURL, anonKey string) error {
 	return a.Auth.Configure(supabaseURL, anonKey)
 }
 
-// AuthSignUp 邮箱注册。
 func (a *Agent) AuthSignUp(email, password string) error {
 	if a.Auth == nil {
 		return errors.New("云端账号模块未启用")
@@ -1188,7 +1090,6 @@ func (a *Agent) AuthSignUp(email, password string) error {
 	return a.Auth.SignUp(email, password)
 }
 
-// AuthSignIn 邮箱登录。
 func (a *Agent) AuthSignIn(email, password string) error {
 	if a.Auth == nil {
 		return errors.New("云端账号模块未启用")
@@ -1196,7 +1097,6 @@ func (a *Agent) AuthSignIn(email, password string) error {
 	return a.Auth.SignIn(email, password)
 }
 
-// AuthSignOut 登出（仅清本地会话）。
 func (a *Agent) AuthSignOut() error {
 	if a.Auth == nil {
 		return nil
@@ -1204,7 +1104,6 @@ func (a *Agent) AuthSignOut() error {
 	return a.Auth.SignOut()
 }
 
-// AuthOAuth 启动 GitHub/Google 登录，返回需浏览器打开的授权地址。
 func (a *Agent) AuthOAuth(provider string) (string, error) {
 	if a.Auth == nil {
 		return "", errors.New("云端账号模块未启用")
@@ -1212,12 +1111,8 @@ func (a *Agent) AuthOAuth(provider string) (string, error) {
 	return a.Auth.StartOAuth(provider)
 }
 
-// ---------- 本地数据 ----------
-
-// DataDir 返回本地数据目录（供"我的"展示数据存放在哪）。
 func (a *Agent) DataDir() string { return a.Cfg.DataDir }
 
-// CredentialsFile 返回凭证文件路径（展示用）。
 func (a *Agent) CredentialsFile() string {
 	if a.Creds == nil {
 		return filepath.Join(a.Cfg.DataDir, "credentials.json")
@@ -1239,12 +1134,10 @@ func jobToScheduleView(j scheduler.Job) types.ScheduleJobView {
 		Name: j.Name, Cron: j.Cron, IntervalSec: j.IntervalSec, Goal: j.Goal,
 		Mode: j.Mode, Enabled: j.Enabled, WhenText: j.WhenText, ScheduleText: j.ScheduleText,
 	}
-	// 印**生效值**而不是原始字段：空串在存储层表示"用默认"，但界面要回答的是
-	// "这个任务跑完会不会通知我"——印一个空值等于让人自己去猜默认是什么。
 	if policy, err := scheduler.NormalizeNotify(j.Notify); err == nil {
 		v.Notify = policy
 	} else {
-		v.Notify = j.Notify // 脏值如实印出来，别悄悄改成默认
+		v.Notify = j.Notify
 	}
 	if j.NextRun != nil {
 		v.NextRun = j.NextRun.Format(time.RFC3339)
@@ -1255,15 +1148,8 @@ func jobToScheduleView(j scheduler.Job) types.ScheduleJobView {
 	return v
 }
 
-// ---------- 厂商预设 / MCP 与技能市场 ----------
-
-// ProvidersView 厂商官方接入预设目录（设置页下拉数据源）。
 func (a *Agent) ProvidersView() []llm.ProviderPreset { return llm.Providers }
 
-// mcpIndex 按名字找已配置的 MCP 条目，未安装返回 -1。
-//
-// 「名字 → 条目」这件事在装/卸/启停/重连五处都要问，各自写一遍找不到的分支
-// 就会漂（比如某处忘了跳过同名，另一处没跳过）。
 func (a *Agent) mcpIndex(name string) int {
 	for i, s := range a.Cfg.MCP {
 		if s.Name == name {
@@ -1273,10 +1159,6 @@ func (a *Agent) mcpIndex(name string) int {
 	return -1
 }
 
-// MCPInstalledByArgs 远端目录用的「装过没」判据：看已配置服务器的参数里有没有这个包引用。
-//
-// 为什么不比整个 argv：装的时候可能按选中的 npm 源加过 `--registry=…`，
-// 逐字比较会在"换了源之后"把装好的服务器判成没装。包引用是那个稳定的身份。
 func (a *Agent) MCPInstalledByArgs(ref string) bool {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -1292,7 +1174,6 @@ func (a *Agent) MCPInstalledByArgs(ref string) bool {
 	return false
 }
 
-// MarketMCP 搜索 MCP 市场目录（q 为空返回全部），附带已安装标记。
 func (a *Agent) MarketMCP(q string) []map[string]any {
 	presets := market.SearchMCP(q)
 	out := make([]map[string]any, 0, len(presets))
@@ -1306,7 +1187,6 @@ func (a *Agent) MarketMCP(q string) []map[string]any {
 	return out
 }
 
-// MarketSkills 搜索技能模板目录，附带已安装标记。
 func (a *Agent) MarketSkills(q string) []map[string]any {
 	presets := market.SearchSkill(q)
 	out := make([]map[string]any, 0, len(presets))
@@ -1320,25 +1200,20 @@ func (a *Agent) MarketSkills(q string) []map[string]any {
 	return out
 }
 
-// SkillInstallPreset 一键安装技能模板。force=false 且已存在 → ErrAlreadyInstalled：
-// 技能可能已被用户改过（固化、自动优化都写同一个文件），市场版本不该静默盖掉它。
 func (a *Agent) SkillInstallPreset(name string, force bool) (int, error) {
 	p, err := market.FindSkill(name)
 	if err != nil {
 		return 0, err
 	}
-	// Get 的第二个返回值是 error，不能当「装没装」的布尔用（error 序列化成 {} 会恒真）
 	_, existed := a.Skills.Get(p.Name)
 	if existed == nil && !force {
 		return 0, fmt.Errorf("%w：重装会把它恢复成市场里的模板，你改过的步骤会被替换；只想临时别用它，请改用「停用」", ErrAlreadyInstalled)
 	}
-	// 走 SkillSave 而不是 Skills.Save：入库事件只有一个出口，第二条路忘了记就是统计漏项
 	return a.SkillSave(skill.Skill{
 		Name: p.Name, Description: p.Description, Params: p.Params, Steps: p.Steps,
 	})
 }
 
-// MCPList 已配置的 MCP 服务器视图（含连接状态与已注册工具数）。
 func (a *Agent) MCPList() []map[string]any {
 	out := make([]map[string]any, 0, len(a.Cfg.MCP))
 	names := a.Reg.Names()
@@ -1360,15 +1235,12 @@ func (a *Agent) MCPList() []map[string]any {
 			"trust": s.Trust, "enabled": s.Enabled,
 			"connected": connected, "tools": tools,
 			"kind": kind, "url": s.URL,
-			// 只报"有几个请求头"，不回吐值：里面是凭据
 			"header_count": len(s.Headers),
 		})
 	}
 	return out
 }
 
-// MCPInstallPreset 安装市场预设：参数替换 → 持久化 → 热连接。
-// force=true 表示「重装」：覆盖同名条目的命令与参数（UI 必须先二次确认）。
 func (a *Agent) MCPInstallPreset(id string, params map[string]string, trust string, force bool) (map[string]any, error) {
 	p, err := market.FindMCP(id)
 	if err != nil {
@@ -1389,7 +1261,6 @@ func (a *Agent) MCPInstallPreset(id string, params map[string]string, trust stri
 	return a.mcpInstall(mcpSpec{Name: p.ID, Display: p.Name, Command: command, Args: args, Env: env, Trust: trust}, force)
 }
 
-// MCPInstallCustom 自定义安装 MCP 服务器（stdio）。
 func (a *Agent) MCPInstallCustom(name, command string, args []string, env map[string]string, trust string, force bool) (map[string]any, error) {
 	if strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("command 不能为空")
@@ -1398,7 +1269,7 @@ func (a *Agent) MCPInstallCustom(name, command string, args []string, env map[st
 	if display == "" {
 		base := filepath.Base(command)
 		if i := strings.LastIndexByte(base, '.'); i > 0 {
-			base = base[:i] // 去掉 .exe / .cmd，名字更有辨识度，也少一次字符替换
+			base = base[:i]
 		}
 		display = sanitizeMCPName(base)
 		if display == "" {
@@ -1408,10 +1279,6 @@ func (a *Agent) MCPInstallCustom(name, command string, args []string, env map[st
 	return a.mcpInstall(mcpSpec{Name: display, Display: display, Command: command, Args: args, Env: env, Trust: trust}, force)
 }
 
-// MCPInstallRemote 装一台远端（streamable-http）MCP 服务器：不起进程，只记地址与请求头。
-//
-// 与 stdio 那条路共用 mcpInstall：落盘、热连接、失败回 warning 的行为完全一致——
-// 两条路各写一套"安装流程"就会开始漂，而漂的方向是远端那套少一个回滚。
 func (a *Agent) MCPInstallRemote(name, url string, headers map[string]string, trust string, force bool) (map[string]any, error) {
 	if strings.TrimSpace(url) == "" {
 		return nil, fmt.Errorf("远端地址为空")
@@ -1419,37 +1286,19 @@ func (a *Agent) MCPInstallRemote(name, url string, headers map[string]string, tr
 	return a.mcpInstall(mcpSpec{Name: name, Display: name, URL: url, Headers: headers, Trust: trust}, force)
 }
 
-// mcpNameUnsafe 名称里必须换掉的字符，与 mcpNameRe 互补。
 var mcpNameUnsafe = regexp.MustCompile(`[^a-zA-Z0-9_\-]+`)
 
-// sanitizeMCPName 把任意命令名收敛成合法服务器名——它要做工具名的中段（mcp.<name>.<tool>）。
-//
-// 为什么不能写成 mcpNameRe.ReplaceAllString(base, "-")：那个正则匹配的是**合法**字符，
-// 替换它等于把 "npx" 变成 "---"——两台不同目录下的 npx 会撞成同一个名字，第二台永远装不上。
-// 要替换的是**非法**字符。
 func sanitizeMCPName(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.Trim(mcpNameUnsafe.ReplaceAllString(s, "-"), "-")
-	if len(s) > 32 { // 按字节截：字符集已是 ASCII
+	if len(s) > 32 {
 		s = strings.Trim(s[:32], "-")
 	}
 	return s
 }
 
-// ErrAlreadyInstalled 重名未确认覆盖（技能与 MCP 共用）。单独一个哨兵错误，是为了接入层
-// 能回 **409** 而不是笼统的 400：前端拿到 409 才知道该弹「已安装，要重装吗」，
-// 拿到 400 只能把后端文案原样糊在屏幕上——用户看到的是一句报错，而不是一个选择。
 var ErrAlreadyInstalled = errors.New("已经安装过了")
 
-// mcpInstall 公共安装路径：校验 → 落盘 → 热连接（连接失败仅告警，配置照留）。
-//
-// **为什么先落盘再改内存**：原顺序是「追加到内存 → 存盘」，存盘失败时内存里已经多了
-// 一个条目——界面显示"已安装"，重启就消失，而且因为重名检查挡着，用户连重装都做不了，
-// 只能重启进程。落盘失败就把切片整个还原，让用户看到"没装上"这个真实结果。
-// mcpSpec 一次安装要落进配置的全部事实。
-//
-// 为什么收成一个结构体：参数已经到第九个（name/display/command/args/env/url/headers/trust/force），
-// 再往上加位置参数，调用点就开始靠"第几个"来读——那种代码改一次错一次。
 type mcpSpec struct {
 	Name    string
 	Display string
@@ -1466,7 +1315,6 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 	if !mcpNameRe.MatchString(name) {
 		return nil, fmt.Errorf("名称 %q 非法（仅限字母数字下划线连字符，≤32 字符）", name)
 	}
-	// 两种形态二选一：本机进程要有命令，远端要有 URL
 	if strings.TrimSpace(spec.URL) == "" && strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("启动命令不能为空")
 	}
@@ -1485,7 +1333,7 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 	next := append([]config.MCPServerConfig{}, a.Cfg.MCP...)
 	if idx >= 0 {
 		next[idx] = srv
-		a.mcpDetach(name) // 旧连接与旧工具先摘掉，避免新旧两套工具同时挂在注册表上
+		a.mcpDetach(name)
 	} else {
 		next = append(next, srv)
 	}
@@ -1501,7 +1349,6 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 		"connected": err == nil, "tools": tools, "mcp": a.MCPList(),
 	}
 	if err != nil {
-		// 两种形态的失败原因完全不同，提示不能共用一句
 		hint := "首次 npx/uvx 需联网下载，可稍后在工具页查看"
 		if strings.TrimSpace(srv.URL) != "" {
 			hint = "远端地址、网络或请求头里的凭据要再核一下"
@@ -1511,10 +1358,6 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 	return res, nil
 }
 
-// mcpDetach 摘掉某个 MCP 服务器的注册工具与进程连接（不动配置）。
-//
-// 停用一个服务器和卸载一个服务器要摘的是同一批东西，所以只留这一份实现——
-// 两处各写一遍迟早会漏一项（漏掉关连接就是留着子进程在后台跑）。
 func (a *Agent) mcpDetach(name string) int {
 	removed := 0
 	prefix := mcpToolPrefix(name)
@@ -1529,10 +1372,6 @@ func (a *Agent) mcpDetach(name string) int {
 	return removed
 }
 
-// MCPSetEnabled 启用 / 停用 MCP 服务器：状态落盘，停用立刻摘工具并关进程，启用立刻重连。
-//
-// 为什么要有"停用"而不是只有"卸载"：调试一个连不上的服务器时，用户要的是先让它别挡路、
-// 保留参数回头再看。只有卸载的话，参数就没了（定时任务的暂停/恢复早就证明过这一点）。
 func (a *Agent) MCPSetEnabled(name string, enabled bool) (map[string]any, error) {
 	idx := a.mcpIndex(name)
 	if idx < 0 {
@@ -1567,7 +1406,6 @@ func (a *Agent) MCPSetEnabled(name string, enabled bool) (map[string]any, error)
 	return res, nil
 }
 
-// mcpConnect 连接单个 MCP 服务器并把工具热注册进注册表。
 func (a *Agent) mcpConnect(srv config.MCPServerConfig) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -1587,7 +1425,6 @@ func (a *Agent) mcpConnect(srv config.MCPServerConfig) (int, error) {
 	return len(client.Tools), nil
 }
 
-// MCPRemove 卸载：删配置 + 注销工具 + 关闭连接。
 func (a *Agent) MCPRemove(name string) (map[string]any, error) {
 	idx := a.mcpIndex(name)
 	if idx < 0 {
@@ -1596,7 +1433,6 @@ func (a *Agent) MCPRemove(name string) (map[string]any, error) {
 	prev := append([]config.MCPServerConfig{}, a.Cfg.MCP...)
 	a.Cfg.MCP = append(a.Cfg.MCP[:idx], a.Cfg.MCP[idx+1:]...)
 	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		// 回滚要拿真正的副本：删元素是就地搬移，只留旧切片头会把被搬走的那条读回来。
 		a.Cfg.MCP = prev
 		return nil, fmt.Errorf("已移除但持久化失败（重启后它会回来）: %w", err)
 	}
@@ -1604,7 +1440,6 @@ func (a *Agent) MCPRemove(name string) (map[string]any, error) {
 	return map[string]any{"name": name, "removed_tools": removed, "mcp": a.MCPList()}, nil
 }
 
-// MCPRetry 对已安装但未连接的 MCP 服务器重试连接（首装 npx/uvx 下载超时是常见场景）。
 func (a *Agent) MCPRetry(name string) (map[string]any, error) {
 	idx := a.mcpIndex(name)
 	if idx < 0 {
@@ -1612,10 +1447,9 @@ func (a *Agent) MCPRetry(name string) (map[string]any, error) {
 	}
 	srv := &a.Cfg.MCP[idx]
 	if !srv.Enabled {
-		// 停用的服务器不允许"重连"：那会让一个用户已经判定别跑的东西重新挂上工具表。
 		return nil, fmt.Errorf("MCP 服务器 %q 已停用，请先启用", name)
 	}
-	a.MCP.Remove(name) // 关闭旧连接（若有）
+	a.MCP.Remove(name)
 	tools, err := a.mcpConnect(*srv)
 	res := map[string]any{
 		"name": name, "connected": err == nil, "tools": tools, "mcp": a.MCPList(),
@@ -1626,7 +1460,6 @@ func (a *Agent) MCPRetry(name string) (map[string]any, error) {
 	return res, nil
 }
 
-// permFromStr 权限字符串解析。
 func permFromStr(s string) types.Permission {
 	switch s {
 	case "readonly":
@@ -1638,7 +1471,6 @@ func permFromStr(s string) types.Permission {
 	}
 }
 
-// PermissionOf 查询工具的有效权限（含覆盖）。
 func (a *Agent) PermissionOf(name string) types.Permission {
 	if t, ok := a.Reg.Get(name); ok {
 		return a.Gate.EffectivePermission(t)
@@ -1646,9 +1478,6 @@ func (a *Agent) PermissionOf(name string) types.Permission {
 	return types.PermissionUserApproved
 }
 
-// ---------- 工作区（任务文件夹） ----------
-
-// WorkspaceView 当前工作区视图（含最近列表与 Git 分支）。
 func (a *Agent) WorkspaceView() map[string]any {
 	return map[string]any{
 		"workspace":  a.Cfg.Workspace,
@@ -1657,9 +1486,6 @@ func (a *Agent) WorkspaceView() map[string]any {
 	}
 }
 
-// gitBranch 读取工作区当前 Git 分支名，供界面在工作区旁边亮一个分支标签。
-// 只读、超时两秒；不是 Git 仓库、没有 git 命令或处于游离 HEAD 时都返回空串——
-// 这些都不是错误，静默跳过，不要因为「这里没有仓库」把工作区选择卡住。
 func gitBranch(dir string) string {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -1672,14 +1498,12 @@ func gitBranch(dir string) string {
 		return ""
 	}
 	branch := strings.TrimSpace(string(out))
-	if branch == "" || branch == "HEAD" { // 游离 HEAD 没有分支名
+	if branch == "" || branch == "HEAD" {
 		return ""
 	}
 	return branch
 }
 
-// WorkspaceBrowse 浏览文件系统供选择工作区：
-// path 为空时返回根列表（Windows 盘符 / Unix 根与主目录），否则列出该目录下的子文件夹。
 func (a *Agent) WorkspaceBrowse(path string) (map[string]any, error) {
 	path = strings.TrimSpace(path)
 	type dirEntry struct {
@@ -1727,7 +1551,7 @@ func (a *Agent) WorkspaceBrowse(path string) (map[string]any, error) {
 		}
 		dirs = append(dirs, dirEntry{Name: e.Name(), Path: filepath.Join(abs, e.Name()), IsDir: true})
 		if len(dirs) >= 200 {
-			break // 目录过多时截断，防大目录卡顿
+			break
 		}
 	}
 	parent := filepath.Dir(abs)
@@ -1737,7 +1561,6 @@ func (a *Agent) WorkspaceBrowse(path string) (map[string]any, error) {
 	return map[string]any{"parent": parent, "current": abs, "dirs": dirs}, nil
 }
 
-// WorkspaceSet 设定任务工作区（校验 → 文件工具/门控热切换 → 持久化 → 记最近）。
 func (a *Agent) WorkspaceSet(path string) (map[string]any, error) {
 	if err := a.applyWorkspace(path); err != nil {
 		return nil, err
@@ -1745,8 +1568,6 @@ func (a *Agent) WorkspaceSet(path string) (map[string]any, error) {
 	return a.WorkspaceView(), nil
 }
 
-// WorkspaceClear 回到「不指定工作区」：文件工具与门控都不再绑定根目录，
-// 文件操作失去工作区边界（仍受安全门控逐条约束）。最近列表保留，方便再切回来。
 func (a *Agent) WorkspaceClear() (map[string]any, error) {
 	a.Cfg.Workspace = ""
 	if a.FileTools != nil {
@@ -1761,8 +1582,6 @@ func (a *Agent) WorkspaceClear() (map[string]any, error) {
 	return a.WorkspaceView(), nil
 }
 
-// applyWorkspace 校验并应用工作区：文件工具边界与门控热更新、持久化覆盖层、记入最近列表。
-// 供工作区切换与空间激活/打开对话联动复用。
 func (a *Agent) applyWorkspace(path string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -1783,12 +1602,11 @@ func (a *Agent) applyWorkspace(path string) error {
 
 	a.Cfg.Workspace = abs
 	if a.FileTools != nil {
-		a.FileTools.Roots = []string{abs} // 文件工具边界热切换（工具持指针，立即生效）
+		a.FileTools.Roots = []string{abs}
 	}
 	if a.Gate != nil {
 		a.Gate.SetWorkspaceRoots([]string{abs})
 	}
-	// 最近列表：去重置顶，最多保留 8 个
 	recents := []string{abs}
 	for _, r := range a.Cfg.WorkspaceRecents {
 		if r != abs {
@@ -1806,20 +1624,12 @@ func (a *Agent) applyWorkspace(path string) error {
 	return nil
 }
 
-// ---------- 改动清单：对比与还原 ----------
-
-// 本段是批次 F14 的出口：界面上的「本次改动」只有这两条动作——看某条路径的 diff、
-// 把它退回到任务开始前。**引擎不主动改文件**，这里所有写盘都由用户点一下触发。
-
-// changeRef 一次「哪次任务 + 哪个路径」的定位结果。
 type changeRef struct {
-	Path string     // 规范化后的绝对路径（后面所有 OS 调用都用它，不用客户端原串）
-	Head preImage   // 该路径在本任务里的**第一条**写前快照，还原以它为准
-	Recs []preImage // 该任务的全部快照，成对还原（file.move）要用
+	Path string
+	Head preImage
+	Recs []preImage
 }
 
-// workspaceRoots 当前工作区边界。文件工具那份是热切换的活口径，
-// 配置里的 Workspace 兜底（工具未注册时，例如还没跑到需要文件工具的那一步）。
 func (a *Agent) workspaceRoots() []string {
 	if a.FileTools != nil && len(a.FileTools.Roots) > 0 {
 		return a.FileTools.Roots
@@ -1830,17 +1640,6 @@ func (a *Agent) workspaceRoots() []string {
 	return nil
 }
 
-// changeTarget 校验这对参数并把路径定下来。**两道校验缺一不可**：
-//
-//   - **在不在本任务的清单里**：不在就不许动。少了这一道，"还原"就成了一个
-//     "填任意路径即可覆盖任意文件"的接口；
-//   - **在不在工作区边界里**：清单记的是任务当时解析出的绝对路径，而用户可能已经把
-//     工作区切到别处，也可能当初那一步的口径与现在不同。边界以**现在**的为准。
-//     在副本里跑过的任务是个例外：它的清单记的是副本里的路径，所以**该任务自己的副本根**
-//     也算允许边界——只加这一个任务的，不是把所有副本一起放开。
-//
-// 客户端传来的路径串一律重新解析，绝不拿清单里的原文去拼 OS 调用——清单是磁盘上的
-// 文件，读它的时候它已经不完全归我们管了。
 func (a *Agent) changeTarget(taskID, rawPath string) (changeRef, error) {
 	if SafeTaskName(taskID) == "" {
 		return changeRef{}, fmt.Errorf("任务标识 %q 不合法", types.Shorten(taskID, 40))
@@ -1853,13 +1652,8 @@ func (a *Agent) changeTarget(taskID, rawPath string) (changeRef, error) {
 		return changeRef{}, fmt.Errorf("没有指定路径")
 	}
 	if !filepath.IsAbs(path) {
-		// 刻意不按工作区根去猜相对路径：界面上给的就是清单里的绝对路径，
-		// 会走到这里的只有手改请求的一种人，那种时候"猜"比"拒"更坏。
 		return changeRef{}, fmt.Errorf("请填写清单里的完整路径")
 	}
-	// 副本已经被删掉的任务：清单里的路径指向一个不存在的地方。这时说"超出工作区范围"
-	// 是把人往错的方向指——真实原因是那份副本已经不在了，而这一点用户能从别处补救
-	// （任务分支还在，去 Worktrees 那一页或直接用 git 工具）。
 	if m := a.worktreeManager(); m != nil {
 		if wtDir := m.Dir(taskID); toolutil.Within(wtDir, path) {
 			if _, err := os.Stat(wtDir); os.IsNotExist(err) {
@@ -1894,11 +1688,8 @@ func (a *Agent) changeTarget(taskID, rawPath string) (changeRef, error) {
 	return changeRef{Path: target, Head: head, Recs: recs}, nil
 }
 
-// diffReadMax 参与对比的**现在**这份内容的体量上限，与单文件快照上限同值：
-// 一边留不住，另一边算下去也没有可比的前后，两边用同一个数才不会错开。
 const diffReadMax = snapshotMaxBytes
 
-// TaskDiff 一条路径的「写前 → 现在」行级对比。
 func (a *Agent) TaskDiff(taskID, path string) (map[string]any, error) {
 	ref, err := a.changeTarget(taskID, path)
 	if err != nil {
@@ -1936,12 +1727,10 @@ func (a *Agent) TaskDiff(taskID, path string) (map[string]any, error) {
 	return view, nil
 }
 
-// readForDiff 读「现在」这一份。第二个返回值是超限或读不到时的说明（对比照给，
-// 但只给体量，不给一份看着完整其实缺了半截的 diff）。
 func readForDiff(path string) (text string, bytes int64, note string) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", 0, "" // 现在不存在=全删（读不出内容就是空，不是"读失败"）
+		return "", 0, ""
 	}
 	if info.IsDir() {
 		return "", info.Size(), "现在这里是个目录，没有内容可对比"
@@ -1956,7 +1745,6 @@ func readForDiff(path string) (text string, bytes int64, note string) {
 	return string(b), info.Size(), ""
 }
 
-// diffBlame 内容没留住时的那句原因（快照里已经写好，缺一条兜底）。
 func diffBlame(rec preImage) string {
 	if strings.TrimSpace(rec.Reason) != "" {
 		return rec.Reason
@@ -1964,17 +1752,13 @@ func diffBlame(rec preImage) string {
 	return "写前内容未留存"
 }
 
-// TaskRevert 把一条路径退回到本任务开始前。**只由用户点击触发**，不做任何自动还原。
-//
-// `file.move` 按组成对退（见 preImageGroup）：一次移动在清单里是两行，
-// 只退其中一行等于把文件留在半路上。
 func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 	ref, err := a.changeTarget(taskID, path)
 	if err != nil {
 		return nil, err
 	}
 	group := preImageGroup(ref.Recs, ref.Path)
-	if len(group) == 0 { // changeTarget 已经确认过路径在清单里，这里只是不让下面空跑
+	if len(group) == 0 {
 		return nil, fmt.Errorf("这个路径不在本次任务的改动清单里，不能动")
 	}
 
@@ -2002,7 +1786,6 @@ func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 		return nil, fmt.Errorf("没有还原成功任何路径：%s", strings.Join(failed, "；"))
 	}
 
-	// 归档里那几行要说实话：动了就是动了（Kind 是历史），但盘上已经不是那样了。
 	a.markChangesReverted(taskID, donePaths)
 	if a.Gate != nil {
 		a.Gate.Record(safety.AuditEntry{
@@ -2010,7 +1793,6 @@ func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 			Risk:   "medium",
 			Action: "manual_revert",
 			Reason: "用户在改动清单里点了还原",
-			// Detail 只记路径与条数，不记内容：审计自己不能变成新的泄露面。
 			Detail: fmt.Sprintf("%d 个路径：%s", len(done), strings.Join(donePaths, ", ")),
 		})
 	}
@@ -2018,15 +1800,10 @@ func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 		"task_id":  taskID,
 		"reverted": done,
 		"failed":   failed,
-		"pairs":    len(group) > 1, // 一次移动成对退掉，界面据此说"两个路径都动了"
+		"pairs":    len(group) > 1,
 	}, nil
 }
 
-// markChangesReverted 把归档里对应路径的改动行标成已还原。
-//
-// 只标不改写 Kind：Kind 回答"这次任务当时做了什么"，那是历史；Reverted 回答
-// "盘上现在还是那样吗"。合成一个值就把两件事都说糊了。
-// 没有归档（任务没跑完、数据目录没配）时静默返回——界面对应的本来就是内存里那条。
 func (a *Agent) markChangesReverted(taskID string, paths []string) {
 	g, err := ReadTaskResult(a.Cfg.DataDir, taskID)
 	if err != nil || g == nil || len(g.Changes) == 0 {

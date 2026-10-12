@@ -1,5 +1,3 @@
-// Package config 提供 Gleam 的配置加载与自研的迷你 YAML 子集解析器。
-// 项目约束：Harness 零外部依赖，故 YAML 解析为自研子集实现。
 package config
 
 import (
@@ -11,13 +9,11 @@ import (
 	"unicode"
 )
 
-// ---------- 解析 ----------
-
 type yline struct {
 	indent int
-	text   string // 去掉缩进后的内容
-	isDash bool   // 以 "- " 或 "-" 开头
-	num    int    // 原始行号（1-based）
+	text   string
+	isDash bool
+	num    int
 }
 
 type parser struct {
@@ -25,11 +21,6 @@ type parser struct {
 	i     int
 }
 
-// ParseYAML 解析 YAML 子集：
-//   - 嵌套映射（2 空格缩进，禁用 Tab）
-//   - 块列表（标量项 / 映射项），允许列表与键同缩进
-//   - 内联列表 [a, b]、内联映射 {a: 1}
-//   - 带引号字符串、数字、布尔、null、# 注释
 func ParseYAML(src string) (map[string]any, error) {
 	lines, err := scanLines(src)
 	if err != nil {
@@ -82,7 +73,6 @@ func (p *parser) cur() *yline {
 	return nil
 }
 
-// parseMap 解析缩进为 indent 的映射块。
 func (p *parser) parseMap(indent int) (any, error) {
 	m := map[string]any{}
 	for {
@@ -107,7 +97,6 @@ func (p *parser) parseMap(indent int) (any, error) {
 			m[key] = sv
 			continue
 		}
-		// 值为空（或仅注释）：嵌套块（映射或列表），允许更深缩进或同缩进列表
 		next := p.cur()
 		if next == nil {
 			m[key] = nil
@@ -132,7 +121,6 @@ func (p *parser) parseMap(indent int) (any, error) {
 	return m, nil
 }
 
-// parseBlock 根据首行类型分派。
 func (p *parser) parseBlock(indent int) (any, error) {
 	ln := p.cur()
 	if ln == nil {
@@ -155,7 +143,7 @@ func (p *parser) parseList(indent int) (any, error) {
 			return nil, fmt.Errorf("yaml 第 %d 行: 意外的缩进", ln.num)
 		}
 		if !ln.isDash {
-			break // 同缩进非 dash：列表结束，交还上层
+			break
 		}
 		rest := strings.TrimSpace(strings.TrimPrefix(ln.text, "-"))
 		p.i++
@@ -188,8 +176,6 @@ func (p *parser) parseList(indent int) (any, error) {
 	return arr, nil
 }
 
-// parseMapItem 解析 "- key: value" 形式的列表项映射；
-// rest 是 dash 后的首行内容，映射键的缩进视为 dashIndent+2。
 func (p *parser) parseMapItem(dashIndent int, rest string) (any, error) {
 	keyIndent := dashIndent + 2
 	key, val, ok := splitKV(rest)
@@ -272,13 +258,11 @@ func (p *parser) parseMapItem(dashIndent int, rest string) (any, error) {
 	return m, nil
 }
 
-// isKVStart 判断 dash 后内容是否为 "key: value" 映射项开头。
 func isKVStart(s string) bool {
 	_, _, ok := splitKV(s)
 	return ok
 }
 
-// splitKV 在引号外寻找第一个后跟空格或行尾的冒号。
 func splitKV(s string) (key, val string, ok bool) {
 	var quote byte
 	for i := 0; i < len(s); i++ {
@@ -303,7 +287,6 @@ func splitKV(s string) (key, val string, ok bool) {
 	return "", "", false
 }
 
-// valueWithoutComment 剥离值中的行内注释；若值仅为注释则返回空串。
 func valueWithoutComment(val string) string {
 	t := strings.TrimSpace(val)
 	if t == "" {
@@ -318,7 +301,6 @@ func valueWithoutComment(val string) string {
 	return t
 }
 
-// findComment 返回行内注释 "#" 的起始下标（引号与括号深度之外、且前置为空白），无则 -1。
 func findComment(s string) int {
 	var quote byte
 	depth := 0
@@ -356,7 +338,6 @@ func unquoteKey(k string) string {
 	return k
 }
 
-// parseScalar 解析标量：引号字符串、内联列表/映射、布尔、数字、null。
 func parseScalar(s string, line int) (any, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -419,7 +400,6 @@ func parseScalar(s string, line int) (any, error) {
 		}
 		return m, nil
 	}
-	// 去掉未引用标量中的行内注释（引号与括号之外）
 	if idx := findComment(s); idx >= 0 {
 		s = strings.TrimSpace(s[:idx])
 		if s == "" {
@@ -443,7 +423,6 @@ func parseScalar(s string, line int) (any, error) {
 	return s, nil
 }
 
-// splitTop 按分隔符切分，忽略引号与括号内的分隔符。
 func splitTop(s string, sep byte, line int) ([]string, error) {
 	var parts []string
 	var quote byte
@@ -474,9 +453,6 @@ func splitTop(s string, sep byte, line int) ([]string, error) {
 	return parts, nil
 }
 
-// ---------- 序列化 ----------
-
-// YMap 保序映射，用于生成结构稳定的 YAML（如技能文件）。
 type YMap struct {
 	keys []string
 	vals map[string]any
@@ -497,7 +473,6 @@ func (m *YMap) Get(key string) (any, bool) {
 	return v, ok
 }
 
-// MarshalYAML 将 YMap / map[string]any / []any / 标量序列化为 YAML 子集文本。
 func MarshalYAML(v any) ([]byte, error) {
 	var b strings.Builder
 	switch t := v.(type) {
@@ -604,7 +579,6 @@ func emitList(b *strings.Builder, arr []any, indent int) error {
 				if err != nil {
 					return err
 				}
-				// 其余键
 				sub := NewYMap()
 				for _, k := range t.keys[1:] {
 					sub.Set(k, t.vals[k])
@@ -678,7 +652,6 @@ func scalarYAML(v any) (string, error) {
 	}
 }
 
-// quoteKey 键名通常无需引号；含特殊字符时加引号。
 func quoteKey(k string) string {
 	if k == "" || needsQuote(k) {
 		return strconv.Quote(k)
@@ -708,7 +681,6 @@ func needsQuote(s string) bool {
 	case "true", "false", "null", "~", "yes", "no", "on", "off":
 		return true
 	}
-	// 形如数字的字符串需引号
 	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return true
 	}

@@ -1,10 +1,3 @@
-// Growth：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 的 $ / api / toast / el / esc 等，所以必须排在 app.js 之后；
-// app.js 的 VIEW_LOADERS 用 `growth: () => loadGrowth()` 惰性引用（那个 const 在 app.js 解析期就求值，
-// 直接写 `growth: loadGrowth` 会 ReferenceError）。
-
-/* ---------- 成长日志 ---------- */
 async function loadGrowth() {
   await Promise.all([loadGrowthStats(), loadGrowthTimeline()]);
 }
@@ -37,9 +30,7 @@ async function loadGrowthStats() {
     document
       .getElementById('gs-progress')
       .style.setProperty('--progress', String(progress / 100));
-  } catch {
-    /* 静默 */
-  }
+  } catch {}
 }
 
 async function loadGrowthTimeline() {
@@ -92,14 +83,10 @@ async function loadGrowthTimeline() {
         '</div>';
       wrap.appendChild(item);
     });
-  } catch {
-    /* 静默 */
-  }
+  } catch {}
 }
 
 function typeLabel(type) {
-  // skill_created 不只来自"把做法固化成技能"，市场安装与手动新建也记同一条
-  // （入库事件只有一个出口，见 Agent.SkillSave），所以标签不能说"固化"。
   const labels = {
     task_completed: '任务完成',
     skill_created: '技能新增',
@@ -110,7 +97,6 @@ function typeLabel(type) {
   return labels[type] || type;
 }
 
-// formatTokens 把 token 数压成人类可读的量级（12345 -> 12.3k）。
 function formatTokens(n) {
   const v = Number(n) || 0;
   if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
@@ -118,8 +104,6 @@ function formatTokens(n) {
   return String(v);
 }
 
-// formatTiers / parseTiers 模型档位表与「一行一条」文本之间的互转。
-// 档位是个开放的小映射，用文本框比动态增删行更省事，也便于直接粘贴一段配置。
 function formatTiers(tiers) {
   if (!tiers || typeof tiers !== 'object') return '';
   return Object.keys(tiers)
@@ -128,8 +112,6 @@ function formatTiers(tiers) {
     .join('\n');
 }
 
-// parseTiers 返回 {tiers, bad}：bad 是畸形行的「第 N 行：原文」列表（L12）。
-// 静默丢弃最坑——用户粘贴了 5 行只生效 2 行，还以为都存上了。
 function parseTiers(text) {
   const tiers = {};
   const bad = [];

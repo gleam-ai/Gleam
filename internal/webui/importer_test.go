@@ -19,7 +19,6 @@ func TestParseMCPJSON(t *testing.T) {
 	if one.Command != "npx" || len(one.Args) != 2 {
 		t.Errorf("stdio-one = %+v", one)
 	}
-	// env 只回键名：值是密钥，不能在候选里露面
 	if len(one.EnvKeys) != 2 || one.EnvKeys[0] != "MODE" || one.EnvKeys[1] != "TOKEN" {
 		t.Errorf("env keys = %v", one.EnvKeys)
 	}
@@ -69,7 +68,6 @@ func TestCountEntries(t *testing.T) {
 	}
 }
 
-// 导入只认服务端扫出来的 id：伪造成任意路径必须被忽略，否则这就成了读任意文件的接口。
 func TestImportApplyRejectsUnknownID(t *testing.T) {
 	f := newFixture(t, nil)
 	out := f.call("POST", "/api/import/apply", map[string]any{
@@ -94,9 +92,6 @@ func TestImportScanShape(t *testing.T) {
 			t.Errorf("扫描结果缺少 %s", k)
 		}
 	}
-	// MCP 候选只许带这几个字段。不能拿「输出里有没有 sk-」来判——项目里的记忆文件
-	// 本身就可能写着示例密钥，那是用户自己的内容。真正要守的是结构：env 的**值**
-	// （常常就是真密钥）根本不存在于候选类型里，谁加了个带值的字段这条就会红。
 	allowed := map[string]bool{
 		"id": true, "app": true, "name": true, "command": true,
 		"args": true, "env_keys": true, "path": true, "installed": true,

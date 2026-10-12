@@ -15,8 +15,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// SnippetsTool 管理可复用文本片段。
-// 片段存储为 JSON 文件（~/.gleam/snippets.json），支持增删查与展开。
 type SnippetsTool struct {
 	dataDir string
 }
@@ -77,7 +75,6 @@ func (t *SnippetsTool) Execute(ctx context.Context, args map[string]any) (any, e
 	}
 }
 
-// snippet 存储结构。
 type snippet struct {
 	Name        string    `json:"name"`
 	Content     string    `json:"content"`
@@ -113,7 +110,6 @@ func (t *SnippetsTool) saveStore(m map[string]snippet) error {
 	if err := os.MkdirAll(t.dataDir, 0755); err != nil {
 		return err
 	}
-	// 原子写：整张便签表存在一个文件里，写成半截 = 全部便签一起丢
 	return atomicfile.Write(t.path(), data, 0o644)
 }
 
@@ -193,7 +189,6 @@ func (t *SnippetsTool) delete(name string) (any, error) {
 	return map[string]any{"ok": true, "deleted": name}, nil
 }
 
-// expand 展开片段：将内容中的 {{var}} 占位符替换为对应参数（如有）。
 func (t *SnippetsTool) expand(name string) (any, error) {
 	m, err := t.load()
 	if err != nil {
@@ -204,7 +199,6 @@ func (t *SnippetsTool) expand(name string) (any, error) {
 		return nil, fmt.Errorf("片段 %q 不存在", name)
 	}
 	content := s.Content
-	// 简单展开：移除占位符标记，保留默认值
 	content = strings.ReplaceAll(content, "{{date}}", time.Now().Format("2006-01-02"))
 	content = strings.ReplaceAll(content, "{{time}}", time.Now().Format("15:04:05"))
 	return map[string]any{

@@ -1,5 +1,3 @@
-// connection_test.go 模型连接自测：base_url 拼接容错、空 Key 鉴权头、重试分类。
-// 这三类是配置模型时最容易踩的坑，全部用本地 httptest 假网关验证，不触网。
 package llm
 
 import (
@@ -12,7 +10,6 @@ import (
 	"time"
 )
 
-// echoHandler 记录每次请求的路径/头，固定回一个各协议都能解析的最小成功体。
 type hitLog struct {
 	paths   []string
 	headers []http.Header
@@ -40,7 +37,6 @@ func chatReq() ChatRequest {
 	return ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}
 }
 
-// base_url 误填成完整端点（用户从文档里整段复制）时不能双拼出 404。
 func TestBaseURL_EndpointSuffixDedup(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -60,7 +56,6 @@ func TestBaseURL_EndpointSuffixDedup(t *testing.T) {
 		{"anthropic-完整端点", anthOK, func(b string) Client { return NewAnthropic(b, "k", "m", 0, 0, 5*time.Second) },
 			func(c Client) error { _, e := c.Chat(context.Background(), chatReq()); return e }, "/v1/messages"},
 	}
-	// 每个用例的输入 base：故意带尾斜杠 / 已含端点路径
 	bases := map[string]string{
 		"glm":            "%s/chat/completions",
 		"glm-尾斜杠":        "%s/chat/completions/",
@@ -88,7 +83,6 @@ func TestBaseURL_EndpointSuffixDedup(t *testing.T) {
 	}
 }
 
-// 空 Key 时三家必须一致地省略鉴权头（Anthropic 原来会发空头 x-api-key，网关直接 400/403）。
 func TestEmptyKey_OmitsAuthHeaders(t *testing.T) {
 	t.Run("glm", func(t *testing.T) {
 		var h hitLog
@@ -131,7 +125,6 @@ func TestEmptyKey_OmitsAuthHeaders(t *testing.T) {
 	})
 }
 
-// 鉴权失败(401)不重试；限流(429)只重试一次。走 Anthropic 验证共享重试层。
 func TestRetryPolicy_StatusClass(t *testing.T) {
 	t.Run("401不重试", func(t *testing.T) {
 		var h hitLog
@@ -170,7 +163,6 @@ func TestRetryPolicy_StatusClass(t *testing.T) {
 	})
 }
 
-// 非 200 但响应体是合法 JSON 错误时，错误信息要能透传出去（排障靠它）。
 func TestErrorSnippet_PropagatesStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

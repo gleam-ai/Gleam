@@ -23,16 +23,9 @@ import signal
 import subprocess
 import sys
 
-# 骨架自己也要印中文和 ✓，所以先修标准流：Windows 上 Python 按本地代码页（本机 cp936）
-# 写 stdout。中文变乱码还算轻的——`✓` 不在 GBK 里，会直接抛 UnicodeEncodeError，
-# 而它偏偏崩在"变异已被捕获"那一行之后：文件已还原（无害），但整批剩下的没跑，
-# 看起来像"跑到一半自己没了"。`scripts/check-py-utf8.py` 现在连本目录一起罩。
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import _utf8  # noqa: E402,F401
 
-# 环境自身的报错（不是我们的测试在报错）。本机 Go 工具链偶发地把标准库报成
-# "not in std"，那是环境噪声；不识别它就会把噪声当成"变异被捕获"，
-# 于是变异验证给出一个假的满分。
 ENV_MARKERS = (
     "is not in std",
     "package internal/sysinfo",
@@ -41,8 +34,6 @@ ENV_MARKERS = (
     "signal: terminated",
 )
 
-# 变异导致编译失败时的标志。这类"捕获"是假的——它证明的是改法写坏了，
-# 不是断言有效。
 BUILD_FAIL_MARKERS = (
     "[build failed]",
     "syntax error",
@@ -64,10 +55,7 @@ class Harness:
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, self._on_signal)
 
-    # ---------- 中断处理 ----------
     def _on_signal(self, signum, _frame):
-        # 被中断时必须先把源码还原再退出：留下一个变异过的仓库，
-        # 下一个人会在完全莫名其妙的地方看到失败。
         self._interrupted = True
         self.restore_all()
         sys.exit(130)
@@ -79,12 +67,6 @@ class Harness:
                 f.write(original)
             self._drop_backup(path)
 
-    # ---------- 磁盘备份 ----------
-    #
-    # 内存里的备份救不了"进程被强杀"：信号处理器在，但被 SIGKILL 或被沙箱
-    # 直接掐掉时它不会执行，仓库就停在一个改了一半的状态上。下次启动的预检
-    # 虽然能发现，却只能让人手工修。所以把备份同时写到磁盘：
-    # 下次启动时若发现备份还在，说明上次没跑干净，直接用它还原。
     def _backup_path(self, path: str) -> str:
         return path + ".mutbak"
 
@@ -114,7 +96,6 @@ class Harness:
             recovered.append(rel)
         return recovered
 
-    # ---------- 读写（一律二进制） ----------
     def path_of(self, rel: str) -> str:
         return os.path.join(self.root, rel.replace("/", os.sep))
 
@@ -133,7 +114,6 @@ class Harness:
             self._restore.append((path, data))
             self._write_backup(path, data)
 
-    # ---------- 变异 ----------
     def apply(self, mut: dict) -> bool:
         """应用一个变异。锚点不唯一/不存在就返回 False（预检失败，不跑命令）。"""
         rel = mut["file"]
@@ -142,9 +122,6 @@ class Harness:
         for old, new in mut["edits"]:
             n = text.count(old)
             if n != 1:
-                # 锚点必须唯一。匹配到 0 处说明代码变了（脚本过期）；
-                # 匹配到多处说明这次改的可能是别的地方——两种都必须先修脚本，
-                # 而不是"随便挑一处改"。
                 print(
                     f"    [预检失败] 锚点在 {rel} 中出现 {n} 次（必须恰好 1 次）：{old[:60]!r}"
                 )
@@ -163,7 +140,6 @@ class Harness:
                 return False
         return True
 
-    # ---------- 跑命令 ----------
     def run(self, cmd: str, timeout: int) -> tuple[bool, str]:
         """返回 (是否通过, 输出)。环境错误会自动重试。"""
         for attempt in range(1, MAX_ENV_RETRIES + 1):
@@ -190,7 +166,6 @@ class Harness:
                 return False, out
             except subprocess.TimeoutExpired as e:
                 out = (e.stdout or b"").decode("utf-8", "replace")
-                # 超时按"捕获"算：变异若把代码变成死等，超时正是它该有的症状。
                 if attempt < MAX_ENV_RETRIES and any(
                     m in out for m in ENV_MARKERS
                 ):
@@ -257,7 +232,6 @@ def run_batch(
     print(f"===== {title} =====")
     print(f"仓库：{h.root}")
 
-    # 先看有没有上次没跑干净留下的备份：有就直接还原（比让人手工修可靠）。
     files = sorted({m["file"] for m in mutations})
     recovered = h.recover_from_backup(files)
     if recovered:
@@ -265,8 +239,6 @@ def run_batch(
         for f in recovered:
             print(f"  - {f}")
 
-    # 全量预检（**不只是本次筛出来的那几条**）：仓库必须处于干净状态。
-    # 只看本次要跑的那几条，会漏掉"上一次跑留下的半截变异"。
     problems = preflight(h, mutations)
     if problems:
         print("===== 预检失败：仓库不干净或脚本已过期，拒绝运行 =====")
@@ -294,16 +266,12 @@ def run_batch(
             for label, cmd in mut["targets"]:
                 ok, out = h.run(cmd, timeout)
                 if not ok:
-                    # 第一处报错就够了：后面的目标命令再跑一遍既慢，也不会改变结论。
                     failed_targets.append((label, out))
                     break
             if failed_targets:
                 label, out = failed_targets[0]
                 tail = [l for l in out.strip().splitlines() if l.strip()][-3:]
                 if any(m in out for m in BUILD_FAIL_MARKERS):
-                    # 不能编译的变异什么也证明不了：它"被捕获"的理由是语法错误，
-                    # 而不是断言真的挡住了行为。必须当成无效变异单独列出来，
-                    # 否则它会悄悄把捕获率抬上去。
                     print(
                         "    无效 ✗（变异没能编译——它证明不了任何事，请修正改法）"
                     )

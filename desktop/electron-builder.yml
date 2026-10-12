@@ -21,6 +21,19 @@ files:
   - "!dist/win-unpacked.tmp/**"
   - package.json
 asar: true
+# Installer size: almost everything shipped is binary (Electron itself, the Node
+# runtime, uv), so compression is the only lever with real leverage. "maximum"
+# trades a slightly slower extraction for a materially smaller download and does
+# not change what ends up on disk.
+compression: maximum
+# Nothing here has a native addon, so rebuilding can only add dev artifacts.
+npmRebuild: false
+removePackageScripts: true
+# The UI ships Chinese and English copy only; every other resources/locales/*.pak
+# is payload the app never opens.
+electronLanguages:
+  - en-US
+  - zh-CN
 # The Go sidecar is built per platform by scripts/build-sidecar.mjs into .sidecar/<platform>-<arch>/
 # and shipped outside the asar so it can be executed directly.
 extraResources:

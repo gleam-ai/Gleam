@@ -31,7 +31,6 @@ func TestTokenize(t *testing.T) {
 	for _, tk := range toks {
 		joined += tk + "|"
 	}
-	// 拉丁词 + 中文双字组
 	want := "hello|世界|go|语言|"
 	if joined != want {
 		t.Errorf("tokenize = %q, want %q", joined, want)
@@ -47,7 +46,7 @@ func TestEmbedNormalized(t *testing.T) {
 	if sum < 0.99 || sum > 1.01 {
 		t.Errorf("未归一化: %f", sum)
 	}
-	zero := embed("...", 256) // 无词元（..均为分隔符）→ 零向量
+	zero := embed("...", 256)
 	allZero := true
 	for _, x := range zero {
 		if x != 0 {

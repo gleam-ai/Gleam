@@ -17,7 +17,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// TestMain 支持以辅助进程模式运行内置 fake MCP 服务器。
 func TestMain(m *testing.M) {
 	if os.Getenv("GLEAM_MCP_HELPER") == "1" {
 		runFakeServer()
@@ -26,7 +25,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// TestHelperProcess 是辅助进程入口（go test 重新执行自身时运行）。
 func TestHelperProcess(_ *testing.T) {
 	if os.Getenv("GLEAM_MCP_HELPER") != "1" {
 		return
@@ -35,7 +33,6 @@ func TestHelperProcess(_ *testing.T) {
 	os.Exit(0)
 }
 
-// runFakeServer 最小 MCP 服务器：echo / add。
 func runFakeServer() {
 	scanner := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
@@ -122,8 +119,6 @@ func startHelper(t *testing.T) *Client {
 		}
 	})
 
-	// 客户端的内部结构变成了「Client + transport」，测试跟着走：
-	// 手工拼一个 stdio transport 接上假进程的管道（这样测的仍是真实现，不是替身）。
 	tp := &stdioTransport{
 		name:    "fake",
 		stdin:   stdin,
@@ -165,7 +160,6 @@ func TestMCPClient_CallTool(t *testing.T) {
 	c := startHelper(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// 完成握手（供 CallTool 使用）
 	var _ = protocolVersion
 	_ = c.call(ctx, "initialize", map[string]any{"protocolVersion": protocolVersion, "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}}, nil)
 	c.notify("notifications/initialized", nil)

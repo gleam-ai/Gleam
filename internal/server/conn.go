@@ -8,10 +8,8 @@ import (
 	"sync"
 )
 
-// HandlerMethod 入站方法处理器：返回 (结果, 错误)。
 type HandlerMethod func(ctx context.Context, params json.RawMessage) (any, *RPCError)
 
-// incoming 统一入站消息（请求/通知/响应共用）。
 type incoming struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -21,7 +19,6 @@ type incoming struct {
 	Error   *RPCError       `json:"error,omitempty"`
 }
 
-// Conn 一条双向 JSON-RPC 连接（ndjson 帧）。
 type Conn struct {
 	w      io.Writer
 	wmu    sync.Mutex
@@ -36,10 +33,9 @@ type Conn struct {
 	closed chan struct{}
 	once   sync.Once
 
-	OnError func(err error) // 非致命错误回调（可为空）
+	OnError func(err error)
 }
 
-// NewConn 基于读写流创建连接。
 func NewConn(r io.Reader, w io.Writer) *Conn {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 256*1024), 16*1024*1024)
@@ -52,12 +48,10 @@ func NewConn(r io.Reader, w io.Writer) *Conn {
 	}
 }
 
-// Handle 注册入站方法处理器。
 func (c *Conn) Handle(method string, h HandlerMethod) {
 	c.methods[method] = h
 }
 
-// Serve 阻塞读循环；请求在独立 goroutine 处理。
 func (c *Conn) Serve() error {
 	for {
 		line, err := c.nextLine()
@@ -71,13 +65,13 @@ func (c *Conn) Serve() error {
 			continue
 		}
 		switch {
-		case msg.Method != "" && len(msg.ID) > 0: // 请求
+		case msg.Method != "" && len(msg.ID) > 0:
 			req := Request{JSONRPC: msg.JSONRPC, ID: msg.ID, Method: msg.Method, Params: msg.Params}
 			go c.dispatch(req)
-		case msg.Method != "": // 通知
+		case msg.Method != "":
 			req := Request{JSONRPC: msg.JSONRPC, Method: msg.Method, Params: msg.Params}
 			go c.dispatch(req)
-		case len(msg.ID) > 0: // 对端对我们请求的响应
+		case len(msg.ID) > 0:
 			c.routeResponse(msg.ID, msg.Result, msg.Error)
 		default:
 			c.writeResponse(json.RawMessage("null"), nil, Errf(CodeInvalidReq, "无法识别的消息"))
@@ -156,7 +150,6 @@ func (c *Conn) write(b []byte) {
 	}
 }
 
-// Notify 推送通知给对端。
 func (c *Conn) Notify(method string, params any) {
 	b, err := EncodeRequest(nil, method, params)
 	if err != nil {
@@ -168,7 +161,6 @@ func (c *Conn) Notify(method string, params any) {
 	c.write(b)
 }
 
-// Call 向对端发起请求并等待响应（用于审批回路 goal/ask_approval）。
 func (c *Conn) Call(ctx context.Context, method string, params any, out any) error {
 	c.pendingMu.Lock()
 	c.outID++
@@ -215,7 +207,6 @@ func (c *Conn) Call(ctx context.Context, method string, params any, out any) err
 	}
 }
 
-// Closed 连接是否已关闭。
 func (c *Conn) Closed() <-chan struct{} { return c.closed }
 
 func (c *Conn) closeOnce() {

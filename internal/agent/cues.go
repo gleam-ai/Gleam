@@ -1,4 +1,3 @@
-// Package agent 实现 Gleam 的自主任务引擎：Plan-Execute-Reflect 三阶段循环。
 package agent
 
 import (
@@ -10,28 +9,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// cues.go — 候补目标：从本机任务归档里浮出来的「你可能想动一下」。
-//
-// 完整理由在设计文档 §4.6.35，这里只留三条口径：
-//  1. **只提议，不执行**。这一层没有手：不提交任务、不写文件、不改配置。
-//     采纳是用户点下去之后的另一件事（接入层只记状态，见 cues_store.go）。
-//  2. **卡片不落盘**。它是任务历史的一个函数：历史没变，重算一次还是这几张。
-//     只有「别再提 / 已采纳」这个人的决定才落盘——否则清理逻辑会成为新的失配点。
-//  3. **不调模型**。主动提议必须可复现：同一段历史刷新一次换一个说法，
-//     用户就没法照着做决定；而它会在每次打开界面时烧一次出网。
-
-// cueSignals 三条线索，**信号类型的唯一 owner**。
-//
-// 登记了却没人派生 = 界面上永远不会出现这一类，清单变成许愿单；
-// 派生了没登记 = 这张表说的「只从这三条里想」当场变成假话。
-// 双向对账：静态判据见 scripts/check-cue-owner.py（第 1 层），
-// 运行时判据见 TestCues_EverySignalProducesARow（闸门只能读源码，判不出「今天到底浮没浮出一张卡」）。
 var cueSignals = []string{"repeat_failure", "half_done", "tool_failure"}
 
-// cueSignalText 信号的人话。**这一份是唯一出处**：卡片上的牌子与「已按下」列表都取它。
-//
-// 与 cueKindText 同一套路子：取值 owner 与显示口径分开写，加一条线索时两处都只有一处可改。
-// 中英两份并排（bi），跟着界面语言走——口径仍只有一份，英文只是同一句话的另一个说法。
 func cueSignalText(signal string, en bool) string {
 	switch signal {
 	case "repeat_failure":
@@ -45,27 +24,22 @@ func cueSignalText(signal string, en bool) string {
 }
 
 const (
-	cueRepeatMin = 2   // 同一目标失败够两次才提：一次是意外，两次才是模式
-	cueHalfMin   = 2   // 同上：每次只做一半，两次起才不像碰巧
-	cueKindMin   = 3   // 同一类失败累计三步以上，才说「该修的是层，不是重跑」
-	cueKindTasks = 2   // 而且不能只发生在同一个任务里
-	cueTaskScan  = 200 // 与 maxRetainedTasks 同量级：只从本机还留着的归档里想线索
-	cueLimit     = 3   // 一屏最多三张：候补区挤满十条就不是提议，是新的待办堆
-	cueGoalCut   = 40  // 卡片标题里引用原目标的截断长度
-	cueEvidMax   = 3   // 每条线索最多列三次现场
+	cueRepeatMin = 2
+	cueHalfMin   = 2
+	cueKindMin   = 3
+	cueKindTasks = 2
+	cueTaskScan  = 200
+	cueLimit     = 3
+	cueGoalCut   = 40
+	cueEvidMax   = 3
 )
 
-// CueRow 一张候补目标卡。
-//
-// 所有字段都是**给人读的一句一句话**：界面走 textContent，所以这里不许出现 markdown
-// 强调（check-cue-owner.py 第 ③ 条钉这个）——星号在上界面那一刻就是泄露。
-// 文案字段是中英成品句（bi），界面语言由 CueView 的参数决定，前端不翻句子。
 type CueRow struct {
-	ID         string   `json:"id"` // 线索指纹；稳定，「别再提」按它记
+	ID         string   `json:"id"`
 	Signal     string   `json:"signal"`
 	SignalText string   `json:"signal_text"`
 	Title      string   `json:"title"`
-	Goal       string   `json:"goal"` // 采纳时填进输入区的那句话
+	Goal       string   `json:"goal"`
 	Why        string   `json:"why"`
 	Evidence   []string `json:"evidence"`
 	Count      int      `json:"count"`
@@ -73,26 +47,18 @@ type CueRow struct {
 	LastSeen   string   `json:"last_seen,omitempty"`
 }
 
-// CueLedger 一次候补视图。除卡片外还要交代**它凭什么这么说**。
 type CueLedger struct {
 	Rows       []CueRow           `json:"rows"`
 	Suppressed []CueSuppressedRow `json:"suppressed"`
 	Limit      int                `json:"limit"`
-	Overflow   int                `json:"overflow"` // 够格却没挤进来的条数
+	Overflow   int                `json:"overflow"`
 	Truncated  string             `json:"truncated,omitempty"`
 	Scanned    int                `json:"scanned"`
-	Skipped    int                `json:"skipped"` // 读不动的归档（一条历史的损失，不打翻整页）
+	Skipped    int                `json:"skipped"`
 	Coverage   string             `json:"coverage"`
 	Note       string             `json:"note,omitempty"`
 }
 
-// CueSuppressedRow 处置记录给人看的那一份：在落盘那条之上多补几句人话。
-//
-// 为什么不在前端把 reason/signal 翻译成中文：这两个取值的含义归这一层写死，界面再 map
-// 一次就是第二个 owner，漂移的方向永远是新取值在界面上裸奔成英文（M3 那条老坑）。
-// 人话的中英两份都归这一层（bi），界面语言随请求进来。
-// Title/Goal 是**显示时现算**的（处置时那张卡的说法，按当前界面语言取），
-// 不落盘——落盘文案就是把当时语言冻进记录里，换语言就漏（见 cues_store.go）。
 type CueSuppressedRow struct {
 	CueSuppression
 	Title      string `json:"title"`
@@ -101,11 +67,6 @@ type CueSuppressedRow struct {
 	ReasonText string `json:"reason_text"`
 }
 
-// traceGroup 同一个 TraceID 聚出来的一批运行。
-//
-// 这就是 types.go 里那句「失败聚类因此不需要额外的索引」的兑现：TraceID 由
-// 「目标 + 模式 + 角色 + 模型」内容派生、不含时间戳，所以同一个输入反复出现时
-// 天然落在同一组里——不管它是用户手动重提的，还是定时任务按点跑出来的。
 type traceGroup struct {
 	traceID  string
 	goal     string
@@ -115,9 +76,6 @@ type traceGroup struct {
 	lastSeen time.Time
 }
 
-// CueView 算出当前的候补目标。**只读**：不写盘、不提交任务。
-//
-// en 表示界面语言（true 英文 / false 中文），文案两份都归本文件，由这一个参数挑。
 func (a *Agent) CueView(en bool) CueLedger {
 	results, skipped, err := ListTaskResults(a.Cfg.DataDir, cueTaskScan)
 	led := CueLedger{
@@ -127,7 +85,6 @@ func (a *Agent) CueView(en bool) CueLedger {
 		Coverage: cueCoverage(len(results), skipped, en),
 	}
 	if err != nil {
-		// 归档目录读不动不是「没有线索」，得说清楚这一页为什么是空的。
 		led.Note = fmt.Sprintf(bi{
 			"任务归档读不动，这一页什么都没算出来：%v",
 			"Task archives are unreadable, so this page computed nothing: %v",
@@ -137,7 +94,6 @@ func (a *Agent) CueView(en bool) CueLedger {
 	kept := loadCueStore(a.Cfg.DataDir)
 	all := deriveCues(results, en)
 	led.Suppressed = kept.list(en, all)
-	// 已采纳/已说别再提的不再浮出来，但**不占配额**：它们仍在 suppressed 里可撤销。
 	rows := make([]CueRow, 0, len(all))
 	for _, r := range all {
 		if !kept.muted(r.ID) {
@@ -145,8 +101,6 @@ func (a *Agent) CueView(en bool) CueLedger {
 		}
 	}
 	if len(rows) > cueLimit {
-		// 够格却没挤进来的条数要说出来：静默截断会让人以为「就这三条」。
-		// 这句话也归这里算——界面只把字段原样印出来，两处各写一版就会漂移。
 		led.Overflow = len(rows) - cueLimit
 		led.Truncated = fmt.Sprintf(bi{
 			"另有 %d 条够格但没挤进这一屏：名额按严重程度排，前面的占满了。",
@@ -159,12 +113,6 @@ func (a *Agent) CueView(en bool) CueLedger {
 	return led
 }
 
-// deriveCues 三条线索各浮一次卡，再按严重度排。**不滤已处置的**：
-// 处置记录的显示侧要拿未过滤的全集来回填「已按下」行的说法，滤这一刀归调用方。
-//
-// 排序不靠 map 遍历顺序（那是随机的）：先次数、再指纹。
-// 同一段历史两次算出来的结果必须一字不差——否则「别再提」记不住它提过什么。
-// 截断留给调用方：处置入口要能找到没挤进配额的那张卡。
 func deriveCues(results []*types.GoalResult, en bool) []CueRow {
 	var rows []CueRow
 	groups := groupByTrace(results)
@@ -187,8 +135,6 @@ func deriveCues(results []*types.GoalResult, en bool) []CueRow {
 	})
 	return rows
 }
-
-// ---------- 线索一：同一个目标反复失败 ----------
 
 func repeatFailureRows(groups map[string]*traceGroup, en bool) []CueRow {
 	var rows []CueRow
@@ -221,19 +167,15 @@ func repeatFailureRows(groups map[string]*traceGroup, en bool) []CueRow {
 	return rows
 }
 
-// ---------- 线索二：同一个目标每次只做一半 ----------
-
 func halfDoneRows(groups map[string]*traceGroup, en bool) []CueRow {
 	var rows []CueRow
 	for _, g := range groups {
 		if len(g.partial) < cueHalfMin {
 			continue
 		}
-		// 中间成功过一次就不提了：这条路走得通，剩下的半路更像偶发，不值得占一张卡。
 		if g.everWon {
 			continue
 		}
-		// 同一条 TraceID 上两种线索都够格时只浮更严重的那张：两张卡说的是同一件事。
 		if len(g.failed) >= cueRepeatMin {
 			continue
 		}
@@ -262,8 +204,6 @@ func halfDoneRows(groups map[string]*traceGroup, en bool) []CueRow {
 	return rows
 }
 
-// ---------- 线索三：同一类失败跨任务反复出现 ----------
-
 func toolFailureRows(kinds map[types.ErrorKind]*kindTally, en bool) []CueRow {
 	var rows []CueRow
 	for _, k := range kinds {
@@ -271,8 +211,6 @@ func toolFailureRows(kinds map[types.ErrorKind]*kindTally, en bool) []CueRow {
 			continue
 		}
 		human := cueKindText(k.kind, en)
-		// 中英词序不同（「最近 N 个任务里…M 次」vs "M times across N tasks"），
-		// 两份各拼各的，参数顺序跟着各自的说法走。
 		var title, goal string
 		if en {
 			title = fmt.Sprintf("%s appeared %d times across %d recent tasks", human, k.steps, len(k.tasks))
@@ -301,7 +239,6 @@ func toolFailureRows(kinds map[types.ErrorKind]*kindTally, en bool) []CueRow {
 	return rows
 }
 
-// kindTally 一类失败在近期归档里的累计。
 type kindTally struct {
 	kind   types.ErrorKind
 	steps  int
@@ -322,13 +259,11 @@ func (k *kindTally) evidence(en bool) []string {
 	return out
 }
 
-// ---------- 聚合（全部只读） ----------
-
 func groupByTrace(results []*types.GoalResult) map[string]*traceGroup {
 	groups := map[string]*traceGroup{}
 	for _, g := range results {
 		if g == nil || g.TraceID == "" {
-			continue // 对话模式与更早的归档没有 trace_id：不硬凑一组
+			continue
 		}
 		tg := groups[g.TraceID]
 		if tg == nil {
@@ -349,7 +284,6 @@ func groupByTrace(results []*types.GoalResult) map[string]*traceGroup {
 		case types.GoalPartial:
 			tg.partial = append(tg.partial, *g)
 		default:
-			// 还在 running 或出现新的状态值：它既不算失败也不算半路，不硬塞进任何一组。
 		}
 	}
 	return groups
@@ -374,7 +308,6 @@ func tallyFailureKinds(results []*types.GoalResult) map[types.ErrorKind]*kindTal
 			}
 		}
 		if t := strings.TrimSpace(g.Error); t != "" && len(g.FailureBreakdown) == 0 {
-			// 归档里只有错误文本、没有归因（更早的记录）：按分类器补一次归类，不改变历史文件。
 			k := types.ClassifyError(t)
 			t2 := kinds[k]
 			if t2 == nil {
@@ -408,11 +341,6 @@ func tallyFailureKinds(results []*types.GoalResult) map[types.ErrorKind]*kindTal
 	return kinds
 }
 
-// ---------- 文案（人话 owner 在这里） ----------
-
-// cueKindText 失败归因的人话。**这一份是唯一的人话出处**：界面拿它，候补卡也拿它，
-// 别处再写一版就会漂移——漂移的方向通常是新加的那一类在某处裸奔成英文。
-// 中英两份并排（bi）：口径只有一份，两种语言的说法都归这里。
 func cueKindText(k types.ErrorKind, en bool) string {
 	switch k {
 	case types.ErrParam:
@@ -437,9 +365,6 @@ func cueKindText(k types.ErrorKind, en bool) string {
 	return string(k)
 }
 
-// cueCoverage 交代这张表凭什么这么说。
-//
-// 刻意不写成「全部历史」：tasks/ 会按任务数裁剪，看不见的那部分不是没有发生。
 func cueCoverage(scanned, skipped int, en bool) string {
 	var s string
 	if en {
@@ -473,7 +398,6 @@ func cutRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-// evidence 一个目标这几次的现场，最多三行——卡片要能一眼读完。
 func (g *traceGroup) evidence(en bool) []string {
 	runs := append([]types.GoalResult{}, g.failed...)
 	runs = append(runs, g.partial...)

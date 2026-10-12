@@ -12,9 +12,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 改动清单：两份来源怎么合成一份"能动什么"的回答 ----------
-
-// preRec 造一条写前快照记录（清单的快照主干侧）。
 func preRec(seq int, stepID, tool, path string, exists bool, contentFile string) preImage {
 	r := preImage{Seq: seq, StepID: stepID, Tool: tool, Path: path, Exists: exists, File: contentFile}
 	if exists {
@@ -23,10 +20,6 @@ func preRec(seq int, stepID, tool, path string, exists bool, contentFile string)
 	return r
 }
 
-// TestBuildChanges_Kinds 一行的类型要问齐三件事：哪个工具、期望什么形态、写前在不在。
-//
-// 光看期望形态分不出"新建"还是"覆盖"（那要问写前），也分不出"删除"还是"移动走了"
-// （那要问工具）。而界面上「新建」与「修改」是两句不同的话——用户关心原来那份还在不在。
 func TestBuildChanges_Kinds(t *testing.T) {
 	ws := t.TempDir()
 	newFile := filepath.Join(ws, "new.txt")
@@ -56,7 +49,7 @@ func TestBuildChanges_Kinds(t *testing.T) {
 		moveStep("s5", srcFile, dstFile),
 	}
 	recs := []preImage{
-		preRec(1, "s1", "file.write", newFile, false, ""), // 写前不存在 → 新建
+		preRec(1, "s1", "file.write", newFile, false, ""),
 		preRec(2, "s2", "file.write", oldFile, true, "2.pre"),
 		preRec(3, "s3", "file.mkdir", subDir, false, ""),
 		preRec(4, "s4", "file.delete", goneFile, true, "4.pre"),
@@ -77,7 +70,7 @@ func TestBuildChanges_Kinds(t *testing.T) {
 		"old.txt":  kindModified,
 		"outdir":   kindDir,
 		"gone.txt": kindDeleted,
-		"src.txt":  kindDeleted, // 移动的源端：写前有、现在没了
+		"src.txt":  kindDeleted,
 		"dst.txt":  kindMoved,
 	} {
 		c, ok := got[p]
@@ -88,16 +81,11 @@ func TestBuildChanges_Kinds(t *testing.T) {
 			t.Errorf("%s 的 kind = %q，期望 %q", p, c.Kind, want)
 		}
 	}
-	// 一次移动在清单里是两行，但界面上必须看得出它们同属一步（还原要成对退）
 	if got["src.txt"].StepID != "s5" || got["dst.txt"].StepID != "s5" {
 		t.Errorf("移动的两行应共享 step_id：%+v %+v", got["src.txt"], got["dst.txt"])
 	}
 }
 
-// TestBuildChanges_ConvergesSamePath 同一路径被写两次是正常流程，清单只能有一行。
-//
-// 逐条列会把"被后续步骤覆盖"报成两处改动，用户会以为任务多动了手；
-// 而写前的那份记录必须取**最早**那条，否则还原只退到中间状态。
 func TestBuildChanges_ConvergesSamePath(t *testing.T) {
 	ws := t.TempDir()
 	p := filepath.Join(ws, "twice.txt")
@@ -118,10 +106,6 @@ func TestBuildChanges_ConvergesSamePath(t *testing.T) {
 	}
 }
 
-// TestBuildChanges_SlashVariantsAreOneRow 斜杠写法不同的同一个路径不能分成两行。
-//
-// 路径来自模型给的参数，`a//b` 与 `a/b` 都会出现。分成两行的后果不只是难看：
-// 还原时用户点其中一行，另一行在清单里仍显示"可还原"，而盘上那份已经退了。
 func TestBuildChanges_SlashVariantsAreOneRow(t *testing.T) {
 	ws := t.TempDir()
 	p := filepath.Join(ws, "a", "b.txt")
@@ -131,8 +115,6 @@ func TestBuildChanges_SlashVariantsAreOneRow(t *testing.T) {
 	if err := os.WriteFile(p, []byte("内容"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// 步骤侧给出规范写法、快照侧给出带冗余分隔符的写法——**同一个路径的两种字面**。
-	// 核对与快照各拿一种，不先归一再比就会数成两行。
 	steps := []types.StepResult{writeStep("s1", filepath.Join(ws, "a", "b.txt"), "内容", false)}
 	recs := []preImage{
 		preRec(1, "s1", "file.write", filepath.Clean(ws+`/a//b.txt`), true, "1.pre"),
@@ -146,11 +128,6 @@ func TestBuildChanges_SlashVariantsAreOneRow(t *testing.T) {
 	}
 }
 
-// TestBuildChanges_FailedWriteStillListed 这一步没成功，盘上也可能已经留下改动。
-//
-// **这条是本文件里最要紧的一条**：`file.write` 是先 `O_TRUNC` 再写，
-// 一步失败的写入完全可能已经把原文件清空。核对只看成功的步骤，
-// 所以只按核对列清单就会漏报——而漏报的方向是"用户以为盘上没动过"，比误报更坏。
 func TestBuildChanges_FailedWriteStillListed(t *testing.T) {
 	ws := t.TempDir()
 	p := filepath.Join(ws, "half.txt")
@@ -177,16 +154,11 @@ func TestBuildChanges_FailedWriteStillListed(t *testing.T) {
 	if !strings.Contains(c.Note, "未成功") {
 		t.Errorf("要说清这一步没成功：%q", c.Note)
 	}
-	// 现字节数没人实测过，必须现取。报 0 会被读成"这个文件空了"——凭空造出来的错误结论。
 	if c.Bytes != int64(len("被截断后剩下的")) {
 		t.Errorf("Bytes 应为实测 %d，实得 %d", len("被截断后剩下的"), c.Bytes)
 	}
 }
 
-// TestBuildChanges_BlockedReasonIsWhatUserSees 退不回去时必须说清为什么。
-//
-// "不可还原"四个字不够：用户接下来要知道是该重试还是该认命，
-// 而原因（超过上限 / 二进制 / 没配数据目录）恰好就是这个区别。
 func TestBuildChanges_BlockedReasonIsWhatUserSees(t *testing.T) {
 	ws := t.TempDir()
 	big := filepath.Join(ws, "big.bin")
@@ -200,7 +172,6 @@ func TestBuildChanges_BlockedReasonIsWhatUserSees(t *testing.T) {
 	list := buildChanges(steps, []preImage{
 		{Seq: 1, StepID: "s1", Tool: "file.write", Path: big, Exists: true, Bytes: 9e9,
 			Reason: "原文件 8.4 MB，超过单个快照上限 1 MB"},
-		// s2 故意不给快照：未配置数据目录时就是这样
 	})
 	byName := map[string]types.FileChange{}
 	for _, c := range list {
@@ -220,16 +191,11 @@ func TestBuildChanges_BlockedReasonIsWhatUserSees(t *testing.T) {
 	if !strings.Contains(n.Blocked, "没有写前快照") {
 		t.Errorf("要说清是没有快照，实得 %q", n.Blocked)
 	}
-	// 不可还原不是不可列出：两行都必须在清单里，否则用户根本不知道动了什么
 	if len(list) != 2 {
 		t.Fatalf("两行都要列出，实得 %+v", list)
 	}
 }
 
-// TestBuildChanges_ReadOnlyTaskHasNilList 没动文件时返回 nil，而不是空切片。
-//
-// "这个任务没动文件"与"动了但列不出来"在界面上是两句话；而且字段是 omitempty，
-// 返回空切片会让 JSON 里出现一个 `"changes": []`，前端反而要区分"没这键"和"空数组"。
 func TestBuildChanges_ReadOnlyTaskHasNilList(t *testing.T) {
 	reply := types.StepResult{StepID: "s1", Tool: "reply", Status: types.StepSucceeded}
 	if got := buildChanges([]types.StepResult{reply}, nil); got != nil {
@@ -244,10 +210,6 @@ func TestBuildChanges_ReadOnlyTaskHasNilList(t *testing.T) {
 	}
 }
 
-// TestChanges_SurviveArchiveRoundTrip 清单要能进归档、读回来，字段一个不丢。
-//
-// 归档是"清单现在长什么样"的唯一 owner：还原后那一位置在归档里，重启后才看得见。
-// 所以这条验的是**落盘格式**，不是内存里的结构体——只在本次运行里对的清单没有价值。
 func TestChanges_SurviveArchiveRoundTrip(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dataDir, "tasks"), 0o755); err != nil {
@@ -285,10 +247,6 @@ func TestChanges_SurviveArchiveRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRunGoal_ChangesReachResult 走完整目标：清单必须出现在终态结果里。
-//
-// 前面几条测的是组装，这条测**接线**——`buildChanges` 有没有真的被终态构造调用、
-// `DataDir` 有没有真的传到执行器（快照是清单的主干）。判据对但线没接是本仓库栽过多次的坑。
 func TestRunGoal_ChangesReachResult(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[
@@ -316,14 +274,11 @@ func TestRunGoal_ChangesReachResult(t *testing.T) {
 	if !c.Reversible {
 		t.Errorf("写前快照没生效，清单会整排报「不可还原」：%+v", c)
 	}
-	// 快照真的落到了盘上——不然"可还原"是一句空头承诺
 	files, err := os.ReadDir(filepath.Join(SnapshotRoot(f.a.Cfg.DataDir), res.TaskID))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("可还原却没有任何快照文件在盘上：err=%v files=%v", err, files)
 	}
 }
-
-// ---------- 测试装配用的步骤构造 ----------
 
 func mkdirStep(id, path string) types.StepResult {
 	return types.StepResult{

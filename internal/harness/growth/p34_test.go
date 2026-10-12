@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// 重试率 / 中断率（P3-4）：分母 = 完成 + 中断，边界写清才可比。
 func TestStats_RetryAbort(t *testing.T) {
 	l, err := Open(filepath.Join(t.TempDir(), "growth.json"))
 	if err != nil {
@@ -15,7 +14,7 @@ func TestStats_RetryAbort(t *testing.T) {
 	l.Record(Entry{Type: "task_completed", Goal: "任务乙（重试后才成）", Score: 85, Retried: true})
 	l.Record(Entry{Type: "task_completed", Goal: "任务丙（又是一次重试）", Score: 80, Retried: true})
 	l.Record(Entry{Type: "task_aborted", Goal: "任务丁，用户不等了"})
-	l.Record(Entry{Type: "skill_used", SkillName: "x"}) // 不进分母
+	l.Record(Entry{Type: "skill_used", SkillName: "x"})
 
 	st := l.Stats()
 	if st.TotalTasks != 3 {
@@ -27,7 +26,6 @@ func TestStats_RetryAbort(t *testing.T) {
 	if st.AbortedTasks != 1 {
 		t.Errorf("AbortedTasks = %d，应为 1", st.AbortedTasks)
 	}
-	// 分母 = 完成 3 + 中断 1 = 4
 	if st.RetryRate != 0.5 {
 		t.Errorf("RetryRate = %.2f，应为 0.50（2/4）", st.RetryRate)
 	}
@@ -36,7 +34,6 @@ func TestStats_RetryAbort(t *testing.T) {
 	}
 }
 
-// 空日志不算除零。
 func TestStats_RetryAbortEmpty(t *testing.T) {
 	l, _ := Open(filepath.Join(t.TempDir(), "growth.json"))
 	st := l.Stats()

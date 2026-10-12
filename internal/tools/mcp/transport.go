@@ -12,19 +12,11 @@ import (
 	"sync"
 )
 
-// transport 一条 JSON-RPC 通道。
-//
-// 为什么值得抽出这层：MCP 有**两种根本不同的形态**——本机 stdio 子进程，和远端
-// streamable-http 服务。它们的握手、工具列表、工具调用完全相同（都是 JSON-RPC），
-// 只有"消息怎么出去、怎么回来"不一样。把差异收在一个接口后面，上层的握手与
-// 工具适配一份就够；否则两套 Client 会开始漂，而漂的方向是"远端那套少了某个修正"。
 type transport interface {
 	call(ctx context.Context, method string, params any, out any) error
 	notify(method string, params any) error
 	close() error
 }
-
-// ---------- stdio：本机子进程 ----------
 
 type stdioTransport struct {
 	name   string
@@ -42,8 +34,6 @@ type stdioTransport struct {
 
 func newStdioTransport(cfg ServerConfig, logf func(string, ...any)) (*stdioTransport, error) {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	// 继承父环境再追加配置里的变量：拿掉父环境会让 npx 找不到 node、git 找不到凭证，
-	// 那一类失败看起来像"这个服务器坏了"。只追加，不覆盖整份环境。
 	if len(cfg.Env) > 0 {
 		env := os.Environ()
 		for k, v := range cfg.Env {
@@ -70,7 +60,6 @@ func newStdioTransport(cfg ServerConfig, logf func(string, ...any)) (*stdioTrans
 		stdout: bufio.NewReaderSize(stdout, 1024*1024), stderr: stderr,
 		pending: map[int64]chan rpcMessage{}, logf: logf,
 	}
-	// 丢弃 stderr 日志（避免阻塞子进程）
 	if stderr != nil {
 		go func() {
 			buf := make([]byte, 4096)
@@ -81,12 +70,11 @@ func newStdioTransport(cfg ServerConfig, logf func(string, ...any)) (*stdioTrans
 			}
 		}()
 	}
-	go func() { _ = cmd.Wait() }() // 回收子进程，避免僵尸
+	go func() { _ = cmd.Wait() }()
 	go t.readLoop()
 	return t, nil
 }
 
-// readLoop 读取子进程的 JSON-RPC 消息并分发。
 func (t *stdioTransport) readLoop() {
 	for {
 		line, err := t.stdout.ReadString('\n')
@@ -115,7 +103,6 @@ func (t *stdioTransport) readLoop() {
 				continue
 			}
 		}
-		// 服务器发起的通知/请求：MVP 只记录日志
 		if msg.Method != "" {
 			t.logf("mcp[%s] 收到 %s", t.name, msg.Method)
 		}
@@ -180,8 +167,6 @@ func (t *stdioTransport) call(ctx context.Context, method string, params any, ou
 	}
 }
 
-// decodeResult 把 JSON-RPC 响应交给调用方：错误转成人话，成功就反序列化。
-// stdio 与 http 两条路共用一份——两处各写一遍，错误文案就会漂。
 func decodeResult(name, method string, msg rpcMessage, out any) error {
 	if msg.Error != nil {
 		return fmt.Errorf("mcp: %s %s 错误(%d): %s", name, method, msg.Error.Code, msg.Error.Message)

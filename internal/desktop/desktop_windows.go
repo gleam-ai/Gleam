@@ -14,28 +14,6 @@ import (
 	"unsafe"
 )
 
-// Window management notes:
-//
-// Edge/Chrome --app windows live outside the Gleam process. Recording cmd.Process
-// alone cannot reuse an existing shell or close it reliably (the launcher often
-// exits immediately; the real owner is a Chromium process tree).
-//
-// We therefore:
-//   - Enumerate top-level windows by title ("Gleam · 微光") for activate / close
-//   - Prefer Edge; use a versioned --user-data-dir under ~/.gleam/browser-profile/<ver>
-//   - Never spawn a second --app while that profile is still locked (blank white
-//     shells are the usual Chromium SingletonLock symptom)
-//   - After close: wait until titled windows are gone, kill tracked process trees,
-//     then clear stale lock files before the next open
-//   - Relax readiness: titled HWNDs count even when not yet IsWindowVisible; ShowWindow
-//   - On --app paint failure: retry once with GPU soft-fallback flags + alternate
-//     profile. Do NOT silently open the system browser — tray "在浏览器中打开" is
-//     the explicit last resort
-//
-// a81cbb8 / #16 context:
-//   close-path early return left SingletonLock held → blank --app on reopen.
-//   Silent default-browser fallback weakened standalone-shell UX (#17).
-
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
@@ -73,7 +51,6 @@ const (
 	pollInterval          = 200 * time.Millisecond
 )
 
-// windowTitle matches index.html <title> and --app-name / --window-name.
 const windowTitle = "Gleam · 微光"
 
 var (
@@ -82,8 +59,6 @@ var (
 	launching bool
 )
 
-// browserPaths returns Edge-first executable candidates (Chrome is fallback).
-// GLEAM_BROWSER overrides the entire preference list when set.
 func browserPaths() []string {
 	if env := os.Getenv("GLEAM_BROWSER"); env != "" {
 		return []string{env}
@@ -139,9 +114,6 @@ func openWindowPlatform(target string, onClose func()) bool {
 	profile := profileDir()
 	_ = os.MkdirAll(profile, 0o755)
 
-	// Profile still locked with no titled window: wait briefly, activate if a
-	// titled HWND appears, otherwise clear stale markers. Never open the system
-	// browser here — that is tray "在浏览器中打开" only.
 	if anyProfileLockPresent(profile) {
 		if !waitUntil(2*time.Second, pollInterval, func() bool {
 			return !anyProfileLockPresent(profile) || len(findGleamWindows()) > 0
@@ -172,7 +144,6 @@ func openWindowPlatform(target string, onClose func()) bool {
 		return false
 	}
 
-	// Attempt 0: primary versioned profile + normal flags.
 	ok, pid := launchAppAttempt(exe, chromeAppArgs(target, profile, windowTitle), onClose)
 	if ok {
 		ready := waitUntil(appLaunchReadyTimeout, pollInterval, func() bool {
@@ -192,7 +163,6 @@ func openWindowPlatform(target string, onClose func()) bool {
 		teardownAppSpawn(pid, profile)
 	}
 
-	// Attempt 1 (once): alternate profile + GPU soft-fallback flags.
 	alt := alternateProfileDir(profile)
 	_ = os.MkdirAll(alt, 0o755)
 	removeStaleProfileLocks(alt)
@@ -214,7 +184,6 @@ func openWindowPlatform(target string, onClose func()) bool {
 	return false
 }
 
-// launchAppAttempt starts Chromium --app with the given args. Returns (started, pid).
 func launchAppAttempt(exe string, args []string, onClose func()) (bool, int) {
 	cmd := exec.Command(exe, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -299,7 +268,6 @@ func closeWindowPlatform() {
 	}
 }
 
-// killProcessTree force-kills pid and its children via taskkill /T.
 func killProcessTree(pid uint32) {
 	if pid == 0 {
 		return
@@ -318,8 +286,6 @@ func windowOpenPlatform() bool {
 	return len(procs) > 0
 }
 
-// ---------- Win32 window enum / activate ----------
-
 var (
 	enumMu    sync.Mutex
 	enumFound []uintptr
@@ -337,8 +303,6 @@ func findGleamWindows() []uintptr {
 }
 
 func enumProc(hwnd uintptr, _ uintptr) uintptr {
-	// Relaxed readiness: do not require IsWindowVisible up front. Chromium --app
-	// can briefly own a titled but non-visible HWND; we ShowWindow and still count it.
 	alive, _, _ := pIsWindow.Call(hwnd)
 	if alive == 0 {
 		return 1
@@ -370,7 +334,7 @@ func enumProc(hwnd uintptr, _ uintptr) uintptr {
 func applyDarkTitlebar(hwnd uintptr) {
 	var (
 		useDark int32  = 1
-		caption uint32 = 0x00120D0B // #0B0D12
+		caption uint32 = 0x00120D0B
 		text    uint32 = 0x00F2F2F2
 	)
 	pDwmSetWindowAttribute.Call(hwnd, uintptr(dwmwaUseImmersiveDarkMode),

@@ -1,9 +1,3 @@
-// app://gleam/ -> http://127.0.0.1:<port>/ proxy.
-//
-// Why a custom scheme instead of loading the loopback URL directly:
-//  - a stable origin (app://gleam) keeps localStorage prefs across launches even though the port changes;
-//  - the token lives only in the main process and is attached here, per request;
-//  - the renderer never talks to the loopback server directly.
 import { createHash } from 'node:crypto';
 import { net, protocol } from 'electron';
 
@@ -12,7 +6,6 @@ export const APP_HOST = 'gleam';
 export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 const TOKEN_HEADER = 'X-Gleam-Token';
 
-/** Must run before app 'ready'. */
 export function registerAppScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
@@ -33,10 +26,6 @@ export interface Upstream {
   token: string;
 }
 
-// Headers the renderer sends that must not reach the Go guard as-is:
-//  - Origin / Sec-Fetch-*: describe app://gleam, which the loopback guard (correctly) treats as foreign.
-//    The origin check is enforced here instead (only app://gleam may call through).
-//  - Cookie / Host / Referer: meaningless for the upstream; Host is set by net.fetch.
 const DROP_HEADERS = new Set([
   'origin',
   'referer',
@@ -85,8 +74,6 @@ export function installAppProtocol(getUpstream: () => Upstream | null): void {
 
     const type = res.headers.get('content-type') || '';
     if (!type.startsWith('text/html')) return cancelable(res, upstream);
-    // HTML documents get a CSP. Spike shortcut: the inline-script hashes are computed from the
-    // document actually served (it comes from the sidecar's embedded assets); Phase 1 computes them at build time.
     const html = await res.text();
     const out = new Headers(res.headers);
     out.set('Content-Security-Policy', buildCSP(html));
@@ -99,12 +86,6 @@ export function installAppProtocol(getUpstream: () => Upstream | null): void {
   });
 }
 
-/**
- * Returning the upstream Response as-is means that when the renderer drops a request (EventSource.close(),
- * page reload) the upstream net.fetch keeps running: long-lived SSE streams then pile up in Chromium's
- * 6-connections-per-host pool until every app:// request stalls (measured in the spike). Re-wrapping the
- * body lets the renderer-side cancel reach us, and we abort the upstream request with it.
- */
 function cancelable(res: Response, upstream: AbortController): Response {
   if (!res.body) return res;
   const reader = res.body.getReader();
@@ -145,12 +126,10 @@ function buildCSP(html: string): string {
   return [
     "default-src 'self'",
     `script-src 'self' ${inlineScriptHashes(html).join(' ')}`.trim(),
-    // The UI sets inline style attributes; Google Fonts stays for the spike (decision D5).
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob: https:",
     "connect-src 'self'",
-    // Browser preview pane embeds a user-entered http(s) page (typically a local dev server).
     'frame-src http: https:',
     "object-src 'none'",
     "base-uri 'none'",

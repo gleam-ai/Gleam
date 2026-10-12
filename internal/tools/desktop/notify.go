@@ -11,7 +11,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// NotifyTool 发送桌面通知。
 type NotifyTool struct{}
 
 func NewNotify() *NotifyTool { return &NotifyTool{} }
@@ -40,15 +39,9 @@ func (t *NotifyTool) Execute(ctx context.Context, args map[string]any) (any, err
 	return map[string]any{"ok": true, "title": title, "message": message}, nil
 }
 
-// Notify 发送系统通知（按平台分支）。
-//
-// **导出是为了只有一份实现。** 定时任务跑完之后也要通知用户（调度器那条路径），
-// 如果那里另写一份平台分支，两份迟早会漂移——而漂移的症状是"某个平台上通知不响"，
-// 恰好是最不容易被发现的失败：没人会去三个平台上分别验证一遍通知。
 func Notify(title, message string) error {
 	switch runtime.GOOS {
 	case "windows":
-		// 使用 PowerShell BurntToast 或原生 toast
 		ps := fmt.Sprintf(
 			`[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $n=New-Object System.Windows.Forms.NotifyIcon; $n.Icon=[System.Drawing.SystemIcons]::Information; $n.Visible=$true; $n.ShowBalloonTip(5000,'%s','%s',[System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -Seconds 6; $n.Dispose()`,
 			escapePS(title), escapePS(message))
@@ -57,7 +50,6 @@ func Notify(title, message string) error {
 		script := fmt.Sprintf(`display notification %q with title %q`, message, title)
 		return exec.Command("osascript", "-e", script).Run()
 	default:
-		// 优先 notify-send（Linux 桌面环境标配）
 		if _, err := exec.LookPath("notify-send"); err == nil {
 			return exec.Command("notify-send", title, message).Run()
 		}
@@ -65,9 +57,6 @@ func Notify(title, message string) error {
 	}
 }
 
-// escapePS 把一个值放进 PowerShell 单引号字面量里前的转义：单引号翻倍。
-// 用 strings.ReplaceAll 而不是手写逐字节循环——同样的事，但静态检查认得出
-// 这是一个「引号转义」，手写循环它认不出，会一直报 unsafe quoting。
 func escapePS(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }

@@ -14,10 +14,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- P1-1 错误分类 ----------
-
-// TestExecute_ErrorKindOnPermissionDenied 权限不足类错误重试无用，
-// 类别必须在数据里，而不是混在自由文本里靠人猜。
 func TestExecute_ErrorKindOnPermissionDenied(t *testing.T) {
 	r := registry.New()
 	r.MustRegister(&funcTool{name: "guard", perm: types.PermissionReadOnly, fn: func(ctx context.Context, args map[string]any) (any, error) {
@@ -32,8 +28,6 @@ func TestExecute_ErrorKindOnPermissionDenied(t *testing.T) {
 	}
 }
 
-// TestExecute_TimeoutClassifiedAndAttemptCounted 超时归类 + attempt 明细。
-// "一次就对"与"重试三次才对"必须在数据里可区分——后者是隐患位置。
 func TestExecute_TimeoutClassifiedAndAttemptCounted(t *testing.T) {
 	var calls int32
 	r := registry.New()
@@ -55,7 +49,6 @@ func TestExecute_TimeoutClassifiedAndAttemptCounted(t *testing.T) {
 	}
 }
 
-// TestExecute_FirstTrySuccessNotMarkedRetried 一次对成的步骤不该被标成重试过。
 func TestExecute_FirstTrySuccessNotMarkedRetried(t *testing.T) {
 	r := registry.New()
 	r.MustRegister(&funcTool{name: "ok", perm: types.PermissionReadOnly, fn: func(ctx context.Context, args map[string]any) (any, error) {
@@ -70,9 +63,6 @@ func TestExecute_FirstTrySuccessNotMarkedRetried(t *testing.T) {
 	}
 }
 
-// TestBuildResult_FailureBreakdownAndExecutedPlan 归因分布与执行计划必须真的进 GoalResult。
-// 这是接线断言：failureBreakdown 函数正确不代表 buildResult 调了它，
-// ExecutedPlan 被赋值了两年也没有任何一个消费者见过它。
 func TestBuildResult_FailureBreakdownAndExecutedPlan(t *testing.T) {
 	exec := &Result{
 		Total: 2,
@@ -83,7 +73,7 @@ func TestBuildResult_FailureBreakdownAndExecutedPlan(t *testing.T) {
 	}
 	exec.ExecutedPlan = types.Plan{Goal: "g", Steps: []types.Step{{ID: "s1", Tool: "shell.exec"}, {ID: "s2", Tool: "web.fetch"}}}
 
-	res := (&Agent{}).buildResult("g", exec, types.Reflection{Score: 40}, nil, types.ContextBreakdown{Instruction: 10, State: 5, Total: 15})
+	res := (&Agent{}).buildResult("g", exec, types.Reflection{Score: 40}, nil, types.ContextBreakdown{Instruction: 10, State: 5, Total: 15}, "t1")
 
 	if res.FailureBreakdown[types.ErrBusiness] != 1 || res.FailureBreakdown[types.ErrPermission] != 1 {
 		t.Errorf("归因分布应含 business=1、permission=1，实际 %v", res.FailureBreakdown)
@@ -96,10 +86,6 @@ func TestBuildResult_FailureBreakdownAndExecutedPlan(t *testing.T) {
 	}
 }
 
-// ---------- P1-2 分段计量 ----------
-
-// TestBuildSystemPromptMeasured_SumsAndLayout 分段之和必须等于总长（计量漏段等于没计量）；
-// 且计量版输出必须与不带计量的版本逐字节一致——重构加了计量，不能悄悄改了提示词。
 func TestBuildSystemPromptMeasured_SumsAndLayout(t *testing.T) {
 	p := &Planner{Reg: newTestRegistry(), TaskMode: string(types.TaskWork), Role: "general", MaxSteps: 12}
 	cwd := t.TempDir()
@@ -126,10 +112,6 @@ func TestBuildSystemPromptMeasured_SumsAndLayout(t *testing.T) {
 	}
 }
 
-// ---------- P1-3 Trace ----------
-
-// TestDeriveTraceID_ClustersSameInput trace_id 由内容派生：同输入同模型 → 同 ID
-// （失败聚类按 ID 分组就能看到"同一问题反复出现"），目标不同 → 不同 ID。
 func TestDeriveTraceID_ClustersSameInput(t *testing.T) {
 	a1 := deriveTraceID("同一个目标", "work", "coder", "mock")
 	a2 := deriveTraceID("同一个目标", "work", "coder", "mock")
@@ -146,9 +128,6 @@ func TestDeriveTraceID_ClustersSameInput(t *testing.T) {
 	}
 }
 
-// TestRunGoal_CarriesTraceAndBreakdown 端到端接线：RunGoal 的产出必须带上
-// trace_id、分段计量与执行计划——三个字段都写在 GoalResult 上，
-// tasks/<id>.json 落盘的是这份结果，回放才有凭据。
 func TestRunGoal_CarriesTraceAndBreakdown(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"好"}}]}`),
@@ -169,19 +148,12 @@ func TestRunGoal_CarriesTraceAndBreakdown(t *testing.T) {
 	}
 }
 
-// ---------- 审批路径的结构性归类 ----------
-
-// denyNotifier 审批一律拒绝：审批拒绝的 ErrorKind 由结构落点直接定类，
-// 不依赖错误文本的关键词——note 文本刻意不含任何权限类词。
 type denyNotifier struct{ NopNotifier }
 
 func (d denyNotifier) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	return types.ApprovalResponse{Approved: false, Note: "此地无银"}
 }
 
-// TestExecute_ApprovalRejectionClassifiedPermission 审批被拒 = 权限不足，
-// 结构上已知，直接定类：就算 note 文本里没有一个权限类关键词，
-// 归因分布也不能把它记成 unknown。
 func TestExecute_ApprovalRejectionClassifiedPermission(t *testing.T) {
 	r := registry.New()
 	r.MustRegister(&funcTool{name: "wants-approval", perm: types.PermissionUserApproved, fn: func(ctx context.Context, args map[string]any) (any, error) {

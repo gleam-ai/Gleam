@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// fakeRemote 一个会说 streamable-http 的假 MCP 服务器。
-// sse=true 时用事件流回包（规范允许两种，服务器自己选），用来验两条解析路径。
 func fakeRemote(t *testing.T, sse bool) (*httptest.Server, *[]string) {
 	t.Helper()
 	var seen []string
@@ -24,7 +22,6 @@ func fakeRemote(t *testing.T, sse bool) (*httptest.Server, *[]string) {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		auth := r.Header.Get("Authorization")
 		seen = append(seen, req.Method+" auth="+auth)
-		// 通知（没有 id）：规范允许回 202
 		if len(req.ID) == 0 {
 			w.WriteHeader(http.StatusAccepted)
 			return
@@ -54,11 +51,6 @@ func fakeRemote(t *testing.T, sse bool) (*httptest.Server, *[]string) {
 	return srv, &seen
 }
 
-// TestRemoteMCPHandshakeOverJSON 远端握手走「单 JSON 响应」这条路。
-//
-// 这条判据要验三件事一起成立：握手成功、工具列出来、**出网留痕被回调**。
-// 第三件最要紧：远端 MCP 是绕开门控 http 层的一条新出网路径，漏掉它，
-// 「连接与出网」台账上就会写着"没有记录"，而事实上数据已经发出去了。
 func TestRemoteMCPHandshakeOverJSON(t *testing.T) {
 	srv, seen := fakeRemote(t, false)
 
@@ -86,7 +78,6 @@ func TestRemoteMCPHandshakeOverJSON(t *testing.T) {
 	if len(egHosts) == 0 {
 		t.Fatal("远端请求没有走出网留痕：台账上那一行会永远显示\"没有记录\"")
 	}
-	// 凭据必须随请求头出去（否则远端 401），但日志与留痕里都不能有它
 	for _, s := range *seen {
 		if !strings.Contains(s, "auth=Bearer t0ken") {
 			t.Errorf("请求头没带上凭据：%q", s)
@@ -99,9 +90,6 @@ func TestRemoteMCPHandshakeOverJSON(t *testing.T) {
 	}
 }
 
-// TestRemoteMCPSessionIDIsEchoed 服务器给的会话 ID 要带在后续请求上。
-//
-// 不带的话，服务器会把每个请求当成新会话——第一次能过，第二次开始 400。
 func TestRemoteMCPSessionIDIsEchoed(t *testing.T) {
 	var gotSession []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,13 +122,11 @@ func TestRemoteMCPSessionIDIsEchoed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	// 最后一次请求（tools/list）必须带上 initialize 给的会话 ID
 	if n := len(gotSession); n < 2 || gotSession[n-1] != "sess-xyz" {
 		t.Errorf("后续请求没带会话 ID：%v", gotSession)
 	}
 }
 
-// TestRemoteMCPEventStreamResponse 服务器改走 SSE 回包时也要能解析。
 func TestRemoteMCPEventStreamResponse(t *testing.T) {
 	srv, _ := fakeRemote(t, true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -155,7 +141,6 @@ func TestRemoteMCPEventStreamResponse(t *testing.T) {
 	}
 }
 
-// TestRemoteMCPRejectsPlainHTTP 非回环的明文 http 一律拒绝：凭据会送在网上。
 func TestRemoteMCPRejectsPlainHTTP(t *testing.T) {
 	_, err := Start(context.Background(), ServerConfig{Name: "x", URL: "http://example.com/mcp"}, nil)
 	if err == nil {
@@ -166,11 +151,6 @@ func TestRemoteMCPRejectsPlainHTTP(t *testing.T) {
 	}
 }
 
-// TestRemoteMCPRecordsEgressOnFailure 4xx 也要留痕。
-//
-// 这条是补真事故的：第一版只在成功路径记字节，于是 401（凭据不对）——
-// 远端最常见的失败——一条痕迹都没有，而那一刻请求头里的凭据已经发出去了。
-// 「连了而没交代」正是这一层最不该出现的方向。
 func TestRemoteMCPRecordsEgressOnFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -191,7 +171,6 @@ func TestRemoteMCPRecordsEgressOnFailure(t *testing.T) {
 	if len(hosts) == 0 {
 		t.Fatal("请求已经发出去了（401 也是发出去了），必须留痕")
 	}
-	// 错误文案里不能回显凭据
 	if strings.Contains(err.Error(), "leaked-token") {
 		t.Errorf("错误文案里不该回显凭据：%v", err)
 	}

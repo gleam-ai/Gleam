@@ -46,7 +46,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: E402,F401  # 本脚本自己也在印中文判定行
+import _utf8  # noqa: E402,F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 CUE_CHECK = ("cue-owner", "python scripts/check-cue-owner.py .")
@@ -85,7 +85,10 @@ MUTATIONS = [
         "name": "牌子缺一条：half_done 浮得出卡，界面上却裸奔成枚举值（M3 那条老坑）",
         "file": "internal/agent/cues.go",
         "edits": [
-            ('case "half_done":\n\t\treturn "同一个目标每次只做一半"\n', "")
+            (
+                'case "half_done":\n\t\treturn bi{"同一个目标每次只做一半", "The same goal stalls halfway every time"}.pick(en)\n',
+                "",
+            )
         ],
         "targets": [CUE_CHECK],
     },
@@ -117,8 +120,8 @@ MUTATIONS = [
         "file": "internal/agent/cues.go",
         "edits": [
             (
-                'case "half_done":\n\t\t\trows = append(rows, halfDoneRows(groups)...)',
-                'case "half_done":\n\t\t\t_ = halfDoneRows(groups)',
+                'case "half_done":\n\t\t\trows = append(rows, halfDoneRows(groups, en)...)',
+                'case "half_done":\n\t\t\t_ = halfDoneRows(groups, en)',
             )
         ],
         "targets": [

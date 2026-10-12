@@ -14,7 +14,7 @@ func TestElapsedMs(t *testing.T) {
 		{300 * time.Microsecond, 1},
 		{999 * time.Microsecond, 1},
 		{time.Millisecond, 1},
-		{1500 * time.Microsecond, 1}, // 1ms 以上保持原有的截断口径，与历史归档一致
+		{1500 * time.Microsecond, 1},
 		{2 * time.Millisecond, 2},
 		{1234567 * time.Microsecond, 1234},
 	} {

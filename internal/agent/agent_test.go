@@ -18,8 +18,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 测试装配 ----------
-
 type agentFixture struct {
 	a      *Agent
 	notify *recordingNotifier
@@ -63,7 +61,7 @@ func agent_DataDir(cfg *config.Config) string {
 	return cfg.DataDir
 }
 
-var _ = registry.New // 引用保持
+var _ = registry.New
 
 func planScript(jsonText string) llm.Scripted {
 	return llm.Scripted{Kind: "plan", Texts: []string{jsonText}}
@@ -104,8 +102,6 @@ func TestRunGoal_ReferencesAndRoleReachPlanner(t *testing.T) {
 	}
 }
 
-// TestPlanProgress_NoRawJSONLeak 规划流只报进度、不转发内容（2026-09-23 QA 报告 M5）：
-// 规划响应本身就是 JSON，逐 token 转发会把 {"steps":... 碎片打进 CLI/WebUI 的进度行。
 func TestPlanProgress_NoRawJSONLeak(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"你好"}}]}`),
@@ -157,8 +153,6 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
-
-// ---------- 场景 ----------
 
 func TestRunGoal_HappyPathWithFileTools(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
@@ -252,7 +246,6 @@ func TestRunGoal_ApprovalDenied(t *testing.T) {
 }
 
 func TestRunGoal_PlanFirstWholePlanApproval(t *testing.T) {
-	// 拒绝整计划
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"写","tool":"file.write","args":{"path":"pf.txt","content":"x"}}]}`),
 	})
@@ -264,7 +257,6 @@ func TestRunGoal_PlanFirstWholePlanApproval(t *testing.T) {
 		t.Error("拒绝后不应写文件")
 	}
 
-	// 批准整计划
 	f2 := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"写","tool":"file.write","args":{"path":"pf.txt","content":"x"}}]}`),
 		reflectScript(90, "done", "ok"),
@@ -395,7 +387,6 @@ func TestRunGoal_ReusedTaskIDWhileRunning(t *testing.T) {
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"好"}}]}`),
 		reflectScript(90, "done", "ok"),
 	})
-	// 同 ID 复用：第二个调用应直接引用第一个的结果
 	goal := types.GoalRequest{TaskID: "same-id", Goal: "g1"}
 	res1 := f.a.RunGoal(context.Background(), goal)
 	res2 := f.a.RunGoal(context.Background(), goal)
@@ -404,12 +395,6 @@ func TestRunGoal_ReusedTaskIDWhileRunning(t *testing.T) {
 	}
 }
 
-// dirOutsideRepo 造一个**在仓库之外**的临时目录。
-//
-// GHA 的 Windows runner 把 TEMP 设成 <workspace>/.ci-tmp（见 .github/workflows/ci.yml，
-// 为躲开 RUNNER~1 短路径），于是 t.TempDir() 造出来的"普通目录"本身就在 git 仓库里——
-// git 向上就能找到外层仓库，"不是仓库"的断言于是全部反过来。改在缓存目录下建，
-// 就与 TEMP 怎么设无关了。
 func dirOutsideRepo(t *testing.T) string {
 	t.Helper()
 	base, err := os.UserCacheDir()

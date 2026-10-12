@@ -8,23 +8,19 @@ import (
 	"testing"
 )
 
-// localTool 测试用工具：httptest 服务都跑在 127.0.0.1 上，
-// 而生产默认拒绝本机/内网地址（防 SSRF），所以测试里显式放宽。
 func localTool() *Tool {
 	t := New()
 	t.AllowPrivate = true
 	return t
 }
 
-// TestWeb_BlocksPrivateByDefault SSRF 防护：默认必须拒绝本机与内网地址。
-// web.fetch 是自动放行的只读工具，不设防就等于给提示词注入留了最省力的出口。
 func TestWeb_BlocksPrivateByDefault(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("内网数据"))
 	}))
 	defer srv.Close()
 
-	tool := New() // 默认 AllowPrivate=false
+	tool := New()
 	if _, err := tool.Execute(context.Background(), map[string]any{"url": srv.URL}); err == nil {
 		t.Fatal("默认应拒绝 127.0.0.1")
 	} else if !strings.Contains(err.Error(), "拒绝访问本机或内网地址") {
@@ -43,7 +39,6 @@ func TestWeb_BlocksPrivateByDefault(t *testing.T) {
 	}
 }
 
-// TestWeb_AllowsPrivateWhenOptedIn 显式放宽后本机地址可用（本地优先场景）。
 func TestWeb_AllowsPrivateWhenOptedIn(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("本地内容"))
@@ -61,7 +56,6 @@ func TestWeb_AllowsPrivateWhenOptedIn(t *testing.T) {
 	}
 }
 
-// TestWeb_OutcomeReportsHTTPFailure 4xx/5xx 是「跑完了但没做成」，不是成功。
 func TestWeb_OutcomeReportsHTTPFailure(t *testing.T) {
 	tool := localTool()
 	if oc, note := tool.Outcome(nil, map[string]any{"status": 404}); oc != "failed" || note != "HTTP 404" {
@@ -143,5 +137,5 @@ func TestWeb_Permission(t *testing.T) {
 	if tool.Name() != "web.fetch" {
 		t.Errorf("name = %s", tool.Name())
 	}
-	_ = tool.Permission() // readonly，无 panic 即可
+	_ = tool.Permission()
 }

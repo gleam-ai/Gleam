@@ -47,7 +47,6 @@ func TestParse(t *testing.T) {
 }
 
 func TestParseDefaultTime(t *testing.T) {
-	// 只说“每天定时”未给时刻，默认上午 9 点。
 	sp, err := Parse("每天定时帮我整理桌面")
 	if err != nil {
 		t.Fatal(err)
@@ -63,29 +62,24 @@ func TestParseErrors(t *testing.T) {
 			t.Errorf("Parse(%q) 应当失败", in)
 		}
 	}
-	// 间隔最小 5 秒。
 	if _, err := Parse("每隔1秒"); err == nil {
 		t.Error("每隔1秒 应当被拒绝")
 	}
 }
 
 func TestResolvePriority(t *testing.T) {
-	// 显式 cron 优先于自然语言。
 	cron, sec, _, err := Resolve("0 7 * * *", 0, "每天9点")
 	if err != nil || cron != "0 7 * * *" || sec != 0 {
 		t.Fatalf("显式 cron 优先级错误: %q %d %v", cron, sec, err)
 	}
-	// 间隔次之。
 	cron, sec, _, err = Resolve("", 600, "每天9点")
 	if err != nil || cron != "" || sec != 600 {
 		t.Fatalf("间隔优先级错误: %q %d %v", cron, sec, err)
 	}
-	// 都没有则解析 when。
 	cron, sec, summary, err := Resolve("", 0, "每天9点")
 	if err != nil || cron != "0 9 * * *" || summary == "" {
 		t.Fatalf("自然语言解析错误: %q %d %s %v", cron, sec, summary, err)
 	}
-	// 全空报错。
 	if _, _, _, err := Resolve("", 0, ""); err == nil {
 		t.Error("缺少触发方式应当报错")
 	}

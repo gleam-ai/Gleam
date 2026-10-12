@@ -97,10 +97,6 @@ iou = (
 )
 print("pts %d  IoU %.4f  bytes %d" % (len(pts), iou, len(d)))
 
-# ---- 圆角方块半径 ----
-# 左上角的弧是一个过原点、圆心在 (r, r)、半径 r 的圆；弧上任一点 (x, y) 满足
-# (x-r)^2 + (y-r)^2 = r^2，解出 r = (x+y) + sqrt(2xy)。逐点取值再取中位数，
-# 比整段最小二乘稳（直边与抗锯齿会把拟合拽偏）。
 sq = alpha > 128
 corner_pts = []
 for x in range(1, 200):
@@ -152,7 +148,6 @@ open("assets/gleam-logo-square.svg", "w", encoding="utf-8").write(SQUARE)
 open("assets/gleam-mark.svg", "w", encoding="utf-8").write(MARK)
 print("wrote 4 svg")
 
-# ---- 回写 make-icon.go：markPath + cornerRatio ----
 g = open("scripts/make-icon.go", encoding="utf-8").read()
 g = re.sub(r'const markPath = "[^"]*"', 'const markPath = "%s"' % d, g)
 g = re.sub(r"const cornerRatio = [0-9.]+", "const cornerRatio = %s" % ratio, g)

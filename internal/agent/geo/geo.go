@@ -1,6 +1,3 @@
-// Package geo 提供生成式引擎优化（Generative Engine Optimization）能力：
-// 评估创作产出在大模型 / AI 问答引擎中的可发现性、可引用性与推荐价值，
-// 并给出可操作的优化建议。
 package geo
 
 import (
@@ -12,34 +9,29 @@ import (
 	"gleam/internal/llm"
 )
 
-// Suggestion 一次 GEO 分析的结构化结果。
 type Suggestion struct {
-	Score       int      `json:"score"`       // 综合得分 0-100
-	Summary     string   `json:"summary"`     // 总体评价
-	Strengths   []string `json:"strengths"`   // 已做好的地方
-	Weaknesses  []string `json:"weaknesses"`  // 待优化的地方
-	Actionables []Action `json:"actionables"` // 可执行的改写建议
+	Score       int      `json:"score"`
+	Summary     string   `json:"summary"`
+	Strengths   []string `json:"strengths"`
+	Weaknesses  []string `json:"weaknesses"`
+	Actionables []Action `json:"actionables"`
 }
 
-// Action 一条可操作的优化建议。
 type Action struct {
-	Category    string `json:"category"`    // 结构 | 语义 | 引用性 | 关键词
-	Description string `json:"description"` // 具体怎么改
-	Priority    string `json:"priority"`    // high | medium | low
+	Category    string `json:"category"`
+	Description string `json:"description"`
+	Priority    string `json:"priority"`
 }
 
-// Analyzer GEO 分析器。零值不可用，请用 NewAnalyzer 构造。
 type Analyzer struct {
 	LLM    llm.Client
-	TaskID string // 任务 ID：把这次分析的用量归集到消耗看板
+	TaskID string
 }
 
-// NewAnalyzer 创建分析器。client 为 nil 时 Analyze 将返回错误。
 func NewAnalyzer(client llm.Client) *Analyzer {
 	return &Analyzer{LLM: client}
 }
 
-// Analyze 对内容做 GEO 评估。content 为创作产出正文。
 func (a *Analyzer) Analyze(ctx context.Context, content string) (*Suggestion, error) {
 	if a == nil || a.LLM == nil {
 		return nil, fmt.Errorf("geo: 未配置模型客户端")
@@ -66,8 +58,6 @@ func (a *Analyzer) Analyze(ctx context.Context, content string) (*Suggestion, er
 	return s, nil
 }
 
-// systemPrompt 构建 GEO 分析的系统提示词。必须带 llm.MarkerGEO，
-// 供 MockClient 与调用统计识别用途。
 func systemPrompt() string {
 	return "你是 Gleam 的生成式引擎优化（GEO）分析器。" + llm.MarkerGEO + `
 
@@ -90,7 +80,6 @@ func userPrompt(content string) string {
 	return "## 待分析内容\n\n" + content
 }
 
-// Parse 从模型输出中提取 GEO 建议，容忍代码块包裹与前后缀说明文字。
 func Parse(raw string) (*Suggestion, error) {
 	jsonStr := extractJSON(raw)
 	if jsonStr == "" {
@@ -104,7 +93,6 @@ func Parse(raw string) (*Suggestion, error) {
 	return &s, nil
 }
 
-// extractJSON 抽取首个 JSON 对象：优先 ```json 代码块，其次首 { 到末 }。
 func extractJSON(raw string) string {
 	if i := strings.Index(raw, "```"); i >= 0 {
 		rest := raw[i+3:]
@@ -125,7 +113,6 @@ func extractJSON(raw string) string {
 	return ""
 }
 
-// normalize 收敛越界与非法枚举值，保证前端渲染不会拿到脏数据。
 func (s *Suggestion) normalize() {
 	if s.Score < 0 {
 		s.Score = 0
@@ -145,7 +132,6 @@ func (s *Suggestion) normalize() {
 	}
 }
 
-// Format 把结构化建议渲染为纯文本，供 OnSuggestion 通道与 CLI 展示。
 func Format(s *Suggestion) string {
 	if s == nil {
 		return ""
@@ -184,8 +170,6 @@ func priorityLabel(p string) string {
 	}
 }
 
-// Principles 返回创作时应遵循的 GEO 准则，注入到创作类角色的系统提示词中，
-// 让内容在生成阶段就对生成式引擎友好，而不是事后补救。
 func Principles() string {
 	return `
 【GEO 准则】让内容更易被大模型检索与引用：

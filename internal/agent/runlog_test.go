@@ -13,7 +13,6 @@ func step(id string, st types.StepStatus) types.StepResult {
 	return types.StepResult{StepID: id, Tool: "counter", Status: st, Outcome: types.OutcomeOK}
 }
 
-// 追加与读回：顺序必须保持，因为"跑到哪一步"这个问题只有顺序能回答。
 func TestRunLog_AppendAndReadBack(t *testing.T) {
 	dir := t.TempDir()
 	l := NewRunLog(dir)
@@ -34,11 +33,6 @@ func TestRunLog_AppendAndReadBack(t *testing.T) {
 	}
 }
 
-// 追加必须是 O(1) 的真追加：**不重写已有内容**。
-//
-// 这条用"先写两条、再写一条、最后逐行数"来钉。若实现改成读回旧内容再整体重写，
-// 行为上看起来一样，但崩溃时会连已经写好的部分一起毁掉——而那部分正是
-// 运行日志唯一的价值所在。这里顺带守住"每行一条 JSON"这个格式约定。
 func TestRunLog_AppendDoesNotRewriteExisting(t *testing.T) {
 	dir := t.TempDir()
 	l := NewRunLog(dir)
@@ -63,17 +57,12 @@ func TestRunLog_AppendDoesNotRewriteExisting(t *testing.T) {
 	}
 }
 
-// 半行 JSON（崩溃现场的正常形态）跳过，其余照读。
-//
-// 一份"缺最后一行"的日志仍然能回答"跑到哪一步为止"；整份拒绝解析等于把
-// 仅有的凭据也丢掉——那是把可用性换成了洁癖。
 func TestRunLog_SkipsBrokenLine(t *testing.T) {
 	dir := t.TempDir()
 	l := NewRunLog(dir)
 	l.RecordStep("t-1", step("s1", types.StepSucceeded))
 	l.RecordStep("t-1", step("s2", types.StepSucceeded))
 
-	// 追加一个写了一半的行，模拟崩溃。
 	f, err := os.OpenFile(RunLogPath(dir, "t-1"), os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatalf("打开失败: %v", err)
@@ -95,10 +84,6 @@ func TestRunLog_SkipsBrokenLine(t *testing.T) {
 	}
 }
 
-// 不安全的 taskID **不写**，而不是"净化后照写"。
-//
-// 净化会把 `a/b` 与 `a_b` 映射到同一个文件：两次不同的运行写进同一份日志，
-// 读的人会以为看到的是完整的一次运行。宁可不记，也不要记错。
 func TestRunLog_UnsafeNameIsNotWritten(t *testing.T) {
 	dir := t.TempDir()
 	l := NewRunLog(dir)
@@ -111,7 +96,7 @@ func TestRunLog_UnsafeNameIsNotWritten(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(dir, "runs"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return // 一条都没写，目录都没建——这也是可接受的结果
+			return
 		}
 		t.Fatalf("读取目录失败: %v", err)
 	}
@@ -124,7 +109,6 @@ func TestRunLog_UnsafeNameIsNotWritten(t *testing.T) {
 	}
 }
 
-// 两个不同的 taskID 不能撞进同一个文件——这是上面那条的真实后果。
 func TestRunLog_DistinctTaskIDsDoNotCollide(t *testing.T) {
 	dir := t.TempDir()
 	l := NewRunLog(dir)
@@ -145,7 +129,6 @@ func TestRunLog_DistinctTaskIDsDoNotCollide(t *testing.T) {
 	}
 }
 
-// Discard 之后读不到，且再 Discard 一次不 panic（幂等）。
 func TestRunLog_Discard(t *testing.T) {
 	dir := t.TempDir()
 	l := NewRunLog(dir)
@@ -157,17 +140,13 @@ func TestRunLog_Discard(t *testing.T) {
 	if _, err := os.Stat(RunLogPath(dir, "t-1")); !os.IsNotExist(err) {
 		t.Error("Discard 之后日志应被删除")
 	}
-	DiscardRunLog(dir, "t-1") // 幂等
-	DiscardRunLog(dir, "a/b") // 不安全名字：不该 panic
+	DiscardRunLog(dir, "t-1")
+	DiscardRunLog(dir, "a/b")
 	if got, err := ReadRunLog(dir, "t-1"); err != nil || len(got) != 0 {
 		t.Errorf("删掉之后应读不到内容：%v %d", err, len(got))
 	}
 }
 
-// 没有日志文件时返回"没有"而不是错误。
-//
-// 调用点会把它当成一条线索（"有没有留下半截运行"），而不是一次失败——
-// 绝大多数任务都跑完了、日志也被删了，那是最常见的情况。
 func TestRunLog_MissingFileIsNotAnError(t *testing.T) {
 	dir := t.TempDir()
 	got, err := ReadRunLog(dir, "never-ran")
@@ -179,7 +158,6 @@ func TestRunLog_MissingFileIsNotAnError(t *testing.T) {
 	}
 }
 
-// 超长 taskID 不写：文件名长度有系统上限，写失败会变成一个静默的坑。
 func TestRunLog_OverlongNameIsNotWritten(t *testing.T) {
 	dir := t.TempDir()
 	long := strings.Repeat("a", 129)
@@ -191,12 +169,10 @@ func TestRunLog_OverlongNameIsNotWritten(t *testing.T) {
 	}
 }
 
-// 写入实现必须真的满足 StepSink——不然接线处传了它也不生效。
 func TestRunLog_ImplementsStepSink(t *testing.T) {
 	var _ StepSink = (*RunLog)(nil)
 }
 
-// nil 接收者不 panic：执行器可能拿到一个没有配置数据目录的运行时。
 func TestRunLog_NilReceiver(t *testing.T) {
 	var l *RunLog
 	l.RecordStep("t-1", step("s1", types.StepSucceeded))

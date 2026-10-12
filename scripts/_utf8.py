@@ -25,5 +25,4 @@ for _name in ("stdout", "stderr"):
         try:
             _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
         except (ValueError, OSError):
-            # 流已被 detach 或不是文件流（例如被测试替身换掉）——不因此让判据失败。
             pass

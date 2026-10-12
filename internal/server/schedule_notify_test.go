@@ -10,14 +10,9 @@ import (
 	"gleam/pkg/types"
 )
 
-// TestRPC_ScheduleNotify_CreateAndSet 通知策略要能建、能改、能回读。
-//
-// JSON-RPC 是编辑器插件与外部宿主的入口。这里的策略字段如果没接上，
-// 表现是"界面上改了、实际没生效"——比没有这个功能更坏，因为用户以为设好了。
 func TestRPC_ScheduleNotify_CreateAndSet(t *testing.T) {
 	c, _, _ := startServer(t, nil, true)
 
-	// 创建时带上策略。
 	res, rpcErr, err := c.call("schedule/create", map[string]any{
 		"name": "rpc-job", "goal": "检查磁盘占用", "cron": "0 9 * * *", "notify": "always",
 	})
@@ -28,7 +23,6 @@ func TestRPC_ScheduleNotify_CreateAndSet(t *testing.T) {
 		t.Errorf("创建响应里策略应为 always，实际 %v", got)
 	}
 
-	// 改成 never。
 	res, rpcErr, err = c.call("schedule/notify", map[string]any{"name": "rpc-job", "notify": "never"})
 	if err != nil || rpcErr != nil {
 		t.Fatalf("改策略失败：err=%v rpcErr=%v", err, rpcErr)
@@ -37,7 +31,6 @@ func TestRPC_ScheduleNotify_CreateAndSet(t *testing.T) {
 		t.Errorf("改后应为 never，实际 %v", got)
 	}
 
-	// 空串恢复默认。
 	res, rpcErr, err = c.call("schedule/notify", map[string]any{"name": "rpc-job", "notify": ""})
 	if err != nil || rpcErr != nil {
 		t.Fatalf("恢复默认失败：err=%v rpcErr=%v", err, rpcErr)
@@ -47,11 +40,6 @@ func TestRPC_ScheduleNotify_CreateAndSet(t *testing.T) {
 	}
 }
 
-// TestRPC_ScheduleNotify_InvalidRejected 非法策略要被拒，且不留半成品。
-//
-// 两种失败必须都验：**拒绝了**（用户得到反馈）和**没建出来**（盘上干净）。
-// 只验前者的话，"先创建后校验"的实现照样能过——而它留下的正是最难排查的状态：
-// 任务看起来一切正常，只是跑完不通知。
 func TestRPC_ScheduleNotify_InvalidRejected(t *testing.T) {
 	c, a, _ := startServer(t, nil, true)
 
@@ -70,7 +58,6 @@ func TestRPC_ScheduleNotify_InvalidRejected(t *testing.T) {
 		}
 	}
 
-	// 半成品检查：直接问调度器，而不是问列表接口——列表接口可能自己过滤掉了。
 	for _, j := range a.Sched.ListJobs() {
 		if j.Name == "rpc-bad" {
 			t.Error("非法策略被拒后，不该留下同名任务")
@@ -78,7 +65,6 @@ func TestRPC_ScheduleNotify_InvalidRejected(t *testing.T) {
 	}
 }
 
-// TestRPC_ScheduleNotify_MissingJobRejected 改不存在的任务要报错。
 func TestRPC_ScheduleNotify_MissingJobRejected(t *testing.T) {
 	c, _, _ := startServer(t, nil, true)
 	_, rpcErr, err := c.call("schedule/notify", map[string]any{"name": "ghost", "notify": "never"})
@@ -93,11 +79,6 @@ func TestRPC_ScheduleNotify_MissingJobRejected(t *testing.T) {
 	}
 }
 
-// TestRPC_OnTaskDonePushesNotification 宿主的事件出口要真的推出去。
-//
-// `Service.OnTaskDone` 只有一行——正因为它只有一行，才最容易被漏接线：
-// 判据（ShouldNotify）测过了、通知函数测过了，但"推给对端"这一步没人验。
-// 定时任务的价值就是不用盯着；事件推不出去，用户就必须盯着。
 func TestRPC_OnTaskDonePushesNotification(t *testing.T) {
 	c, a, _ := startServer(t, nil, true)
 
@@ -109,8 +90,6 @@ func TestRPC_OnTaskDonePushesNotification(t *testing.T) {
 			Status: types.GoalFailed, Error: "磁盘 /data 已用 96%",
 		},
 	}
-	// 经 Service 推（真实路径），而不是直接调 Conn.Notify：
-	// Bind 已经把 a.Notifier 换成了 Service 自己，所以这里拿到的就是生产路径上那个对象。
 	svc, ok := a.Notifier.(*Service)
 	if !ok {
 		t.Fatalf("Bind 之后 a.Notifier 应是 *Service，实际 %T——说明宿主没接管事件出口", a.Notifier)
@@ -131,14 +110,12 @@ func TestRPC_OnTaskDonePushesNotification(t *testing.T) {
 	if got["origin"] != "定时任务「每日巡检」" {
 		t.Errorf("通知应带来源，实际 %v", got["origin"])
 	}
-	// 状态要在事件里能读出来——只推一个 task_id，收到的人还得再查一次才知道是成是败。
 	res, _ := got["result"].(map[string]any)
 	if res == nil || res["status"] != "failed" {
 		t.Errorf("通知应带结果状态，实际 %v", got["result"])
 	}
 }
 
-// fieldOf 取 JSON 对象里的一个字段（RawMessage → any）。
 func fieldOf(t *testing.T, raw json.RawMessage, key string) any {
 	t.Helper()
 	var m map[string]any

@@ -1,6 +1,3 @@
-// models.go 在线拉取厂商可用模型列表（尽力而为）：
-// 配置模型时免记模型 ID，从列表点选；个别 Coding/Agent 套餐网关不实现该端点，
-// 拉不到时前端仍可手输，所以列表是加速器而不是唯一入口。
 package llm
 
 import (
@@ -13,14 +10,12 @@ import (
 	"time"
 )
 
-// ModelInfo 模型列表条目。
 type ModelInfo struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name,omitempty"`
 	OwnedBy     string `json:"owned_by,omitempty"`
 }
 
-// modelEndpoint 按协议拼列表端点（与对话端点同一套 base 归一化，防双拼）。
 func modelEndpoint(protocol, baseURL string) string {
 	switch protocol {
 	case ProtocolAnthropic:
@@ -29,7 +24,7 @@ func modelEndpoint(protocol, baseURL string) string {
 			return base + "/models"
 		}
 		return base + "/v1/models"
-	default: // openai_chat / openai_responses 共用 OpenAI 风格 /models
+	default:
 		base := normalizeBase(baseURL, "/chat/completions", "/responses", "/models")
 		return base + "/models"
 	}
@@ -51,7 +46,6 @@ func modelHeaders(protocol, apiKey string) map[string]string {
 	return h
 }
 
-// getList GET 一次并读响应体；非 200 包成 statusError 供上层分类。
 func getList(ctx context.Context, hc *http.Client, url string, headers map[string]string) ([]byte, error) {
 	noteEgress(url, 0)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -73,8 +67,6 @@ func getList(ctx context.Context, hc *http.Client, url string, headers map[strin
 	return io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 }
 
-// parseModelsResponse 兼容三种下发形态：OpenAI 的 data[]、Anthropic 的 data[]（带 display_name）、
-// 智谱 v4 的 models[]；同 ID 去重，保持厂商顺序。
 func parseModelsResponse(raw []byte) ([]ModelInfo, error) {
 	var entry struct {
 		ID          string `json:"id"`
@@ -103,7 +95,7 @@ func parseModelsResponse(raw []byte) ([]ModelInfo, error) {
 	seen := map[string]bool{}
 	for _, it := range items {
 		if err := json.Unmarshal(it, &entry); err != nil {
-			continue // 个别条目形态异常不拖垮整表
+			continue
 		}
 		id := entry.ID
 		if id == "" {
@@ -118,7 +110,6 @@ func parseModelsResponse(raw []byte) ([]ModelInfo, error) {
 	return out, nil
 }
 
-// ListModels 按协议拉取可用模型列表。超时由 ctx 与 timeout 共同约束（<=0 时 15s）。
 func ListModels(ctx context.Context, protocol, baseURL, apiKey string, timeout time.Duration) ([]ModelInfo, error) {
 	if timeout <= 0 {
 		timeout = 15 * time.Second

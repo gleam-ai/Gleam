@@ -40,7 +40,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: E402,F401  # 本脚本自己也在印中文判定行
+import _utf8  # noqa: E402,F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 EGRESS_CHECK = ("egress-owner", "python scripts/check-egress-owner.py .")
@@ -86,8 +86,8 @@ MUTATIONS = [
         "file": "internal/agent/connections.go",
         "edits": [
             (
-                'Trigger: "模型判断需要看某个网页时——它是只读工具，默认不经过你的批准",',
-                'Trigger: "模型判断需要看某个网页时。它是只读工具，**默认不经过你的批准**",',
+                'Trigger: bi{\n\t\t\t"模型判断需要看某个网页时——它是只读工具，默认不经过你的批准",\n',
+                'Trigger: bi{\n\t\t\t"模型判断需要看某个网页时。它是只读工具，**默认不经过你的批准**",\n',
             )
         ],
         "targets": [EGRESS_CHECK],
@@ -97,8 +97,8 @@ MUTATIONS = [
         "file": "internal/agent/connections.go",
         "edits": [
             (
-                "rows = append(rows, a.cloudRow(rep), a.feedbackRow(rep), updateRow(rep), goToolchainRow(rep), marketRemoteRow(rep), mcpRemoteRow(rep), a.gitRemoteRow(rep), marketRow())",
-                "rows = append(rows, a.feedbackRow(rep), updateRow(rep), goToolchainRow(rep), marketRemoteRow(rep), mcpRemoteRow(rep), a.gitRemoteRow(rep), marketRow())",
+                "rows = append(rows, a.cloudRow(rep, en), a.feedbackRow(rep, en), updateRow(rep, en),\n\t\tgoToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),\n\t\ta.gitRemoteRow(rep, en), marketRow(en))",
+                "rows = append(rows, a.feedbackRow(rep, en), updateRow(rep, en),\n\t\tgoToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),\n\t\ta.gitRemoteRow(rep, en), marketRow(en))",
             )
         ],
         "targets": [
@@ -111,12 +111,10 @@ MUTATIONS = [
     {
         "name": "没开审计落盘却仍然指路 pending --audit：把人引向一个不存在的文件",
         "file": "internal/agent/connections.go",
-        # 只换串不改分支：改分支会留下 auditPath 未使用之外的怪形状，且判据要试的是
-        # "指路那句话到底跟不跟本机配置走"，那就得让配置分支还在、只是话说错。
         "edits": [
             (
-                'back = "这个构建没开审计落盘，内存环之外的事没有记录"',
-                'back = "更早的记录在落盘审计里，`gleam pending --audit --egress` 可只看这一类"',
+                'back = bi{\n\t\t\t"这个构建没开审计落盘，内存环之外的事没有记录",\n',
+                'back = bi{\n\t\t\t"更早的记录在落盘审计里，`gleam pending --audit --egress` 可只看这一类",\n',
             )
         ],
         "targets": [
@@ -138,7 +136,6 @@ MUTATIONS = [
         "targets": [DOM_CHECK],
     },
 ]
-
 
 if __name__ == "__main__":
     sys.exit(

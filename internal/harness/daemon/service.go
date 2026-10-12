@@ -1,14 +1,3 @@
-// Package daemon 实现 Gleam 守护进程：将调度器注册为系统服务，实现 24/7 后台运行。
-//
-// 支持平台：
-//   - Windows：通过 sc.exe 注册为系统服务（当前用户身份）
-//   - macOS：通过 launchd plist（~/Library/LaunchAgents/）
-//   - Linux：通过 systemd unit（~/.config/systemd/user/）
-//
-// 设计原则：
-//   - 单设备方案：用户只需在自己的电脑上开启"后台运行"
-//   - 数据主权：任务队列持久化到本地 SQLite，不依赖第三方云
-//   - 安全默认：后台模式仅执行只读任务，写操作需二次确认
 package daemon
 
 import (
@@ -18,9 +7,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"gleam/internal/atomicfile"
 )
 
-// ServiceState 服务状态。
 type ServiceState string
 
 const (
@@ -30,21 +20,18 @@ const (
 	StateUnknown   ServiceState = "unknown"
 )
 
-// ServiceInfo 服务信息。
 type ServiceInfo struct {
 	Name    string
 	State   ServiceState
-	Enabled bool // 是否开机自启
+	Enabled bool
 }
 
-// Manager 守护进程管理器（平台相关）。
 type Manager struct {
 	name    string
 	dataDir string
 	binPath string
 }
 
-// New 创建守护进程管理器。
 func New(name, dataDir, binPath string) *Manager {
 	return &Manager{
 		name:    name,
@@ -53,7 +40,6 @@ func New(name, dataDir, binPath string) *Manager {
 	}
 }
 
-// Install 注册系统服务。
 func (m *Manager) Install() error {
 	switch runtime.GOOS {
 	case "windows":
@@ -67,7 +53,6 @@ func (m *Manager) Install() error {
 	}
 }
 
-// Uninstall 卸载系统服务。
 func (m *Manager) Uninstall() error {
 	switch runtime.GOOS {
 	case "windows":
@@ -81,7 +66,6 @@ func (m *Manager) Uninstall() error {
 	}
 }
 
-// Start 启动服务。
 func (m *Manager) Start() error {
 	switch runtime.GOOS {
 	case "windows":
@@ -95,7 +79,6 @@ func (m *Manager) Start() error {
 	}
 }
 
-// Stop 停止服务。
 func (m *Manager) Stop() error {
 	switch runtime.GOOS {
 	case "windows":
@@ -109,7 +92,6 @@ func (m *Manager) Stop() error {
 	}
 }
 
-// Status 查询服务状态。
 func (m *Manager) Status() (*ServiceInfo, error) {
 	switch runtime.GOOS {
 	case "windows":
@@ -123,11 +105,7 @@ func (m *Manager) Status() (*ServiceInfo, error) {
 	}
 }
 
-// ---------- Windows ----------
-
 func (m *Manager) installWindows() error {
-	// 使用 sc.exe 注册服务（需要管理员权限）
-	// 服务以 LocalService 身份运行，避免 SYSTEM 权限过高
 	args := []string{
 		"create", m.name,
 		"binPath=", fmt.Sprintf(`"%s" app --daemon --data-dir "%s"`, m.binPath, m.dataDir),
@@ -174,7 +152,6 @@ func (m *Manager) statusWindows() (*ServiceInfo, error) {
 	cmd := exec.Command("sc", "query", m.name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// 服务不存在
 		if strings.Contains(string(out), "1060") {
 			return &ServiceInfo{Name: m.name, State: StateUnknown, Enabled: false}, nil
 		}
@@ -184,7 +161,6 @@ func (m *Manager) statusWindows() (*ServiceInfo, error) {
 	info := &ServiceInfo{Name: m.name}
 	output := string(out)
 
-	// 解析状态
 	if strings.Contains(output, "RUNNING") {
 		info.State = StateRunning
 	} else if strings.Contains(output, "STOPPED") {
@@ -193,15 +169,12 @@ func (m *Manager) statusWindows() (*ServiceInfo, error) {
 		info.State = StateUnknown
 	}
 
-	// 解析启动类型
 	if strings.Contains(output, "AUTO_START") {
 		info.Enabled = true
 	}
 
 	return info, nil
 }
-
-// ---------- macOS ----------
 
 func (m *Manager) installMacOS() error {
 	home, err := os.UserHomeDir()
@@ -240,11 +213,10 @@ func (m *Manager) installMacOS() error {
 </dict>
 </plist>`, m.name, m.binPath, m.dataDir, m.dataDir, m.dataDir)
 
-	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
+	if err := atomicfile.Write(plistPath, []byte(plist), 0o644); err != nil {
 		return fmt.Errorf("写入 plist 失败：%w", err)
 	}
 
-	// 加载 plist
 	cmd := exec.Command("launchctl", "load", plistPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("加载 launchd 服务失败：%w\n%s", err, string(out))
@@ -261,11 +233,9 @@ func (m *Manager) uninstallMacOS() error {
 
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", fmt.Sprintf("top.wangjn.gleam.%s.plist", m.name))
 
-	// 先卸载
 	cmd := exec.Command("launchctl", "unload", plistPath)
-	_ = cmd.Run() // 忽略错误（可能未加载）
+	_ = cmd.Run() // best effort: the service may never have been loaded
 
-	// 删除 plist
 	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除 plist 失败：%w", err)
 	}
@@ -311,24 +281,19 @@ func (m *Manager) statusMacOS() (*ServiceInfo, error) {
 
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", fmt.Sprintf("top.wangjn.gleam.%s.plist", m.name))
 
-	// 检查 plist 是否存在
 	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
 		return &ServiceInfo{Name: m.name, State: StateUnknown, Enabled: false}, nil
 	}
 
-	// 检查是否已加载
 	cmd := exec.Command("launchctl", "list", fmt.Sprintf("top.wangjn.gleam.%s", m.name))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// 未加载
 		return &ServiceInfo{Name: m.name, State: StateStopped, Enabled: true}, nil
 	}
 
 	_ = out
 	return &ServiceInfo{Name: m.name, State: StateRunning, Enabled: true}, nil
 }
-
-// ---------- Linux ----------
 
 func (m *Manager) installLinux() error {
 	home, err := os.UserHomeDir()
@@ -356,17 +321,15 @@ RestartSec=10
 WantedBy=default.target
 `, m.name, m.binPath, m.dataDir)
 
-	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
+	if err := atomicfile.Write(unitPath, []byte(unit), 0o644); err != nil {
 		return fmt.Errorf("写入 systemd unit 失败：%w", err)
 	}
 
-	// 重新加载 systemd
 	cmd := exec.Command("systemctl", "--user", "daemon-reload")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("重新加载 systemd 失败：%w\n%s", err, string(out))
 	}
 
-	// 启用服务（开机自启）
 	cmd = exec.Command("systemctl", "--user", "enable", fmt.Sprintf("gleam-%s.service", m.name))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("启用服务失败：%w\n%s", err, string(out))
@@ -376,14 +339,12 @@ WantedBy=default.target
 }
 
 func (m *Manager) uninstallLinux() error {
-	// 禁用并停止服务
 	cmd := exec.Command("systemctl", "--user", "disable", fmt.Sprintf("gleam-%s.service", m.name))
 	_ = cmd.Run()
 
 	cmd = exec.Command("systemctl", "--user", "stop", fmt.Sprintf("gleam-%s.service", m.name))
 	_ = cmd.Run()
 
-	// 删除 unit 文件
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -394,7 +355,6 @@ func (m *Manager) uninstallLinux() error {
 		return fmt.Errorf("删除 unit 文件失败：%w", err)
 	}
 
-	// 重新加载 systemd
 	cmd = exec.Command("systemctl", "--user", "daemon-reload")
 	_ = cmd.Run()
 
@@ -425,7 +385,6 @@ func (m *Manager) statusLinux() (*ServiceInfo, error) {
 	output := strings.TrimSpace(string(out))
 
 	if err != nil {
-		// 服务不存在或未激活
 		if output == "inactive" || output == "failed" {
 			return &ServiceInfo{Name: m.name, State: StateStopped, Enabled: true}, nil
 		}

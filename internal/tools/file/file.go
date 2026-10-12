@@ -1,5 +1,3 @@
-// Package file 实现文件操作工具集：list/read/write/mkdir/move/delete/search。
-// 所有路径限制在配置的工作区根目录内（防目录穿越），形成纵深防御的第一层。
 package file
 
 import (
@@ -16,9 +14,8 @@ import (
 	"gleam/pkg/types"
 )
 
-const maxReadBytes = 256 * 1024 // 单次读取上限 256KB
+const maxReadBytes = 256 * 1024
 
-// Tools 文件工具集，Roots 为允许访问的根目录。
 type Tools struct {
 	Roots []string
 }
@@ -27,7 +24,6 @@ func New(roots ...string) *Tools {
 	return &Tools{Roots: roots}
 }
 
-// RegisterAll 将全部文件工具注册到注册表。
 func (t *Tools) RegisterAll(reg *registry.Registry) {
 	for _, tool := range []types.Tool{
 		&listTool{t}, &readTool{t}, &writeTool{t}, &mkdirTool{t},
@@ -37,16 +33,10 @@ func (t *Tools) RegisterAll(reg *registry.Registry) {
 	}
 }
 
-// resolve 解析并校验路径：绝对路径必须位于某个根目录下；相对路径基于第一个根目录。
-// 边界语义见 toolutil.ResolveInRoots（与 shell 工具共用同一份实现）。
-//
-// 根目录优先取 ctx 里那一份（本次任务的边界），没有才回落到构造时配的 t.Roots：
-// 任务在自己的 worktree 里跑时，只有 ctx 那份能把它引到真实的文件上。
 func (t *Tools) resolve(ctx context.Context, p string) (string, error) {
 	return toolutil.ResolveInRoots(p, toolutil.RootsFrom(ctx, t.Roots))
 }
 
-// requireResolve 取必填路径参数并解析校验。
 func (t *Tools) requireResolve(ctx context.Context, args map[string]any, key string) (string, error) {
 	p, err := toolutil.RequireStr(args, key)
 	if err != nil {
@@ -55,7 +45,6 @@ func (t *Tools) requireResolve(ctx context.Context, args map[string]any, key str
 	return t.resolve(ctx, p)
 }
 
-// Paths 实现 types.PathAware：返回参数中涉及的路径，供安全门控判断信任范围。
 func (t *Tools) Paths(ctx context.Context, args map[string]any) []string {
 	keys := []string{"path", "src", "dst", "dir", "root"}
 	var out []string
@@ -110,7 +99,6 @@ func (t *listTool) Execute(ctx context.Context, args map[string]any) (any, error
 	return map[string]any{"path": dir, "count": len(out), "entries": out}, nil
 }
 
-// Outcome 实现 types.OutcomeReporter：空目录是空结果，不是错误。
 func (t *listTool) Outcome(args map[string]any, out any) (types.StepOutcome, string) {
 	return toolutil.EmptyIfNone(out)
 }
@@ -137,7 +125,6 @@ func (t *readTool) Execute(ctx context.Context, args map[string]any) (any, error
 		return nil, err
 	}
 	defer f.Close()
-	// 循环读取：单次 Read 不保证填满缓冲区
 	buf := make([]byte, maxReadBytes+1)
 	n := 0
 	for n < len(buf) {
@@ -337,7 +324,7 @@ func (t *searchTool) Execute(ctx context.Context, args map[string]any) (any, err
 	deadline := time.Now().Add(20 * time.Second)
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // 跳过不可访问的子树
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -365,11 +352,6 @@ func (t *searchTool) Execute(ctx context.Context, args map[string]any) (any, err
 	return result, nil
 }
 
-// Outcome 实现 types.OutcomeReporter。
-//
-// 两件事必须分开：搜索超时/达上限是"没做完"（失败），一条都没搜到是"空结果"
-// （不是错误，但要让反思器看见——否则模型会以为拿到了数据，或者陷在
-// "换个关键词再试—还是空—再换"的空转里）。
 func (t *searchTool) Outcome(args map[string]any, out any) (types.StepOutcome, string) {
 	if m, ok := out.(map[string]any); ok {
 		if note, _ := m["note"].(string); note != "" {

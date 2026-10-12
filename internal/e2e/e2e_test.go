@@ -1,5 +1,3 @@
-// Package e2e 端到端自测：构建真实 gleam 二进制，驱动 goal 命令与
-// JSON-RPC stdio 服务（含审批回路与 MCP 连接器全链路）。
 package e2e
 
 import (
@@ -19,9 +17,6 @@ import (
 	"gleam/internal/llm"
 )
 
-// buildTimeout 是编译 gleam 二进制的预算。它只用来兜住"编译卡死"，
-// 不是性能指标：复用默认缓存时构建通常只要几秒，但全新机器/CI 上首次
-// 冷编译可能远超两分钟，预算太紧会把"机器慢"误报成"测试失败"。
 const buildTimeout = 5 * time.Minute
 
 var (
@@ -39,7 +34,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// buildBinary 编译 gleam 二进制（整个测试套件共享一次）。
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
@@ -62,10 +56,6 @@ func buildBinary(t *testing.T) string {
 			ext = ".exe"
 		}
 		buildPath = filepath.Join(dir, "gleam"+ext)
-		// 复用默认构建缓存。原先是每次测试都新建一个临时 GOCACHE，于是每次都是
-		// 冷编译：本机冷编译 >120s 会撞构建预算，整套 e2e 变成**必然失败**——一个
-		// 永远报红的测试比没有测试更糟，因为它会训练人忽略红色。缓存只影响构建
-		// 产物、不影响测试结论，复用默认缓存与所有 Go 项目的默认行为一致。
 		cacheDir := os.Getenv("GOCACHE")
 		if cacheDir == "" {
 			if out, e := exec.Command(goTool, "env", "GOCACHE").Output(); e == nil {
@@ -96,7 +86,6 @@ func buildBinary(t *testing.T) string {
 func projectRoot(t *testing.T) string {
 	t.Helper()
 	cwd, _ := os.Getwd()
-	// e2e 目录位于 internal/e2e
 	root := cwd
 	for i := 0; i < 3; i++ {
 		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
@@ -123,8 +112,6 @@ func writeScript(t *testing.T, scripts []llm.Scripted) string {
 
 func mustEnv() []string { return append(os.Environ(), "GLEAM_MOCK_LLM=1") }
 
-// ---------- goal 命令 ----------
-
 func TestE2E_GoalCommand(t *testing.T) {
 	bin := buildBinary(t)
 	ws := t.TempDir()
@@ -150,8 +137,6 @@ func TestE2E_GoalCommand(t *testing.T) {
 		t.Errorf("产物错误: %v %q", rerr, data)
 	}
 }
-
-// ---------- serve JSON-RPC 会话 ----------
 
 type serveClient struct {
 	t        *testing.T
@@ -220,7 +205,6 @@ func (c *serveClient) send(v any) {
 	c.stdin <- string(b)
 }
 
-// nextLine 读取一行（带超时）。
 func (c *serveClient) nextLine(timeout time.Duration) (string, error) {
 	select {
 	case line := <-c.lines:
@@ -242,7 +226,6 @@ type rpcMsg struct {
 	} `json:"error"`
 }
 
-// callUntil 逐行读取：应答审批请求，直到命中 wantMethod 通知或 wantID 响应。
 func (c *serveClient) callUntil(id int64, method string, params any, wantMethod string, wantID int64, approve bool) (rpcMsg, error) {
 	c.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 	for {
@@ -257,7 +240,6 @@ func (c *serveClient) callUntil(id int64, method string, params any, wantMethod 
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
-		// 审批请求：自动应答
 		if msg.Method == "goal/ask_approval" && len(msg.ID) > 0 {
 			resp := map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{"approved": approve}}
 			b, _ := json.Marshal(resp)
@@ -292,7 +274,6 @@ func TestE2E_ServeSession(t *testing.T) {
 	})
 	sc := startServe(t, bin, script, ws, dataDir)
 
-	// initialize
 	initResp, err := sc.callUntil(1, "initialize", map[string]any{}, "", 1, false)
 	if err != nil {
 		t.Fatalf("initialize: %v", err)
@@ -301,7 +282,6 @@ func TestE2E_ServeSession(t *testing.T) {
 		t.Fatalf("initialize 响应 = %s err=%v", initResp.Result, initResp.Error)
 	}
 
-	// goal/submit → 进度 → 审批（自动同意）→ completed
 	_, err = sc.callUntil(2, "goal/submit", map[string]any{"goal": "删除 victim.txt"}, "goal/completed", 0, true)
 	if err != nil {
 		t.Fatalf("goal 流程: %v", err)
@@ -310,7 +290,6 @@ func TestE2E_ServeSession(t *testing.T) {
 		t.Error("审批同意后文件应被删除")
 	}
 
-	// shutdown
 	sc.send(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "shutdown"})
 	done := make(chan struct{})
 	go func() { <-sc.waitDone; close(done) }()
@@ -332,7 +311,6 @@ func TestE2E_MCPConnectorFullChain(t *testing.T) {
 		]}`}},
 		{Kind: "reflect", Texts: []string{`{"score":94,"verdict":"done","reason":"ok"}`}},
 	})
-	// 用 gleam 自带的 mcp-fake-server 作为外部 MCP 服务器
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	yaml := "mcp:\n  - name: fake\n    command: " + bin + "\n    args: [mcp-fake-server]\n    trust: readonly\n"
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o644); err != nil {
@@ -363,7 +341,6 @@ func TestE2E_BinarySelfCheck(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), "file.write") {
 		t.Fatalf("tools: %v %s", err, out)
 	}
-	// 二进制体积检查（目标 < 15MB）
 	info, err := os.Stat(bin)
 	if err != nil {
 		t.Fatal(err)

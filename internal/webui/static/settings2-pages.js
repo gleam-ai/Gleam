@@ -1,7 +1,3 @@
-/* 设置 v2 · 其余分区：记忆 / 扩展管理 / 钩子 / 电脑操控 / Git / Worktrees / 工作区索引 /
- * 连接 / 安全 / Go 工具链 / 引擎 / 已归档 / 实验功能 / 网络。
- * 已有表单的分区（记忆、安全、Go、引擎）只加统一页头和新卡片，旧表单原样保留在下面，
- * 绑定与保存逻辑都不动——那些控件本来就是真的。 */
 'use strict';
 
 (() => {
@@ -21,7 +17,6 @@
     save,
   } = S2;
 
-  /** 给已有表单的分区插一次统一页头 + 页面容器（返回容器，供各页往里放新卡片）。 */
   function prelude(stab, title, desc, right) {
     const panel = document.querySelector(
       `.settings-panel[data-stab="${stab}"]`,
@@ -50,7 +45,6 @@
     }
   };
 
-  /* ============================== 记忆 ============================== */
   S2.register('memory', async () => {
     const pre = prelude(
       'memory',
@@ -113,12 +107,9 @@
     );
     try {
       loadContext();
-    } catch {
-      /* 记忆系统未启用 */
-    }
+    } catch {}
   });
 
-  /* ============================== 扩展管理 ============================== */
   let extTab = 'mcp';
   let extQ = '';
   S2.register('ext', async () => {
@@ -304,7 +295,6 @@
     paintList();
   });
 
-  /* ============================== 钩子 ============================== */
   S2.register('hooks', async () => {
     const root = $('#s2-hooks');
     const [{ jobs = [] }, s] = await Promise.all([
@@ -388,7 +378,6 @@
     );
   });
 
-  /* ============================== 电脑操控 ============================== */
   const DESKTOP_ICONS = {
     'desktop.clipboard.read': 'clipboard',
     'desktop.clipboard.write': 'clipboard',
@@ -402,8 +391,6 @@
     { value: 'user_approved', label: '需我批准' },
     { value: 'full_access', label: '完全访问' },
   ];
-  // 全局唤起快捷键：桌面壳专属（浏览器里没有 globalShortcut）。
-  // 浏览器里那一行照实说"只在桌面版可用"，而不是摆一个按了没反应的按钮。
   function globalShortcutRow() {
     const desk = window.gleamDesktop;
     if (!desk || typeof desk.globalShortcut !== 'function') {
@@ -461,7 +448,6 @@
     });
   }
 
-  // recordShortcut 录一次组合键。**必须带修饰键**：单键抢全局（比如字母 A）会非常讨厌。
   function recordShortcut(labelEl, done) {
     const before = labelEl.textContent;
     labelEl.textContent = '按下组合键…（Esc 取消）';
@@ -496,7 +482,6 @@
     document.addEventListener('keydown', onKey, true);
   }
 
-  // toAccelerator 把一次 keydown 转成 Electron 认的组合串；只有修饰键或没修饰键时返回空。
   function toAccelerator(e) {
     const mods = [];
     if (e.ctrlKey) mods.push('CommandOrControl');
@@ -578,7 +563,6 @@
       ),
     );
   });
-  // 自绘插画：一块键盘 + 一个屏幕，用当前主题的线条色和强调色
   const KEYBOARD_SVG = `<svg viewBox="0 0 400 150" width="100%" height="150" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <defs><pattern id="s2dots" width="12" height="12" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="var(--line)"/></pattern></defs>
     <rect x="0" y="0" width="400" height="150" rx="12" fill="url(#s2dots)"/>
@@ -592,12 +576,9 @@
     <path d="M214 82c12 0 14-20 22-24" stroke="var(--color-accent)" stroke-width="1.5" stroke-dasharray="3 4"/>
   </svg>`;
 
-  /* ============================== Git / Worktrees ============================== */
   S2.register('git', async () => {
     const s = await settings(true);
     const g = s.git || {};
-    // 这三条只作用于 Gleam 自己的 git.branch / git.commit / git.push 工具；
-    // 模型在 shell.exec 里自己拼的 git 命令不归这里管，界面上要说清楚，别让人以为它是全局开关。
     const prefix = h('input', {
       class: 'input s2-input',
       value: g.branch_prefix || '',
@@ -664,8 +645,6 @@
     const repo = !!view.repository;
     const on = !!view.enabled;
 
-    // 空态必须分清"还没建过"和"这里建不了"：前者去跑个任务就有，后者得先换个工作区。
-    // 画成同一个空列表，读的人只会照着做错的那件事。
     const blocked = !on
       ? null
       : !ws
@@ -682,7 +661,6 @@
               icon: 'worktrees',
               title: wt.branch,
               titleExtra: wt.dirty ? badge('有改动') : null,
-              // 路径是这条记录唯一不可再生的信息：分支名还能从 git 里找回来，路径没了就找不回。
               desc: `${wt.path} · ${fmtTime(wt.created_at)}${wt.dirty_detail ? ' · ' + wt.dirty_detail : ''}`,
               control: btn('删除', () => removeWorktree(wt)),
             }),
@@ -699,8 +677,6 @@
           ),
         );
 
-    // 条件项必须在进 replaceChildren 之前滤掉：replaceChildren 是原生接口，
-    // 它不做 h() 那层过滤——直接传 null 会在页面上印出一个字面的 "null"。
     $('#s2-worktrees').replaceChildren(
       ...[
         head(
@@ -771,11 +747,6 @@
     );
   });
 
-  /** 删一个副本：先按"不丢改动"删；后端拒绝（409）时把它的原话给用户看，再要一次明确确认。
-   *
-   * 为什么不去问前端"这个副本脏不脏"：那件事的 owner 在后端（`git status` 是它跑的），
-   * 前端照着列表里的旧读数再猜一遍，迟早出现"页面说有改动／其实已经提交了"这种错话。
-   * 后端的拒绝理由就是最好的提示语，原样转述即可。 */
   async function removeWorktree(wt) {
     const url = (force) =>
       `/api/worktrees/${encodeURIComponent(wt.task_id)}${force ? '?force=1' : ''}`;
@@ -803,7 +774,6 @@
     S2.show('worktrees');
   }
 
-  /* ============================== 工作区索引 ============================== */
   S2.register('index', async () => {
     const { spaces = [] } = await api('GET', '/api/spaces').catch(() => ({
       spaces: [],
@@ -853,7 +823,6 @@
     <path d="M150 62h16M158 54v16" stroke="var(--accent-fill)" stroke-width="2.5"/>
   </svg>`;
 
-  /* ============================== 连接 ============================== */
   S2.register('conn', async () => {
     const root = $('#s2-conn');
     const hosts = UIPrefs.get().sshHosts || [];
@@ -912,9 +881,7 @@
     root.replaceChildren(...kids);
     try {
       loadConnections();
-    } catch {
-      /* 接口不可用 */
-    }
+    } catch {}
   });
   async function sshDialog() {
     const overlay = h('div', { class: 's2-dialog-overlay' });
@@ -1073,7 +1040,6 @@
     load();
   }
 
-  /* ============================== 安全 ============================== */
   S2.register('safety', async () => {
     const pre = prelude(
       'safety',
@@ -1119,7 +1085,6 @@
     );
   });
 
-  /* ============================== Go 工具链 / 引擎 / 快捷键：统一页头 ============================== */
   S2.register('go', () => {
     prelude('go', 'Go 工具链', '编程任务里构建、测试 Go 项目要用到的工具链。');
   });
@@ -1127,7 +1092,6 @@
     prelude('engine', '引擎', '规划与执行的上限、预算熔断和循环治理。');
   });
 
-  /* ============================== 已归档 ============================== */
   let arQ = '';
   let arKind = '';
   S2.register('archived', async () => {
@@ -1136,7 +1100,7 @@
       goals: [],
     }));
     const done = goals.filter((g) => g.status !== 'running');
-    const KIND = { code: '编程', work: '通用', chat: '对话' };
+    const KIND = { code: '编程', work: '目标', chat: '对话' };
     const STATUS = {
       success: '已完成',
       partial: '部分完成',
@@ -1180,16 +1144,12 @@
           try {
             await api('DELETE', `/api/goals/${encodeURIComponent(g.task_id)}`);
             ok++;
-          } catch {
-            /* 跳过删不掉的 */
-          }
+          } catch {}
         }
         toast(`已删除 ${ok} 条记录`, 'success');
         try {
           loadGoals();
-        } catch {
-          /* 目标页未初始化 */
-        }
+        } catch {}
         S2.show('archived');
       },
       'btn btn-danger-soft btn-sm s2-danger',
@@ -1217,7 +1177,7 @@
           row({
             icon: g.status === 'success' ? 'check' : 'archived',
             title: shorten(g.goal || g.task_id, 60),
-            desc: `${STATUS[g.status] || g.status} · ${KIND[g.task_mode] || '通用'} · ${fmtTime(g.started_at)}`,
+            desc: `${STATUS[g.status] || g.status} · ${KIND[g.task_mode] || '目标'} · ${fmtTime(g.started_at)}`,
             control: h(
               'div',
               { class: 's2-icon-btns' },
@@ -1248,9 +1208,7 @@
                     toast('已删除', 'success', 1500);
                     try {
                       loadGoals();
-                    } catch {
-                      /* */
-                    }
+                    } catch {}
                     S2.show('archived');
                   } catch (err) {
                     toast(err.message, 'error');
@@ -1307,7 +1265,6 @@
     paint();
   });
 
-  /* ============================== 实验功能 ============================== */
   S2.register('labs', () => {
     const root = $('#s2-labs');
     const ack = !!UIPrefs.get().labsAck;
@@ -1356,7 +1313,6 @@
     root.replaceChildren(...kids);
   });
 
-  /* ============================== 网络 ============================== */
   S2.register('network', async () => {
     const root = $('#s2-network');
     const [s, net] = await Promise.all([
@@ -1441,8 +1397,6 @@
       ? keys.map((k) => `${k}=${net.proxy_env[k]}`).join(' · ')
       : '没有检测到 HTTPS_PROXY / HTTP_PROXY 环境变量：直接连接。';
 
-    // 代理方式：三选一，选中「手动」时才露出地址输入框。
-    // 改完要重启才切换——传输层是带连接池复用的，中途换等于每次请求重新握手。
     const curMode = net.proxy_mode || 'system';
     const modeSel = h(
       'select',
@@ -1465,7 +1419,7 @@
       if (v === 'manual') {
         urlIn.focus();
         return;
-      } // 手动要等地址填好，那一步再存
+      }
       await save({ network: { proxy_mode: v } }, '已保存，重启 Gleam 后生效');
       S2.show('network');
     });
@@ -1493,8 +1447,6 @@
         commitURL();
       }
     });
-    // 注意：这里用 settings2 的 h()，第二参是属性对象——传字符串会被当成 Object.entries 展开，
-    // 逐个 setAttribute('0'|'o'…) 直接抛「'o' is not a valid attribute name」。
     const proxyCtl = h('div', { class: 's2-proxy-ctl' }, modeSel, urlIn);
     const proxyModeDesc =
       '跟随系统：按启动 Gleam 时的 HTTPS_PROXY / HTTP_PROXY / NO_PROXY 环境变量；' +
@@ -1523,7 +1475,6 @@
     paint();
   });
 
-  // 「连接与出网」台账原来挂在安全页底部，整体搬到「连接」页（节点搬家，原有绑定不变）
   const ledger = $('#cx-conn-list') && $('#cx-conn-list').closest('.card');
   const connPanel = document.querySelector('.settings-panel[data-stab="conn"]');
   if (ledger && connPanel) {

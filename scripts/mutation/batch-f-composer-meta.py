@@ -33,7 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: F401  # 本脚本自己也在印中文判定行：Windows 默认按 cp936 写 stdout，`✓` 会直接抛异常
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 GO_TEST = "go test {pkg} -run {run} -count=1 -timeout 120s"
@@ -46,7 +46,6 @@ def t(pkg, run, label=None):
 
 
 MUTATIONS = [
-    # ---------- 水位的算法（owner：memory.fillPct） ----------
     {
         "name": "fillPct 去掉「容量<=0」保护（窗口没容量时除零）",
         "file": "internal/harness/memory/store.go",
@@ -54,9 +53,6 @@ MUTATIONS = [
         "targets": [t(MEM, "TestFillPct_ZeroCap")],
     },
     {
-        # 钳 100 这件事在**路由那一层测不出**：短期窗口是环形缓冲，轮数不会超过容量，
-        # 所以 100*turns/cap 恒 ≤100。能证明它的只有直接对 fillPct 的表驱动断言
-        # （{6,4,100}：万一上游异常或容量被改小，也不给前端一个撑破条的宽度）。
         "name": "fillPct 不钳 100（异常输入报出 150%）",
         "file": "internal/harness/memory/store.go",
         "edits": [
@@ -71,7 +67,6 @@ MUTATIONS = [
         ],
         "targets": [t(MEM, "TestFillPct_ZeroCap")],
     },
-    # ---------- 水位的接线（四个出口，两处最容易漏） ----------
     {
         "name": "水位多算一轮（空窗口一打开就报 25%）",
         "file": "internal/harness/memory/store.go",
@@ -99,13 +94,12 @@ MUTATIONS = [
         "file": "internal/agent/webfacade.go",
         "edits": [
             (
-                '		"fill_pct":      st.FillPct, // 轮数口径：短期窗口攒了多少轮（上限是配置的轮数容量，与模型无关）\n',
+                '		"fill_pct":         st.FillPct,\n',
                 "",
             )
         ],
         "targets": [t(WEBUI, "TestContext_CarriesWaterLevel")],
     },
-    # ---------- 就地切模型的补丁语义（只发一个键不许清掉别的） ----------
     {
         "name": "补丁把没发的 fast_model 清空（切模型后压缩悄悄退回主模型）",
         "file": "internal/config/config.go",
@@ -135,7 +129,6 @@ MUTATIONS = [
         "targets": [t(WEBUI, "TestSettings_ModelOnlyPatchIsAccepted")],
     },
 ]
-
 
 if __name__ == "__main__":
     sys.exit(

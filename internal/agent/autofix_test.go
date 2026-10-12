@@ -11,11 +11,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// 设计文档 §4.2.2：技能每次执行记录成功/失败，失败后自动优化参数并保存新版本。
-
 func TestRunSkill_AutoOptimizeOnFailure(t *testing.T) {
 	f := newFixture(t, nil)
-	// 非 Mock 客户端（mockOneShot）才会触发自动优化
 	f.a.LLM = mockReturning(`{"steps":[
 		{"id":"s1","description":"写文件","tool":"file.write","args":{"path":"optimized.txt","content":"v2 内容"}}
 	]}`)
@@ -56,7 +53,7 @@ func TestRunSkill_AutoOptimizeOnFailure(t *testing.T) {
 }
 
 func TestRunSkill_AutoOptimizeSkippedForMock(t *testing.T) {
-	f := newFixture(t, nil) // fixture 默认使用 *llm.MockClient
+	f := newFixture(t, nil)
 	if _, err := f.store.Save(skill.Skill{
 		Name:  "mock-skill",
 		Steps: []types.Step{{ID: "s1", Tool: "no-such-tool", Args: map[string]any{}}},
@@ -97,14 +94,11 @@ func TestRunSkill_AutoOptimizeInvalidLLMOutputIgnored(t *testing.T) {
 	}
 }
 
-// 设计文档 §9：上下文自动压缩——超出短期窗口的对话摘要存储并注入规划。
-
 func TestRunGoal_ContextAutoCompressInjectedIntoPlanner(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"好的"}}]}`),
 		reflectScript(90, "done", "ok"),
 	})
-	// 短期容量 20：写入 25 轮制造溢出（溢出内容含可检索关键词）
 	for i := 0; i < 25; i++ {
 		f.a.Mem.AddTurn("user", fmt.Sprintf("历史第 %d 轮：记住关键词琥珀%d", i, i))
 	}
@@ -114,11 +108,9 @@ func TestRunGoal_ContextAutoCompressInjectedIntoPlanner(t *testing.T) {
 	}
 	compressed, injected := false, false
 	for _, call := range f.llm.Calls {
-		// 压缩调用：溢出内容作为 user 消息交给压缩器
 		if strings.Contains(call.System, llm.MarkerCompress) && strings.Contains(call.Messages[0].Content, "琥珀") {
 			compressed = true
 		}
-		// 规划调用：摘要注入系统提示词
 		if strings.Contains(call.System, "早期上下文摘要") && strings.Contains(call.System, "琥珀") {
 			injected = true
 		}

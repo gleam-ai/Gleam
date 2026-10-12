@@ -18,26 +18,22 @@ func openStore(t *testing.T) (*Store, string) {
 	return s, dataDir
 }
 
-// TestSpaceIDTraversalCannotEscapeStore 复刻 2026-09-24 接口走查实测：
-// 用 Windows 分隔符 / 保留名把 id 拼成 spaces 目录之外的路径去删、去读。
-// 存储层必须一律 ErrInvalidID，且目录外的文件毫发无损。
 func TestSpaceIDTraversalCannotEscapeStore(t *testing.T) {
 	s, dataDir := openStore(t)
 	mark := filepath.Join(dataDir, "mark.json")
 	if err := os.WriteFile(mark, []byte(`{"id":"default","name":"外部文件"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// state 是激活态保留文件，不能被当成空间删掉
 	stateJSON := s.statePath()
 
 	for _, bad := range []string{
-		".." + string(filepath.Separator) + "mark", // ..\mark
-		"../mark", // ../mark
+		".." + string(filepath.Separator) + "mark",
+		"../mark",
 		"..\\..\\etc\\passwd",
-		"state",       // 保留名（会命中 spaces/state.json）
-		"state.json",  // 保留名的另一写法
-		"default ",    // 尾空格
-		"sp_zzzzzzzz", // 形态不符
+		"state",
+		"state.json",
+		"default ",
+		"sp_zzzzzzzz",
 	} {
 		if err := s.Delete(bad); !errors.Is(err, ErrInvalidID) {
 			t.Errorf("Delete(%q) = %v，应为 ErrInvalidID", bad, err)
@@ -63,7 +59,6 @@ func TestSpaceIDTraversalCannotEscapeStore(t *testing.T) {
 	}
 }
 
-// TestSpaceNotFoundVsInvalid 合法形态但不存在的 id 报 ErrNotFound（供处理器回 404）。
 func TestSpaceNotFoundVsInvalid(t *testing.T) {
 	s, _ := openStore(t)
 	if _, err := s.Get("sp_000000000000"); !errors.Is(err, ErrNotFound) {
@@ -74,7 +69,6 @@ func TestSpaceNotFoundVsInvalid(t *testing.T) {
 	}
 }
 
-// TestSpaceNormalRoundTrip 正常路径仍可读写，且落盘是原子的（不留 .tmp 半截文件）。
 func TestSpaceNormalRoundTrip(t *testing.T) {
 	s, dataDir := openStore(t)
 	sp, err := s.Create("测试空间", "")

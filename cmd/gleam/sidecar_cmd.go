@@ -18,28 +18,16 @@ import (
 	"gleam/internal/webui"
 )
 
-// sidecarReadyPrefix 是 desktop-sidecar 在 stdout 上打印的就绪行前缀。
-// 桌面壳（Electron 主进程）读到这一行才去探活并加载界面；stdout 上只会有这一行协议输出，
-// 其余日志一律走 stderr。
 const sidecarReadyPrefix = "GLEAM_READY "
 
-// sidecarShutdownGrace 收到关闭指令后留给在途请求的时间；SSE 长连接会先被主动断开。
 const sidecarShutdownGrace = 3 * time.Second
 
-// sidecarReady 就绪行的 JSON 载荷。
 type sidecarReady struct {
 	Addr    string `json:"addr"`
 	PID     int    `json:"pid"`
 	Version string `json:"version"`
 }
 
-// cmdDesktopSidecar 是给桌面壳用的隐藏子命令（不出现在 help 里）。
-//
-// 与 webui 的区别只在生命周期：
-//   - 默认监听 127.0.0.1:0（随机端口），实际地址通过 stdout 就绪行告诉父进程；
-//   - 口令由父进程经 GLEAM_WEBUI_TOKEN 预置（NewServer 已支持），不在任何地方打印；
-//   - stdin 是生命线：父进程关掉 stdin（包括父进程被强杀、管道被内核关闭）即优雅退出，
-//     收到一行 {"cmd":"shutdown"} 也优雅退出。这样桌面壳崩了也不会留下孤儿进程。
 func cmdDesktopSidecar(args []string) error {
 	fs := flag.NewFlagSet("desktop-sidecar", flag.ContinueOnError)
 	configPath := fs.String("config", "", "配置文件路径")
@@ -59,7 +47,6 @@ func cmdDesktopSidecar(args []string) error {
 		fmt.Fprintf(os.Stderr, "[gleam] 警告：未设置 %s，desktop-sidecar 将使用随机口令（桌面壳拿不到它）\n", webui.TokenEnv)
 	}
 
-	// 桌面应用：没选过工作区就停在「不指定工作区」，不用进程 CWD 兜底。
 	rt, err := buildRuntime(*configPath, *workspace, *dataDir, *mockLLM, *mockScript, nil, WithNoDefaultWorkspace(), WithAsyncMCP())
 	if err != nil {
 		return err
@@ -72,16 +59,13 @@ func cmdDesktopSidecar(args []string) error {
 		return err
 	}
 	srv := webui.NewServer(rt.agent)
-	// 口令已被 NewServer 读走；从环境里抹掉，免得被工具 / MCP 子进程继承下去。
 	_ = os.Unsetenv(webui.TokenEnv)
 	srv.BindAddr = ln.Addr().String()
 	announceToken(srv)
-	// MCP 连接放到就绪之后：慢的 MCP（npx 拉 Node 实测 ~2.2 s）不该挡住「已经能用」。
 	go rt.startMCP()
 	return runSidecar(srv.Handler(), ln, os.Stdin, os.Stdout)
 }
 
-// isLoopbackListenAddr 判断监听地址是否落在回环上（host 为空即 0.0.0.0，不算）。
 func isLoopbackListenAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -94,11 +78,7 @@ func isLoopbackListenAddr(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// runSidecar 在 ln 上提供 h，打印就绪行，然后一直跑到 stdin 关闭或收到 shutdown 指令。
-// 拆出来是为了测试：真实入口传 os.Stdin / os.Stdout。
 func runSidecar(h http.Handler, ln net.Listener, stdin io.Reader, stdout io.Writer) error {
-	// 所有请求的 context 都派生自 baseCtx：关闭时先 cancel 它，SSE 之类的长连接立刻收尾，
-	// Shutdown 就不用干等它们超时。
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()
 	httpServer := &http.Server{
@@ -112,7 +92,6 @@ func runSidecar(h http.Handler, ln net.Listener, stdin io.Reader, stdout io.Writ
 
 	ready, _ := json.Marshal(sidecarReady{Addr: ln.Addr().String(), PID: os.Getpid(), Version: version})
 	if _, err := fmt.Fprintf(stdout, "%s%s\n", sidecarReadyPrefix, ready); err != nil {
-		// 父进程连 stdout 都不收了，没有继续跑的意义。
 		cancelBase()
 		_ = httpServer.Close()
 		return fmt.Errorf("写就绪行失败: %w", err)

@@ -1,10 +1,8 @@
-// Package skill 实现技能系统：
-// 技能 = 一组工具调用步骤 + 参数占位符，以 YAML 存储在数据目录 skills/ 下；
-// 支持"执行 → 固化 → 一键复用"闭环与版本化统计（运行次数/成功率）。
 package skill
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,28 +16,23 @@ import (
 	"gleam/pkg/types"
 )
 
-// Skill 技能定义。
 type Skill struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
 	Version     int          `json:"version"`
-	Params      []string     `json:"params,omitempty"` // 声明的参数名（步骤中用 {{name}} 引用）
+	Params      []string     `json:"params,omitempty"`
 	Steps       []types.Step `json:"steps"`
 	Runs        int          `json:"runs"`
 	Successes   int          `json:"successes"`
 	LastUsed    *time.Time   `json:"last_used,omitempty"`
-	// Disabled 停用：留在库里、保留参数与统计，但不出现在技能清单里，也不能被运行。
-	// 与「删除」的区别同 MCP：用户临时想让它别挡路时，不该把内容一起丢掉。
-	Disabled bool `json:"disabled,omitempty"`
+	Disabled    bool         `json:"disabled,omitempty"`
 }
 
-// Store 技能库。
 type Store struct {
 	mu  sync.Mutex
 	dir string
 }
 
-// Open 打开技能库（目录不存在则创建）。
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -49,7 +42,6 @@ func Open(dir string) (*Store, error) {
 
 var nameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-\p{Han}]{1,64}$`)
 
-// Validate 校验技能定义。
 func (s *Skill) Validate() error {
 	if !nameRe.MatchString(s.Name) {
 		return fmt.Errorf("技能名 %q 非法（仅限字母数字下划线连字符与中文，≤64 字符）", s.Name)
@@ -74,7 +66,6 @@ func (s *Skill) Validate() error {
 	return nil
 }
 
-// Save 保存技能；已存在则版本号 +1（版本化）。
 func (st *Store) Save(s Skill) (int, error) {
 	if err := s.Validate(); err != nil {
 		return 0, err
@@ -87,7 +78,7 @@ func (st *Store) Save(s Skill) (int, error) {
 		s.Runs = existing.Runs
 		s.Successes = existing.Successes
 		s.LastUsed = existing.LastUsed
-		s.Disabled = existing.Disabled // 停用是用户的判断，一次重新保存不该把它抹掉（要恢复请用启停）
+		s.Disabled = existing.Disabled
 	} else {
 		s.Version = 1
 	}
@@ -97,10 +88,6 @@ func (st *Store) Save(s Skill) (int, error) {
 	return s.Version, nil
 }
 
-// writeLocked 原子写入技能文件。调用方须持有 mu。
-//
-// 为什么强调原子：技能文件是用户攒下来的做法，写一半被断电或进程被杀，下次 List
-// 直接解析失败——那条技能就没了。所有写入口都走这里。
 func (st *Store) writeLocked(s Skill) error {
 	data, err := marshalSkill(s)
 	if err != nil {
@@ -109,7 +96,6 @@ func (st *Store) writeLocked(s Skill) error {
 	return atomicfile.Write(st.pathFor(s.Name), data, 0o644)
 }
 
-// Get 读取技能。
 func (st *Store) Get(name string) (*Skill, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -130,7 +116,6 @@ func (st *Store) loadLocked(name string) (*Skill, error) {
 	return unmarshalSkill(data)
 }
 
-// Delete 删除技能。
 func (st *Store) Delete(name string) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -144,7 +129,6 @@ func (st *Store) Delete(name string) error {
 	return os.Remove(path)
 }
 
-// List 列出全部技能。
 func (st *Store) List() []Skill {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -166,8 +150,6 @@ func (st *Store) List() []Skill {
 	return out
 }
 
-// RecordRun 记录一次运行结果（成功/失败统计）。返回错误而不是吞掉：
-// 统计写不进去，等级公式与技能卡片上的成功率就在说谎，而用户没有任何办法发现。
 func (st *Store) RecordRun(name string, ok bool) error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -181,11 +163,9 @@ func (st *Store) RecordRun(name string, ok bool) error {
 	}
 	now := time.Now()
 	s.LastUsed = &now
-	// 仅更新统计字段，版本号保持不变（版本只在 Save 时递增）
 	return st.writeLocked(*s)
 }
 
-// SetDisabled 停用 / 启用技能：只改这一个字段，其余原样保留，返回更新后的技能。
 func (st *Store) SetDisabled(name string, disabled bool) (Skill, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -203,8 +183,6 @@ func (st *Store) SetDisabled(name string, disabled bool) (Skill, error) {
 	return *s, nil
 }
 
-// ListSummaries 返回摘要（供 std 工具适配）。停用的技能不在其中：
-// 这条清单会进规划上下文，列一个跑不了的技能，模型就会去调它然后拿到一句拒绝。
 func (st *Store) ListSummaries() []struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -235,7 +213,6 @@ func (st *Store) ListSummaries() []struct {
 	return out
 }
 
-// GetParams 返回技能声明的参数名。
 func (st *Store) GetParams(name string) ([]string, error) {
 	s, err := st.Get(name)
 	if err != nil {
@@ -247,8 +224,6 @@ func (st *Store) GetParams(name string) ([]string, error) {
 func (st *Store) pathFor(name string) string {
 	return filepath.Join(st.dir, name+".yaml")
 }
-
-// ---------- YAML 序列化（复用自研 YAML 子集） ----------
 
 func marshalSkill(s Skill) ([]byte, error) {
 	root := config.NewYMap()
@@ -292,7 +267,6 @@ func marshalSkill(s Skill) ([]byte, error) {
 	return config.MarshalYAML(root)
 }
 
-// toYValue 递归转换任意 JSON 值为 YAML 可序列化结构。
 func toYValue(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
@@ -379,20 +353,34 @@ func asStr(v any) string {
 	return s
 }
 
+// asInt narrows a decoded JSON number to int. Values arrive from skill argument
+// files, so out-of-range input must degrade to the zero value instead of
+// wrapping around when the target int is narrower than the source.
 func asInt(v any) int {
 	switch t := v.(type) {
-	case int64:
-		return int(t)
 	case int:
 		return t
-	case float64:
+	case int64:
+		if t < math.MinInt || t > math.MaxInt {
+			return 0
+		}
 		return int(t)
+	case float64:
+		// Bound the float first: 2^63 is the first value float64 cannot round
+		// back into an int64, so comparing against that exact limit keeps the
+		// narrowing below well defined.
+		if math.IsNaN(t) || t < math.MinInt64 || t >= math.MaxInt64 {
+			return 0
+		}
+		n := int64(t)
+		if n < math.MinInt || n > math.MaxInt {
+			return 0
+		}
+		return int(n)
 	}
 	return 0
 }
 
-// SubstituteParams 将步骤参数中的 {{name}} 占位符替换为实际参数值。
-// 返回新 map，不改原参数。
 func SubstituteParams(args map[string]any, params map[string]string) (map[string]any, error) {
 	if len(args) == 0 {
 		return args, nil
@@ -413,7 +401,6 @@ var phRe = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_\-]+)\s*\}\}`)
 func substValue(v any, params map[string]string, missing *[]string) any {
 	switch t := v.(type) {
 	case string:
-		// 整串恰为一个占位符 → 原样替换（保留类型）
 		if m := phRe.FindStringSubmatch(t); m != nil && m[0] == t {
 			if val, ok := params[m[1]]; ok {
 				return val

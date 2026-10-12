@@ -1,9 +1,3 @@
-// GEO（生成式引擎优化）：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 里的 $ / api / toast / el / esc / prioKey / prioLabel，所以必须排在 app.js 之后。
-// app.js 的 VIEW_LOADERS 用 `geo: () => loadGEO()` 惰性引用——本文件在后、函数在前，
-// 写成 `geo: loadGEO` 会在 app.js 解析期就去找一个还不存在的函数。
-/* ---------- GEO（生成式引擎优化） ---------- */
 let geoSwitchBound = false;
 
 async function loadGEO() {
@@ -34,9 +28,7 @@ async function loadGEO() {
       }
     }
     renderGEOList(data.records || []);
-  } catch {
-    /* 静默：GEO 板块不可用不影响主流程 */
-  }
+  } catch {}
 }
 
 function renderGEOStats(stats) {

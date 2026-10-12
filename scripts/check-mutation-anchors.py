@@ -34,7 +34,7 @@ import shutil
 import sys
 import tempfile
 
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 MUTDIR = os.path.join("scripts", "mutation")
 
@@ -62,7 +62,6 @@ def load_batches(root):
         )
         return None
 
-    # 批次脚本自己会 import _utf8（在 scripts/）与 _harness（在 scripts/mutation/）
     sys.path.insert(0, os.path.abspath(os.path.join(root, "scripts")))
     sys.path.insert(0, os.path.abspath(d))
     sys.path.insert(
@@ -77,9 +76,7 @@ def load_batches(root):
         mod = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(mod)
-        except (
-            Exception
-        ) as e:  # 导入不了 = 这批从来没跑过，比锚点失配更早一步坏掉
+        except Exception as e:
             print("%s 导入失败：%s" % (n, e))
             return None
         muts = getattr(mod, "MUTATIONS", None)
@@ -102,7 +99,6 @@ def judge(root, batches):
                 for p in preflight(h, [mut]):
                     problems.append("%s → %s" % (label, p))
             except OSError as e:
-                # 目标文件被改名或删掉：变异无处可施，同样是静默失效
                 problems.append(
                     "%s → %s：目标文件读不到（%s）"
                     % (label, mut.get("name", "?"), e)

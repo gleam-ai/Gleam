@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// ---------- 数据出网留痕（P1-3） ----------
-
-// TestWeb_RecordsEgress 抓取前必须留痕：web.fetch 是自动放行的只读工具，
-// 它把请求发到哪个站点，此前没有任何记录——"本地优先"就成了一句无法自证的话。
 func TestWeb_RecordsEgress(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("<html><body>页面正文</body></html>"))
@@ -35,18 +31,13 @@ func TestWeb_RecordsEgress(t *testing.T) {
 	if nbytes == 0 {
 		t.Error("留痕应记下请求字节数")
 	}
-	// 留痕里不能带正文——回调签名就只给了主机名与字节数，
-	// 这条断言是防止以后有人"顺手"把 body 也传进来。
 	if strings.Contains(host, "页面正文") {
 		t.Errorf("留痕不该包含内容：%q", host)
 	}
 }
 
-// TestWeb_BlockedRequestDoesNotRecordEgress 被 SSRF 拦截的请求根本没出网，
-// 不能记成"数据出网"——那是 denied，不是 egress。
-// 两种留痕混在一起，审计就会回答错误的问题（"发给了谁"变成"想发给谁"）。
 func TestWeb_BlockedRequestDoesNotRecordEgress(t *testing.T) {
-	tool := New() // 默认拒绝本机/内网
+	tool := New()
 	called := false
 	tool.OnEgress = func(string, int) { called = true }
 
@@ -58,7 +49,6 @@ func TestWeb_BlockedRequestDoesNotRecordEgress(t *testing.T) {
 	}
 }
 
-// TestWeb_NoHookNoPanic 没装回调时照常工作（审计是旁路，不能成为抓取的前置条件）。
 func TestWeb_NoHookNoPanic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("<html><body>ok</body></html>"))

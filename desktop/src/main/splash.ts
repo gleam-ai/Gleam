@@ -1,16 +1,3 @@
-// 首启的「环境准备中」窗口。
-//
-// 为什么要有这一屏：用户双击之后，中间那段"还在起后端、还在认运行时"如果什么都不显示，
-// 他能看到的只是一个迟迟不出现的窗口——分不清是在忙还是卡死了。
-//
-// 三条刻意的做法：
-//  1. **进度是真的**。每一项的完成都对应一次真实探测（跑 node -v / uv --version / git --version），
-//     不排一个假的动画条。内置运行时是本地文件，探测通常几百毫秒就完——那就该几百毫秒结束。
-//  2. **不拦路**。内置运行时跑不起来时，把原因和"几秒后自动进入"写在屏上，到点自己放行；
-//     Gleam 的核心（对话、任务、文件）不依赖它们，不该被这个检查卡住。
-//  3. **页面里不用 IPC**。app.enableSandbox() 之后渲染进程里 `require` 是不可用的，
-//     一个靠 IPC 的"跳过"按钮在那时就是个死键——那种时候用户被困在启动屏上，比没有按钮更糟。
-//     所以这屏只被主进程单向写入（executeJavaScript），交互交给"到点自动继续"。
 import { BrowserWindow } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,12 +8,9 @@ export interface SplashState {
   status: string;
   items: RuntimeProbe[];
   total: number;
-  /** 大于 0 时页面会显示倒计时，到点自动放行。 */
   holdSeconds: number;
 }
 
-/** 品牌图：打包后用 resources/icon.png，开发态用仓库里那张 128 的。
- *  读不到就退回空框——首启这一屏不该因为少了张图而崩。 */
 function brandDataUrl(): string {
   const candidates = [
     join(process.resourcesPath, 'icon.png'),
@@ -39,8 +23,6 @@ function brandDataUrl(): string {
   return '';
 }
 
-// 这一屏的语言跟着系统区域走（与安装器同一条口径）：用户还没进主界面，
-// 界面里那个语言开关此时还不存在，不能拿它当依据。
 function copy(lang: Lang) {
   return lang === 'zh'
     ? {

@@ -5,11 +5,7 @@ import (
 	"testing"
 )
 
-// 跨平台行为矩阵：三个平台的浏览器候选路径与回退命令序列。
-// macOS 分支无法在无 Mac 真机时执行，但此处把 darwin 的期望行为固化为确定性断言，
-// 配合 GOOS=darwin 的交叉编译与 vet，构成 mac 端可做的最强静态+逻辑验证。
 func TestPlatformBrowserMatrix(t *testing.T) {
-	// ---------- darwin ----------
 	paths := browserPathsFor("darwin")
 	joined := strings.Join(paths, "\n")
 	for _, want := range []string{
@@ -45,10 +41,6 @@ func TestPlatformBrowserMatrix(t *testing.T) {
 		t.Errorf("darwin 最终回退应为 open url: %v", last)
 	}
 
-	// ---------- windows ----------
-	// 候选顺序依赖 ProgramFiles / ProgramFiles(x86) 环境变量。精简环境（CI 容器、
-	// 某些终端沙箱）里这两个变量可能为空，届时 Edge 候选会整个消失、Chrome 变成首项，
-	// 断言就假红。所以显式注入，让这条断言只测「顺序契约」本身。
 	t.Setenv("ProgramFiles", `C:\PF`)
 	t.Setenv("ProgramFiles(x86)", `C:\PF86`)
 	t.Setenv("LocalAppData", `C:\LAD`)
@@ -60,8 +52,6 @@ func TestPlatformBrowserMatrix(t *testing.T) {
 	if !strings.Contains(strings.Join(wp, "\n"), `C:\PF86\Microsoft\Edge\Application\msedge.exe`) {
 		t.Errorf("未按 ProgramFiles(x86) 生成 Edge 候选: %v", wp)
 	}
-	// 契约：Edge 全部排在 Chrome 之前——优先用系统自带的 Edge，
-	// 用户没装 Chrome 也要能开出窗口；Chrome 只作兜底。
 	firstChrome := -1
 	for i, p := range wp {
 		if strings.HasSuffix(p, "chrome.exe") {
@@ -83,7 +73,6 @@ func TestPlatformBrowserMatrix(t *testing.T) {
 		t.Errorf("windows 回退 = %v", wfb)
 	}
 
-	// ---------- linux ----------
 	if lp := browserPathsFor("linux"); len(lp) == 0 || lp[0] != "/usr/bin/google-chrome" {
 		t.Errorf("linux 候选 = %v", lp)
 	}

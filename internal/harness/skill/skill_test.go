@@ -97,9 +97,6 @@ func TestStore_RecordRun(t *testing.T) {
 	}
 }
 
-// TestStore_DisabledSurvivesReloadAndSave 「停用」要成立，得同时满足三件事：
-// 落盘（重启后还停着）、被 Save 尊重（自动优化与市场重装都会重写这个文件）、
-// 从进规划上下文的那份清单里消失。少任何一件，界面显示的都是一句假话。
 func TestStore_DisabledSurvivesReloadAndSave(t *testing.T) {
 	st := newTestStore(t)
 	st.Save(sampleSkill())
@@ -114,7 +111,7 @@ func TestStore_DisabledSurvivesReloadAndSave(t *testing.T) {
 		t.Fatal("SetDisabled 返回的状态没带上停用")
 	}
 
-	reopened, err := Open(st.dir) // 等价于重启进程：只认磁盘上的 YAML
+	reopened, err := Open(st.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +149,6 @@ func TestStore_DisabledSurvivesReloadAndSave(t *testing.T) {
 	if n := len(reopened.ListSummaries()); n != 1 {
 		t.Errorf("启用后应回到清单，得到 %d 条", n)
 	}
-	// 停用一个不存在的技能要报错，而不是悄悄建一个空文件
 	if _, err := reopened.SetDisabled("no-such", true); err == nil {
 		t.Error("不存在的技能应报错")
 	}
@@ -219,24 +215,19 @@ func TestSubstituteParams(t *testing.T) {
 	if got["whole"] != "D:/ws" {
 		t.Errorf("整值替换失败: %v", got["whole"])
 	}
-	// 原参数不被修改
 	if args["path"] != "{{dir}}/out.txt" {
 		t.Error("不应修改原参数")
 	}
-	// 缺失参数
 	if _, err := SubstituteParams(map[string]any{"a": "{{missing}}"}, nil); err == nil {
 		t.Error("缺失参数应报错")
 	}
 }
-
-// ---------- 技能执行（经由 RunSkill 的工具级验证在 agent 包测试） ----------
 
 type countingTool struct {
 	registry.Registry
 }
 
 func TestSkillRunnerWiring(t *testing.T) {
-	// 占位：RunSkill 的行为在 internal/agent/agent_test.go 中覆盖
 	ctx := context.Background()
 	_ = ctx
 }

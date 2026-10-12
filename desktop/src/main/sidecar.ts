@@ -1,8 +1,3 @@
-// Go sidecar lifecycle: spawn -> wait for the GLEAM_READY line -> probe /api/info -> run -> stop.
-//
-// Orphan prevention does not depend on this process getting a chance to clean up:
-// the sidecar exits on its own when its stdin closes, and the kernel closes that pipe
-// when this process dies for any reason (including SIGKILL / a crash).
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -16,7 +11,6 @@ export interface SidecarSpec {
   bin: string;
   args: string[];
   cwd: string;
-  /** 额外要放进 PATH 前面的目录（内置运行时）。空表示不接。 */
   extraPath?: string[];
 }
 
@@ -27,7 +21,6 @@ export interface SidecarReady {
 }
 
 export class Sidecar extends EventEmitter {
-  /** Per-launch API token. Handed to the child via GLEAM_WEBUI_TOKEN; never logged. */
   readonly token = randomBytes(32).toString('base64url');
   ready: SidecarReady | null = null;
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -55,19 +48,15 @@ export class Sidecar extends EventEmitter {
       ...process.env,
       GLEAM_WEBUI_TOKEN: this.token,
     };
-    // 内置运行时只接进**这一棵进程树**：sidecar 自己起的 shell.exec / MCP 子进程能用到
-    // npx / uvx，而用户自己的终端里不会凭空多出这几条路径。
     if (this.spec.extraPath?.length) {
       env.PATH = pathWithRuntimes(env.PATH, this.spec.extraPath);
     }
-    // Electron-only variables must not leak into the Go process or anything it spawns.
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(this.spec.bin, ['desktop-sidecar', ...this.spec.args], {
       cwd: this.spec.cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      // POSIX: own process group, so a forced stop can take down anything the sidecar spawned.
       detached: process.platform !== 'win32',
     });
     this.child = child;
@@ -78,7 +67,6 @@ export class Sidecar extends EventEmitter {
       for (const line of d.split('\n'))
         if (line.trim()) console.log(`[sidecar] ${line}`);
     });
-    // Writing to a dead child's stdin must not crash the main process.
     child.stdin.on('error', () => {});
 
     return new Promise<SidecarReady>((resolve, reject) => {
@@ -131,7 +119,6 @@ export class Sidecar extends EventEmitter {
     });
   }
 
-  /** The ready line only says "listening"; one authenticated request proves it is our server and the token works. */
   private async probe(addr: string): Promise<void> {
     const res = await fetch(`http://${addr}/api/info`, {
       headers: { [TOKEN_HEADER]: this.token },
@@ -142,7 +129,6 @@ export class Sidecar extends EventEmitter {
     await res.arrayBuffer();
   }
 
-  /** Graceful stop: shutdown command + stdin EOF, then a hard kill if it is still alive after graceMs. */
   async stop(graceMs = 5_000): Promise<'graceful' | 'killed' | 'not-running'> {
     const child = this.child;
     if (!child || !this.running) return 'not-running';
@@ -150,9 +136,7 @@ export class Sidecar extends EventEmitter {
     try {
       child.stdin.write('{"cmd":"shutdown"}\n');
       child.stdin.end();
-    } catch {
-      /* already closed */
-    }
+    } catch {}
     const timedOut = await Promise.race([
       this.exited.then(() => false),
       new Promise<boolean>((r) => setTimeout(() => r(true), graceMs)),
@@ -167,7 +151,6 @@ export class Sidecar extends EventEmitter {
     const child = this.child;
     if (!child || child.pid === undefined || !this.running) return;
     if (process.platform === 'win32') {
-      // /T takes the whole tree. Phase 1 replaces this with a Job Object (kill-on-close).
       spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
         windowsHide: true,
         stdio: 'ignore',

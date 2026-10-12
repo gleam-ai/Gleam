@@ -1,18 +1,3 @@
-// Package git 提供 Gleam 自己的 git 动作：建分支 / 提交 / 推送。
-//
-// 为什么不让模型自己拼 shell 命令：这三件事各有一条**必须稳定**的规矩——分支要带前缀、
-// 推送要用 --force-with-lease、提交说明要按用户写下的写法要求。交给模型自由发挥，
-// 规矩就是时有时无；做成工具，规矩留在代码里，模型只填变量那部分。
-//
-// 两条安全边界：
-//  1. **不走 shell**：参数一律作为 argv 传给 git，不做字符串拼接。所以提交说明里带
-//     `$(...)` 也只是一段普通文本，不存在命令注入。
-//  2. **只认工作区里的仓库**：cwd 走与文件工具同一套 ResolveInRoots。
-//     权限仍由门控逐条裁决（推送是写远端，最重）。
-//
-// 环境变量**不过滤**：git 正是那个合法需要凭证的进程（SSH agent、credential helper），
-// 把它自己的凭证从它手里拿走，等于让推送永远失败。这与 shell.exec 的取舍不同——
-// 那边模型能借环境读到凭证，这边不能。
 package git
 
 import (
@@ -27,25 +12,17 @@ import (
 	"gleam/pkg/types"
 )
 
-// Config 三个用户偏好 + 工作区边界。零值可用（前缀空 = 不加）。
 type Config struct {
-	BranchPrefix       string   // 由 Gleam 创建的分支统一加这个前缀
-	ForcePush          bool     // 推送时用 --force-with-lease
-	CommitInstructions string   // 生成提交说明时的写法要求（注入任务指引，不在这里拼）
-	Roots              []string // 允许操作的工作区根
+	BranchPrefix       string
+	ForcePush          bool
+	CommitInstructions string
+	Roots              []string
 }
 
-// Provider 每次动作时现取配置。不缓存快照：分支前缀、强制推送这些开关
-// 用户改完应当下一次动作就生效，而不是等重启。
 type Provider func() Config
 
 const defaultTimeout = 60 * time.Second
 
-// Run 执行一条 git 命令。参数是分离的 argv，永不经过 shell。
-//
-// 导出是给 worktree 用的：建/删 worktree 也是"以 argv 调 git"这同一件事。
-// 两边各写一份 run，超时、错误携带、stdout/stderr 的取舍迟早会漂开——
-// 而漂开的地方正是排障时最需要一致的地方。
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
@@ -60,7 +37,6 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		// 把 stdout 也带上：git 有些失败只把话说在标准输出里
 		if out != "" {
 			msg = out + "\n" + msg
 		}
@@ -69,16 +45,10 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	return out, nil
 }
 
-// run 这一层保留：Config 上的动作都从它走，调用点不必每处都写包名。
 func (c Config) run(ctx context.Context, dir string, args ...string) (string, error) {
 	return Run(ctx, dir, args...)
 }
 
-// resolveDir 把工作目录收敛到工作区内。
-//
-// 边界优先取 ctx 里那份（本次任务的边界，例如它自己的 worktree），没有才回落构造时的 Roots；
-// 取第一个根时先判空：Roots 空着而 ctx 也没给边界，应当报「没有工作区」，
-// 原来那句 c.Roots[0] 会在这种情形下直接 panic——桌面端没选工作区时就是这条路径。
 func (c Config) resolveDir(ctx context.Context, raw string) (string, error) {
 	roots := toolutil.RootsFrom(ctx, c.Roots)
 	base := strings.TrimSpace(raw)
@@ -95,7 +65,6 @@ func (c Config) resolveDir(ctx context.Context, raw string) (string, error) {
 	return dir, nil
 }
 
-// isRepo 判定目录是不是 git 仓库根或其下（git 自己会往上找）。
 func (c Config) isRepo(ctx context.Context, dir string) error {
 	if _, err := c.run(ctx, dir, "rev-parse", "--git-dir"); err != nil {
 		return fmt.Errorf("%s 不在 git 仓库里：%v", dir, err)
@@ -103,10 +72,6 @@ func (c Config) isRepo(ctx context.Context, dir string) error {
 	return nil
 }
 
-// ValidRefName 拦掉注定失败、或会被 git 当成选项的名字。
-// 允许中文与常见符号（git 支持），只挡住空白、控制字符、前导 - 与 git 明确禁止的字符。
-//
-// 导出是给 worktree 用的：它要拿任务 ID 现拼一条分支名，判据必须是同一份。
 func ValidRefName(name string) bool {
 	if name == "" || strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") {
 		return false
@@ -123,7 +88,6 @@ func ValidRefName(name string) bool {
 	return !strings.Contains(name, "..") && !strings.HasSuffix(name, "/")
 }
 
-// withPrefix 给分支名加上配置的前缀。已经有了就不重复加。
 func (c Config) withPrefix(name string) string {
 	p := strings.TrimSpace(c.BranchPrefix)
 	if p == "" || strings.HasPrefix(name, p) {
@@ -131,8 +95,6 @@ func (c Config) withPrefix(name string) string {
 	}
 	return p + name
 }
-
-// ---------- git.branch ----------
 
 type branchTool struct{ p Provider }
 
@@ -174,7 +136,6 @@ func (t *branchTool) Execute(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("起点 %q 不合法", from)
 	}
 
-	// 已存在就切过去，不 -B：-B 会把那条分支上的提交抹掉，那是破坏性的
 	if _, err := c.run(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+name); err == nil {
 		if _, err := c.run(ctx, dir, "checkout", name); err != nil {
 			return nil, err
@@ -190,8 +151,6 @@ func (t *branchTool) Execute(ctx context.Context, args map[string]any) (any, err
 	}
 	return map[string]any{"branch": name, "created": true, "switched": true, "from": from}, nil
 }
-
-// ---------- git.commit ----------
 
 type commitTool struct{ p Provider }
 
@@ -237,13 +196,11 @@ func (t *commitTool) Execute(ctx context.Context, args map[string]any) (any, err
 	}
 	addArgv := []string{"add", "-A"}
 	if len(paths) > 0 {
-		// 显式列出路径：git 把 -- 之后的都当路径，模型传 "-x" 也只会被当成路径名（然后报错）
 		addArgv = append([]string{"add", "--"}, paths...)
 	}
 	if _, err := c.run(ctx, dir, addArgv...); err != nil {
 		return nil, err
 	}
-	// 没有暂存内容时给一句人话，而不是把 git 的退出码原样抛出去
 	if out, err := c.run(ctx, dir, "diff", "--cached", "--name-only"); err == nil && strings.TrimSpace(out) == "" {
 		return map[string]any{"committed": false, "reason": "没有已暂存的改动，无需提交"}, nil
 	}
@@ -253,8 +210,6 @@ func (t *commitTool) Execute(ctx context.Context, args map[string]any) (any, err
 	sha, _ := c.run(ctx, dir, "rev-parse", "--short", "HEAD")
 	return map[string]any{"committed": true, "commit": sha}, nil
 }
-
-// ---------- git.push ----------
 
 type pushTool struct{ p Provider }
 

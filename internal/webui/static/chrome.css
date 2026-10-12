@@ -19,7 +19,7 @@ html[data-sidebar="collapsed"] .app {
   grid-column: 2;
   grid-row: 2;
 }
-.aux {
+.side-panel {
   grid-column: 3;
   grid-row: 2 / 4;
 }
@@ -35,7 +35,7 @@ html[data-sidebar="collapsed"] .app {
   .app {
     grid-template-columns: 0 minmax(0, 1fr) auto 0;
   }
-  .aux {
+  .side-panel {
     display: none !important;
   }
 }
@@ -242,133 +242,6 @@ html[data-theme="dark"] .chrome-tip {
 }
 html[data-theme="dark"] .chrome-tip .tip-key {
   color: rgba(26 27 25 / 0.6);
-}
-
-/* ---------- 右侧栏 ---------- */
-.aux {
-  /* --aux-w 由拖宽热区写入；没拖过就按这个 clamp 自适应 */
-  width: var(--aux-w, clamp(300px, 34vw, 460px));
-  min-height: 0;
-  box-sizing: border-box;
-  margin: 0 4px 4px 0;
-  border: 1px solid var(--line);
-  border-radius: var(--row-r);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  position: relative;
-  background:
-    radial-gradient(
-      circle at 50% 50%,
-      color-mix(in srgb, var(--accent-fill) 26%, transparent) 0,
-      color-mix(in srgb, var(--accent-fill) 9%, transparent) 30%,
-      transparent 60%
-    ),
-    radial-gradient(rgba(var(--ink-rgb, 0 0 0) / 0.1) 1px, transparent 1.2px) 0
-      0 / 9px 9px,
-    var(--panel);
-}
-/* 贴着主区那一侧不留边、不留圆角：分隔线只由主面板的右边框出，跟左侧栏那边一样是一条线 */
-.aux {
-  border-left: 0;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-.aux-resize {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 9px;
-  z-index: 2;
-  cursor: col-resize;
-  background: transparent;
-}
-.aux-resize::before {
-  content: "";
-  position: absolute;
-  left: 1px;
-  width: 7px;
-  height: 180px;
-  top: 0;
-  transform: translateY(calc(var(--drag-y, 0px) - 90px));
-  background: radial-gradient(
-    closest-side,
-    rgba(var(--accent-rgb) / 0.55),
-    rgba(var(--accent-rgb) / 0) 100%
-  );
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 160ms var(--ease-out);
-}
-.aux-resize.is-dragging::before {
-  opacity: 1;
-}
-.aux-resize:focus-visible {
-  outline: none;
-  background: rgba(var(--accent-rgb) / 0.18);
-}
-.aux[hidden] {
-  display: none;
-}
-.aux-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: min(220px, 80%);
-}
-.aux-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: 50px;
-  padding: 0 10px;
-  border: 1px solid var(--surface-line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--color-fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0 0 0 / 0.04);
-  transition:
-    border-color var(--dur-fast),
-    transform var(--dur-fast);
-}
-.aux-card:hover:not(:disabled) {
-  border-color: rgba(var(--accent-rgb) / 0.45);
-  transform: translateY(-1px);
-}
-.aux-card:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-.aux-ico {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  background: var(--hover);
-  color: var(--color-fg-muted);
-}
-.aux-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.aux-text strong {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.aux-text small {
-  font-size: 10.5px;
-  color: var(--color-fg-faint);
-  letter-spacing: 0.02em;
 }
 
 /* ---------- 终端 ---------- */

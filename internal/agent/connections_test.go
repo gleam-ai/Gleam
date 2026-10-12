@@ -22,15 +22,6 @@ func rowByID(led ConnectionLedger, id string) (ConnectionRow, bool) {
 	return ConnectionRow{}, false
 }
 
-// TestConnections_EveryEgressKindHasARow 出网清单与台账行**双向**对上。
-//
-// 这是这道判据唯一有意义的形状：单向只挡一半。
-//   - 清单里有、台账没画 → 那条出网路径在界面上不存在，"连了而没交代"就是这么发生的；
-//   - 台账画了、清单里没有 → 这一行没有对应的留痕落点，读数永远空白，
-//     而读者分不清"没有记录"和"这行不归我管"。
-//
-// 闸门 scripts/check-egress-owner.py 只能读源码，判不出"这一行今天到底画没画出来"
-// （函数可能压根没被调用），所以这条必须在运行时判。
 func TestConnections_EveryEgressKindHasARow(t *testing.T) {
 	f := newFixture(t, nil)
 	led := f.a.ConnectionView("127.0.0.1:8787", false)
@@ -63,12 +54,6 @@ func TestConnections_EveryEgressKindHasARow(t *testing.T) {
 	}
 }
 
-// TestConnections_NoRowHasAnEmptyCell 每格都得有话，空白在这张表里是一种说谎。
-//
-// 台账的承诺是"每一行都交代了通到哪/谁能触发/留痕在哪/想关动哪里"。少一格不是"信息不足"，
-// 而是读者会拿自己脑补的那版补上——本地优先的产品最不该把补白交给用户想象。
-// 另外：**关键动作没留痕的行必须在 Trace 里把自己说成没留痕**，否则 Untraced 只是个布尔值，
-// 界面渲染错了也没人知道。
 func TestConnections_NoRowHasAnEmptyCell(t *testing.T) {
 	f := newFixture(t, nil)
 	for _, bind := range []string{"", "127.0.0.1:8787", "0.0.0.0:8787"} {
@@ -92,10 +77,6 @@ func TestConnections_NoRowHasAnEmptyCell(t *testing.T) {
 	}
 }
 
-// TestConnections_InboundRowFollowsRealBindAddr 本机服务这一行只画真实监听地址。
-//
-// 默认 fixture 不传地址 → 这一行**不出现**（不是"猜一个回环给自己壮胆"）；
-// 传非回环地址 → 状态与警示都必须改口：口令挡得住网页，挡不住明文链路上的旁听，风险由绑定地址决定。
 func TestConnections_InboundRowFollowsRealBindAddr(t *testing.T) {
 	f := newFixture(t, nil)
 
@@ -123,11 +104,6 @@ func TestConnections_InboundRowFollowsRealBindAddr(t *testing.T) {
 	}
 }
 
-// TestConnections_LlmRowHostComesFromKeyScope 模型行的主机必须等于密钥绑定的那把尺。
-//
-// 两处各算一遍主机名就会漂：密钥说"只发往 A"，台账写"B"，用户读到的是两份互相矛盾的
-// 安全承诺。这里断的是**相等**，不是"非空"。
-// 顺带断另一半：留痕里出现过别的主机时，这一行必须把话挑明（换厂商后旧接入仍在发过包）。
 func TestConnections_LlmRowTargetMatchesKeyScope(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.LLM.Provider = "glm"
@@ -151,7 +127,6 @@ func TestConnections_LlmRowTargetMatchesKeyScope(t *testing.T) {
 		t.Errorf("这一行的重点是把提示词全文发出去：%q", r.Leaves)
 	}
 
-	// 留痕里有第三个主机：说明发包时的接入地址与设置页现在写的不是同一个。
 	f.a.Gate.RecordEgress("llm", "old.vendor.com", 2048)
 	r2, _ := rowByID(f.a.ConnectionView("", false), "llm")
 	if !strings.Contains(r2.Alert, "old.vendor.com") {
@@ -162,9 +137,8 @@ func TestConnections_LlmRowTargetMatchesKeyScope(t *testing.T) {
 	}
 }
 
-// TestConnections_MockModelSaysTheLineCannotSend 模拟模型下不许写得像真在发包。
 func TestConnections_MockModelSaysTheLineCannotSend(t *testing.T) {
-	f := newFixture(t, nil) // fixture 默认 provider = mock
+	f := newFixture(t, nil)
 	r, ok := rowByID(f.a.ConnectionView("", false), "llm")
 	if !ok {
 		t.Fatal("缺模型行")
@@ -174,8 +148,6 @@ func TestConnections_MockModelSaysTheLineCannotSend(t *testing.T) {
 	}
 }
 
-// TestConnections_WebFetchStatusComesFromGate 抓取这一行的重点是"要不要你点头"，
-// 而这件事归门控判，不归台账文案自己感觉——所以两条分支都要能从权限里读出来。
 func TestConnections_WebFetchStatusComesFromGate(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Reg.MustRegister(&funcTool{name: "web.fetch", perm: types.PermissionReadOnly,
@@ -189,7 +161,6 @@ func TestConnections_WebFetchStatusComesFromGate(t *testing.T) {
 		t.Errorf("这一行的关键是网址由模型自己挑，不是用户配的：%q", r.Target)
 	}
 
-	// 收紧成"每次问你"后，界面必须跟着改口——判据来自门控，不是写死的文案。
 	f.a.Gate.SetToolPermission("web.fetch", types.PermissionUserApproved)
 	r2, _ := rowByID(f.a.ConnectionView("", false), "web.fetch")
 	if !strings.Contains(r2.Status, "每次问你") {
@@ -203,13 +174,9 @@ func TestConnections_WebFetchStatusComesFromGate(t *testing.T) {
 	}
 }
 
-// TestConnections_CloudAndFeedbackAbsentWhenUnconfigured 两条可选出网路径：
-// 没配就要说"这条线不存在"，不能留一行看起来"随时会发"的空壳。
-// 判定与凭证层同一把尺（地址+key 两件齐才算配好），否则"已配置"就是说谎。
 func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 	f := newFixture(t, nil)
 
-	// ① 凭证存储都没装配
 	for _, id := range []string{"cloud", "feedback"} {
 		r, ok := rowByID(f.a.ConnectionView("", false), id)
 		if !ok {
@@ -226,7 +193,6 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 	}
 	f.a.Creds = cred
 
-	// ② 有存储但没填项目地址
 	cloud, _ := rowByID(f.a.ConnectionView("", false), "cloud")
 	if !strings.Contains(cloud.Status, "未配置") {
 		t.Errorf("没配项目地址应说未配置：%q", cloud.Status)
@@ -236,7 +202,6 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 		t.Errorf("反馈没配远端应说只落本机：%q", fb.Status)
 	}
 
-	// ③ 只填地址不填 key：请求一定 401，这一行不许说"已配置"
 	if err := cred.SetCloudConfig(credentials.CloudConfig{SupabaseURL: "https://proj.supabase.co"}); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +210,6 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 		t.Errorf("缺 anon key 不该算配好：%q", half.Status)
 	}
 
-	// ④ 两件都齐：目标取 KeyScope，与密钥绑定同一把尺
 	if err := cred.SetCloudConfig(credentials.CloudConfig{SupabaseAnonKey: "anon"}); err != nil {
 		t.Fatal(err)
 	}
@@ -255,12 +219,6 @@ func TestConnections_CloudAndFeedbackAbsentWhenUnconfigured(t *testing.T) {
 	}
 }
 
-// TestConnections_EgressScopeTextFollowsScanWindow 读数范围必须跟着读数说清"数了哪些"。
-//
-// 内存环只有最近若干条、重启即清零。只印"N 次 / M 字节"就是把"我不知道"讲成答案。
-// 三种范围三种说法：一条都没有 / 数了本次这些 / **环写满了**（这时"最近 200 条"才是实话，
-// 说成"本次运行的全部"就多报了）。
-// 另一半判据：没开审计落盘时不许指路去查落盘文件——那句指路会把"没记"伪装成"没发生"。
 func TestConnections_EgressScopeTextFollowsScanWindow(t *testing.T) {
 	f := newFixture(t, nil)
 	if s := f.a.ConnectionView("", false).EgressScope; !strings.Contains(s, "还没有任何出网留痕") {
@@ -284,8 +242,6 @@ func TestConnections_EgressScopeTextFollowsScanWindow(t *testing.T) {
 	}
 }
 
-// TestConnections_EgressScopeAdmitsRingOverflow 环写满时必须换口径。
-// 这条测的是"多报"：读数只有最近 200 条，说成"本次运行的全部"就是假账。
 func TestConnections_EgressScopeAdmitsRingOverflow(t *testing.T) {
 	f := newFixture(t, nil)
 	for i := 0; i < 240; i++ {
@@ -295,15 +251,12 @@ func TestConnections_EgressScopeAdmitsRingOverflow(t *testing.T) {
 	if !strings.Contains(led.EgressScope, "环已写满") {
 		t.Errorf("留痕溢出仍说\"本次运行\"：%q", led.EgressScope)
 	}
-	// 溢出后单行读数也受影响：主机去重只数了环里那些，所以范围文案必须同处出现。
 	r, _ := rowByID(led, "llm")
 	if !strings.Contains(r.Stats, "已出网") {
 		t.Errorf("溢出时模型行该有读数：%q", r.Stats)
 	}
 }
 
-// TestConnections_MarketRowIsNotAConnection 市场这一行存在的意义是说"这不是连接"。
-// 它是全表唯一一条反方向的交代：用户以为在联网，其实一次请求都不发。
 func TestConnections_MarketRowIsNotAConnection(t *testing.T) {
 	f := newFixture(t, nil)
 	r, ok := rowByID(f.a.ConnectionView("", false), "market")
@@ -321,23 +274,19 @@ func TestConnections_MarketRowIsNotAConnection(t *testing.T) {
 	}
 }
 
-// hasCJK 是否含 CJK 表意文字或中文/全角标点。英文输出里出现任何一个都算中文残留。
 func hasCJK(s string) bool {
 	for _, r := range s {
 		switch {
-		case r >= 0x3000 && r <= 0x303f, // CJK 标点（「」。、）
-			r >= 0x4e00 && r <= 0x9fff, // CJK 统一表意文字
-			r >= 0xf900 && r <= 0xfaff, // CJK 兼容表意
-			r >= 0xff00 && r <= 0xffef: // 全角形式（：？！（））
+		case r >= 0x3000 && r <= 0x303f,
+			r >= 0x4e00 && r <= 0x9fff,
+			r >= 0xf900 && r <= 0xfaff,
+			r >= 0xff00 && r <= 0xffef:
 			return true
 		}
 	}
 	return false
 }
 
-// assertNoCJK 反射走一遍所有 string 字段。「英文界面零中文」这道判据不靠人眼盯：
-// 后端拼好英文版台账/候补卡之后，任何一格漏翻（哪怕一个全角冒号）都当场红。
-// 用户数据（目标原文、主机名、命令）不在此列——测试夹具里给英文数据即可。
 func assertNoCJK(t *testing.T, path string, v any) {
 	t.Helper()
 	var walk func(path string, rv reflect.Value)
@@ -364,11 +313,6 @@ func assertNoCJK(t *testing.T, path string, v any) {
 	walk(path, reflect.ValueOf(v))
 }
 
-// TestConnections_EnglishLedgerHasNoCJK 英文台账零中文。
-//
-// 为什么值得一条运行时判据：台账有近百句插值文案，靠 review 盯两份说法总会漏；
-// 有了这条，任何一格（含全角标点这种「看着是英文其实没翻」的残留）都会被抓住。
-// 中文版仍要含中文——顺带钉住「英文不是把两份都换掉」这种改法。
 func TestConnections_EnglishLedgerHasNoCJK(t *testing.T) {
 	f := newFixture(t, nil)
 	for _, bind := range []string{"", "127.0.0.1:8787"} {

@@ -6,14 +6,6 @@ import (
 	"testing"
 )
 
-// 配置快照：把"这次任务是用什么跑的"变成可核对的事实。
-//
-// 为什么不能靠事后留痕：一个跑几分钟的任务，中途用户在设置页改了模型或档位，
-// 前半段和后半段用的就不是同一套配置了。结果里只有一个事后算出的规则指纹，
-// **无法区分"是配置变了"还是"模型发挥不稳"**。
-
-// 影响行为的关键项都要进快照。漏一项不会报错，只会在复盘时给出一个错的结论——
-// 这种缺失是静默的，所以必须逐项钉住。
 func TestSnapshot_CoversBehaviorFields(t *testing.T) {
 	cfg := Default()
 	cfg.LLM.Provider = "openai"
@@ -53,11 +45,6 @@ func TestSnapshot_CoversBehaviorFields(t *testing.T) {
 	}
 }
 
-// 布尔项必须用 true 验。
-//
-// 这两个字段的默认值里 DedupeCalls 是 true、ReflectEachStep 是 false，
-// 而 false 恰好是"字段根本没被拷贝"时的零值——只拿 false 去断言，
-// 漏拷一处也照样通过。所以必须有一个 true 的用例把两件事分开。
 func TestSnapshot_BoolFieldsAreCopied(t *testing.T) {
 	cfg := Default()
 	cfg.Agent.DedupeCalls = true
@@ -72,11 +59,6 @@ func TestSnapshot_BoolFieldsAreCopied(t *testing.T) {
 	}
 }
 
-// Tiers 必须是深拷贝。
-//
-// 不拷贝的话，快照与活配置共享同一个 map：用户改一次档位，就把**所有历史快照**
-// 一起改掉——而快照存在的全部意义就是不跟着变。这类错误不会报错，
-// 只会让复盘时看到的"当时的配置"其实是今天的配置。
 func TestSnapshot_TiersIsDeepCopy(t *testing.T) {
 	cfg := Default()
 	cfg.LLM.Tiers = map[string]string{"fast": "m-fast"}
@@ -93,7 +75,6 @@ func TestSnapshot_TiersIsDeepCopy(t *testing.T) {
 	}
 }
 
-// 空配置（例如 Agent 尚未装配）取快照不能 panic，如实返回零值即可。
 func TestSnapshot_NilConfig(t *testing.T) {
 	var cfg *Config
 	if s := cfg.Snapshot(); s.Model != "" || s.MaxSteps != 0 {
@@ -101,11 +82,6 @@ func TestSnapshot_NilConfig(t *testing.T) {
 	}
 }
 
-// 快照**刻意不记全量**，这条测试守的是"以后别顺手把整份配置塞进来"。
-//
-// 两个理由都具体：全量快照会把 API Key 明文写进 tasks/<id>.json；
-// 而路径类字段（工作区、数据目录）属于"这次在哪跑"，不属于"用什么跑"——
-// 把它们记进来，换台机器复盘就会看到一堆"配置变了"，真正影响结果的那几项反而看不出来。
 func TestSnapshot_LeavesOutSecretsAndPaths(t *testing.T) {
 	cfg := Default()
 	cfg.LLM.APIKey = "sk-绝密-不该落盘"

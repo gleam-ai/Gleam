@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// ---------- fake 适配器 ----------
-
 type fakeMem struct{ items []SearchHit }
 
 func (f *fakeMem) Remember(content string, tags []string) (string, error) {
@@ -94,7 +92,6 @@ func TestScheduleTools(t *testing.T) {
 	if out.(JobDef).Name != "daily" {
 		t.Errorf("out = %v", out)
 	}
-	// 自然语言 when：工具内部解析为 cron，fakeSched 走兼容的 AddJob。
 	outNL, err := create.Execute(context.Background(), map[string]any{
 		"name": "nl", "goal": "整理下载目录", "when": "工作日18:30",
 	})
@@ -110,7 +107,6 @@ func TestScheduleTools(t *testing.T) {
 	if _, err := create.Execute(context.Background(), map[string]any{"name": "x"}); err == nil {
 		t.Error("缺 goal 应报错")
 	}
-	// 没有任何触发方式应报错。
 	if _, err := create.Execute(context.Background(), map[string]any{"name": "y", "goal": "g"}); err == nil {
 		t.Error("缺少 when/cron/interval 应报错")
 	}
@@ -148,7 +144,6 @@ func (*notFoundError) Error() string { return "not found" }
 type fakeRunner struct{ ran string }
 
 func (f *fakeRunner) RunSkill(ctx context.Context, name string, params map[string]string) (map[string]any, error) {
-	// 与生产实现一致：不存在的技能返回错误
 	if _, ok := map[string]bool{"demo": true}[name]; !ok {
 		return nil, &notFoundError{}
 	}
@@ -191,7 +186,6 @@ func TestSkillTools(t *testing.T) {
 	if !strings.Contains(runner.ran, "demo") || !strings.Contains(runner.ran, "dir") {
 		t.Errorf("runner 调用 = %q", runner.ran)
 	}
-	// 未声明参数的技能
 	if _, err := run.Execute(context.Background(), map[string]any{"name": "ghost"}); err == nil {
 		t.Error("运行不存在的技能应报错")
 	}

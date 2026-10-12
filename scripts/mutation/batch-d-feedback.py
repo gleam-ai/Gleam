@@ -34,7 +34,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import _utf8  # noqa: F401  # 本脚本自己也在印中文判定行：Windows 默认按 cp936 写 stdout，`✓` 会直接抛异常
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 from _harness import run_batch  # noqa: E402
 
 GO_TEST = "go test {pkg} -run {run} -count=1 -timeout 120s"

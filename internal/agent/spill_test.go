@@ -13,22 +13,11 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 路径名净化 ----------
-
-// TestSafeSeg_BlocksTraversal 步骤 ID 来自模型，必须当成不可信输入处理。
-//
-// **这条是本文件里最要紧的一条**：`step.ID` 直接来自模型输出的计划 JSON，
-// 而计划校验只查了「非空」与「不重复」（`planner.go:582`），**没有做路径安全**。
-// 所以 `"id": "../../../x"` 能一路走到落盘这一步。而且这是**写**——比读更严重：
-// 一个被诱导的模型可以往数据目录之外写任意文本文件。
-//
-// 断言以**性质**为主（不含分隔符、不是相对路径段、非空、幂等），而不是逐字比对：
-// 安全依赖的是这几条性质，逐字比对只会在实现微调时变成维护负担。
 func TestSafeSeg_BlocksTraversal(t *testing.T) {
 	exact := []struct{ in, want string }{
 		{"s1", "s1"},
 		{"s-1_a.txt", "s-1_a.txt"},
-		{"..", "_"}, // 纯点：Trim 后为空 → 兜底
+		{"..", "_"},
 		{".", "_"},
 		{"", "_"},
 		{"...a...", "a"},
@@ -39,7 +28,6 @@ func TestSafeSeg_BlocksTraversal(t *testing.T) {
 		}
 	}
 
-	// 性质断言：这些输入都不该产生可越界的路径段。
 	hostile := []string{
 		"../../etc/passwd", `..\..\windows\system32`, "a/../b", "a/b/c",
 		"..", "../", "./..", "C:evil", `\\server\share`, "  空格 与 中文  ",
@@ -59,14 +47,12 @@ func TestSafeSeg_BlocksTraversal(t *testing.T) {
 		if strings.ContainsRune(got, 0) {
 			t.Errorf("safeSeg(%q) 结果含 NUL", in)
 		}
-		// 幂等：净化过的结果再净化一次不该变（否则"净化"本身可被绕过）
 		if again := safeSeg(got); again != got {
 			t.Errorf("safeSeg 不幂等：safeSeg(%q)=%q，再净化变成 %q", in, got, again)
 		}
 	}
 }
 
-// TestSafeSeg_Truncates 超长 ID 要截断，否则会撞文件系统限制。
 func TestSafeSeg_Truncates(t *testing.T) {
 	got := safeSeg(strings.Repeat("a", 500))
 	if len(got) > spillMaxSegLen {
@@ -74,9 +60,6 @@ func TestSafeSeg_Truncates(t *testing.T) {
 	}
 }
 
-// ---------- 落盘与边界 ----------
-
-// TestSpillOutput_WritesUnderRoot 落盘文件必须在根目录之内，内容一字不差。
 func TestSpillOutput_WritesUnderRoot(t *testing.T) {
 	dataDir := t.TempDir()
 	content := strings.Repeat("原始内容", 500)
@@ -98,7 +81,6 @@ func TestSpillOutput_WritesUnderRoot(t *testing.T) {
 	}
 }
 
-// TestSpillOutput_MaliciousIDStaysInsideRoot 恶意的任务/步骤 ID 不能写到根目录之外。
 func TestSpillOutput_MaliciousIDStaysInsideRoot(t *testing.T) {
 	dataDir := t.TempDir()
 	root := SpillRoot(dataDir)
@@ -113,7 +95,6 @@ func TestSpillOutput_MaliciousIDStaysInsideRoot(t *testing.T) {
 	for _, c := range cases {
 		p, err := SpillOutput(dataDir, c.taskID, c.stepID, "恶意内容")
 		if err != nil {
-			// 被边界校验拒绝也是正确结果
 			continue
 		}
 		if !strings.HasPrefix(filepath.Clean(p), filepath.Clean(root)+string(filepath.Separator)) {
@@ -125,20 +106,12 @@ func TestSpillOutput_MaliciousIDStaysInsideRoot(t *testing.T) {
 	}
 }
 
-// TestSpillOutput_NoDataDirFails 未配置数据目录要报错，不能悄悄写进当前目录。
 func TestSpillOutput_NoDataDirFails(t *testing.T) {
 	if _, err := SpillOutput("", "t1", "s1", "x"); err == nil {
 		t.Error("未配置数据目录时应报错，而不是退化到相对路径写文件")
 	}
 }
 
-// ---------- 与截断的接线 ----------
-
-// TestFitRunes_SpillsAndPointsAtFile 截断后必须给出完整内容的路径，且那个路径真的能取到全文。
-//
-// 这条把「有损」和「丢失」分开：截断本身没错（上下文有限），
-// 但被截掉的部分必须还能找回来。原来的兜底是"让模型自己 file.read 按范围取"——
-// 那要求模型**先意识到自己缺了什么**，而它只看到首尾，恰恰意识不到中间有什么。
 func TestFitRunes_SpillsAndPointsAtFile(t *testing.T) {
 	dataDir := t.TempDir()
 	head := strings.Repeat("甲", 400)
@@ -151,7 +124,6 @@ func TestFitRunes_SpillsAndPointsAtFile(t *testing.T) {
 	if !strings.Contains(got, "已截断") {
 		t.Fatal("应说明被截断")
 	}
-	// 提示语里要有路径，而且要说清是临时文件——否则模型会把它当持久产物引用。
 	p := extractSpillPath(got)
 	if p == "" {
 		t.Fatalf("提示语里应给出完整内容的路径，实际：%s", got)
@@ -166,20 +138,14 @@ func TestFitRunes_SpillsAndPointsAtFile(t *testing.T) {
 	if string(b) != src {
 		t.Error("落盘内容应是**完整原文**，而不是截断后的文本")
 	}
-	// 截断结果**必须**受预算约束——提示语（含一条可能很长的路径）不能让它超标，
-	// 否则"注入下游有上限"这条就名存实亡。
 	if got := len([]rune(got)); got > 1000 {
 		t.Errorf("截断后应不超过预算 1000，实际 %d 字", got)
 	}
 }
 
-// TestFitRunes_SpillFailureIsReported 落盘失败要说出来，不能装作"完整内容可取"。
-//
-// 装作成功比失败更坏：模型会以为有路可走，于是反复重试同一个引用，
-// 而真正的原因（数据目录没配、磁盘满、权限）一次都没被说出来。
 func TestFitRunes_SpillFailureIsReported(t *testing.T) {
 	src := strings.Repeat("丙", 5000)
-	e := &Executor{MaxOutputRunes: 1000} // 故意不给 DataDir
+	e := &Executor{MaxOutputRunes: 1000}
 	got := e.fitRunes(src, "t1", "s1")
 
 	if !strings.Contains(got, "未能落盘") {
@@ -188,16 +154,11 @@ func TestFitRunes_SpillFailureIsReported(t *testing.T) {
 	if extractSpillPath(got) != "" {
 		t.Error("落盘失败时不该给出一个取不到的路径")
 	}
-	// 仍要给出可用的退路，否则模型就卡住了
 	if !strings.Contains(got, "file.read") {
 		t.Error("落盘失败时应给出退路（缩小范围 / file.read）")
 	}
 }
 
-// TestFitRunes_SmallBudgetSkipsSpill 预算极小时只截断、不落盘。
-//
-// budget < 160 时连"省略说明"都放不下，硬塞一条路径会把结果本身挤没——
-// 那还不如老实截断。
 func TestFitRunes_SmallBudgetSkipsSpill(t *testing.T) {
 	dataDir := t.TempDir()
 	e := &Executor{MaxOutputRunes: 100, DataDir: dataDir}
@@ -210,17 +171,10 @@ func TestFitRunes_SmallBudgetSkipsSpill(t *testing.T) {
 	}
 }
 
-// ---------- 缓存清理 ----------
-
-// TestPruneSpill_KeepsNewest 这是**缓存不是归档**：超上限要按时间淘汰最旧的。
-//
-// 不做清理的话，每个超长输出都会在磁盘上永久留一份——而"永久留一份"是归档的语义，
-// 不是缓存的语义。语义搞混的后果是磁盘慢慢涨满，且没有任何一处会提醒。
 func TestPruneSpill_KeepsNewest(t *testing.T) {
 	dataDir := t.TempDir()
 	root := SpillRoot(dataDir)
 
-	// 造 5 个任务目录，mtime 依次递增
 	for i := 0; i < 5; i++ {
 		dir := filepath.Join(root, "task"+string(rune('a'+i)))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -251,7 +205,6 @@ func TestPruneSpill_KeepsNewest(t *testing.T) {
 	}
 }
 
-// TestPruneSpill_NoopWhenUnderLimit 未超上限不动手。
 func TestPruneSpill_NoopWhenUnderLimit(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(SpillRoot(dataDir), "t1"), 0o755); err != nil {
@@ -261,15 +214,10 @@ func TestPruneSpill_NoopWhenUnderLimit(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(SpillRoot(dataDir), "t1")); err != nil {
 		t.Error("未超上限时不该删任何东西")
 	}
-	// 目录不存在也不能崩（第一次跑任务时就是这样）
 	PruneSpill(filepath.Join(dataDir, "never-created"), 10)
 	PruneSpill("", 10)
 }
 
-// TestPruneSpill_KeepZeroIsNoop keep<=0 视为"不清理"，而不是"全删"。
-//
-// 这是个方向性问题：把 0 解释成"一个都不留"会让一次误传参数清空整个缓存，
-// 而 0 更可能是"没配"。宁可多留，不可误删。
 func TestPruneSpill_KeepZeroIsNoop(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(SpillRoot(dataDir), "t1"), 0o755); err != nil {
@@ -281,15 +229,9 @@ func TestPruneSpill_KeepZeroIsNoop(t *testing.T) {
 	}
 }
 
-// ---------- 端到端：引用替换路径 ----------
-
-// TestExecutor_RefSubstitutionSpillsFullContent 走完整执行器：超长输出被引用时落盘。
-//
-// 前面几条测的是函数，这条测**接线**——`DataDir` 有没有真的从 Agent 传进 Executor。
-// 判据对但线没接是本仓库栽过多次的坑，所以这里从 Execute 进、从磁盘验回来。
 func TestExecutor_RefSubstitutionSpillsFullContent(t *testing.T) {
 	dataDir := t.TempDir()
-	full := strings.Repeat("很长的文件内容", 2000) // 约 1.4 万字
+	full := strings.Repeat("很长的文件内容", 2000)
 
 	r := registry.New()
 	r.MustRegister(&funcTool{name: "bigout", perm: types.PermissionReadOnly,
@@ -318,7 +260,6 @@ func TestExecutor_RefSubstitutionSpillsFullContent(t *testing.T) {
 	if p == "" {
 		t.Fatalf("注入下游的参数里应带落盘路径，实际：%s", text)
 	}
-	// 路径按约定落在 <DataDir>/tool-output/<taskID>/<stepID>.txt
 	want := filepath.Join(SpillRoot(dataDir), "t-spill", "s1.txt")
 	if filepath.Clean(p) != filepath.Clean(want) {
 		t.Errorf("落盘路径应为 %s，实际 %s", want, p)
@@ -332,13 +273,6 @@ func TestExecutor_RefSubstitutionSpillsFullContent(t *testing.T) {
 	}
 }
 
-// TestExecutor_SpillNameFollowsContentSource 一步引用**两个**来源时，两份落盘不能互相覆盖。
-//
-// 这条是回归测试，来自实现时抓到的真 bug：落盘文件名一开始用的是"正在引用"的那一步的 ID
-// （s3），于是 s3 引用 s1 和 s2 时，第二次落盘会**覆盖**第一次，
-// 而模型手里的两个路径都指向同一段内容——**比不给路径更坏**：
-// 它会以为自己读到的是 s1 的完整输出，实际是 s2 的。
-// 正确做法是让文件名跟着**内容的来源**走。
 func TestExecutor_SpillNameFollowsContentSource(t *testing.T) {
 	dataDir := t.TempDir()
 	bodyA := strings.Repeat("甲甲", 4000)
@@ -380,7 +314,6 @@ func TestExecutor_SpillNameFollowsContentSource(t *testing.T) {
 	if filepath.Clean(pa) == filepath.Clean(pb) {
 		t.Fatalf("两个来源不能落进同一个文件（会互相覆盖）：%s", pa)
 	}
-	// 每个路径都要指向**它自己那段内容**
 	ba, err := os.ReadFile(pa)
 	if err != nil {
 		t.Fatalf("读 a 的落盘文件失败：%v", err)
@@ -397,13 +330,7 @@ func TestExecutor_SpillNameFollowsContentSource(t *testing.T) {
 	}
 }
 
-// TestExecutor_SpillCappedEvenWithLongPath 带落盘路径的截断结果仍不得超过预算。
-//
-// 预算存在的意义就是"注入下游的东西有上限"。若一条长路径能让它超标，
-// 这个上限就是假的——而假上限比没有上限更坏：调用方按它分配上下文，
-// 却在某一批任务上悄悄超出，表现为"偶发"的上下文溢出。
 func TestExecutor_SpillCappedEvenWithLongPath(t *testing.T) {
-	// 故意造一个很深的临时目录，让落盘路径变长
 	dataDir := filepath.Join(t.TempDir(), strings.Repeat("deepdir/", 12))
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -435,7 +362,6 @@ func TestExecutor_SpillCappedEvenWithLongPath(t *testing.T) {
 	}
 }
 
-// extractSpillPath 从截断提示里取出落盘路径。
 func extractSpillPath(s string) string {
 	const marker = "完整内容见 "
 	i := strings.Index(s, marker)

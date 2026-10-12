@@ -1,5 +1,3 @@
-// credentials_test.go 密钥保存自测：落盘不含明文（Windows/DPAPI）、旧明文文件迁移、
-// 主机绑定（换厂商不外发）、清除语义、损坏文件不崩。
 package credentials
 
 import (
@@ -32,7 +30,6 @@ func TestSetGetClearRoundTrip(t *testing.T) {
 	if got, _ := s.ResolveLLMAPIKey(hostA); got != "sk-test-abcdef" {
 		t.Errorf("回读 = %q", got)
 	}
-	// 清除语义：空串 = 删除（连同主机），且文件仍可用
 	if err := s.SetLLMAPIKey("", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +38,6 @@ func TestSetGetClearRoundTrip(t *testing.T) {
 	}
 }
 
-// 主机绑定：存着 A 家的密钥，问 B 家要就是不给；问回 A 家又还在。
-// 这一条挡的是"设置页换了厂商，旧 key 被原样发给新端点"。
 func TestResolveLLMAPIKeyBoundToHost(t *testing.T) {
 	s := openStore(t)
 	if err := s.SetLLMAPIKey("sk-glm", hostA); err != nil {
@@ -55,14 +50,11 @@ func TestResolveLLMAPIKeyBoundToHost(t *testing.T) {
 	if stored != hostA {
 		t.Errorf("应回传密钥所属主机以便界面说明，得到 %q", stored)
 	}
-	// 换到别家、没填新 key：不能顺手把原来那把抹掉，用户切回来还得能用
 	if k2, stored2 := s.ResolveLLMAPIKey(hostA); k2 != "sk-glm" || stored2 != hostA {
 		t.Errorf("原密钥应原样保留，得到 %q / %q", k2, stored2)
 	}
 }
 
-// 老版本存的密钥没有主机字段：第一次按主机取用时补绑，此后就受主机约束。
-// 不补的话每次升级都全员"密钥凭空丢失"；补了之后仍挡得住换厂商外发。
 func TestLegacyKeyBindsOnFirstUse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, File)
@@ -81,7 +73,6 @@ func TestLegacyKeyBindsOnFirstUse(t *testing.T) {
 	}
 }
 
-// 磁盘静态加密：Windows 上任何一次写入后，原始文件里不得再出现明文 key。
 func TestNoPlaintextKeyOnDisk(t *testing.T) {
 	s := openStore(t)
 	if err := s.SetLLMAPIKey("sk-super-secret-123", hostA); err != nil {
@@ -99,13 +90,11 @@ func TestNoPlaintextKeyOnDisk(t *testing.T) {
 			t.Errorf("缺少加密标记前缀，头部 = %.20q", string(raw))
 		}
 	}
-	// 任何平台都必须能回读
 	if k, _ := s.ResolveLLMAPIKey(hostA); k != "sk-super-secret-123" {
 		t.Error("回读失败")
 	}
 }
 
-// 旧版本明文文件：可读，且下一次写入自动迁移为新格式。
 func TestLegacyPlaintextMigration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, File)
@@ -131,8 +120,6 @@ func TestLegacyPlaintextMigration(t *testing.T) {
 	}
 }
 
-// 文件被截断/损坏时：读返回空；写拒绝覆盖（宁可让用户看一眼文件，
-// 不能把"读不懂"静默当成"没有"，否则一次写就把旧凭证悄悄抹了）。
 func TestCorruptFile(t *testing.T) {
 	s := openStore(t)
 	if err := os.WriteFile(s.Path(), []byte(magic+"@@@not-base64@@@"), 0o600); err != nil {
@@ -146,7 +133,6 @@ func TestCorruptFile(t *testing.T) {
 	}
 }
 
-// 云端会话与配置共存：写 key 不丢会话，反之亦然。
 func TestFieldsCoexist(t *testing.T) {
 	s := openStore(t)
 	if err := s.SetSession(&CloudSession{UserID: "u1", AccessToken: "tok"}); err != nil {

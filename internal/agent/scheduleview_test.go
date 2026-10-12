@@ -8,17 +8,12 @@ import (
 	"gleam/internal/harness/scheduler"
 )
 
-// TestJobToScheduleView_PrintsEffectivePolicy 视图印的是**生效值**，不是原始字段。
-//
-// 空串在存储层表示"用默认"，但界面要回答的是"这个任务跑完会不会通知我"。
-// 印一个空值等于让人自己去猜默认是什么，而"猜不出来"的实际后果是
-// 没人知道自己会不会被半夜叫醒。
 func TestJobToScheduleView_PrintsEffectivePolicy(t *testing.T) {
 	cases := []struct {
 		stored string
 		want   string
 	}{
-		{"", scheduler.NotifyOnFailure}, // 空 = 默认，必须展开成具体值
+		{"", scheduler.NotifyOnFailure},
 		{scheduler.NotifyAlways, scheduler.NotifyAlways},
 		{scheduler.NotifyNever, scheduler.NotifyNever},
 		{scheduler.NotifyOnFailure, scheduler.NotifyOnFailure},
@@ -31,11 +26,6 @@ func TestJobToScheduleView_PrintsEffectivePolicy(t *testing.T) {
 	}
 }
 
-// TestJobToScheduleView_DirtyStoredValuePrintedAsIs 存量脏值如实印出，不悄悄改成默认。
-//
-// 老版本可能往盘上写过非法值（或者有人手改了 schedules.json）。这时**不能**
-// 美化：用户看到的必须与盘上一致，否则"界面说 on_failure、实际按 never 静默"
-// 这种事就永远查不出来——而它恰好是最需要查出来的那一类。
 func TestJobToScheduleView_DirtyStoredValuePrintedAsIs(t *testing.T) {
 	got := jobToScheduleView(scheduler.Job{Name: "j", Notify: "shouty"}).Notify
 	if got != "shouty" {
@@ -43,10 +33,6 @@ func TestJobToScheduleView_DirtyStoredValuePrintedAsIs(t *testing.T) {
 	}
 }
 
-// TestJobToScheduleView_KeepsScheduleFields 顺带钉住视图没把别的字段丢掉。
-//
-// 这条是防止"改通知策略时顺手把视图字段改坏"——视图是多个入口共用的，
-// 少印一个字段表现为界面上某一列突然空白，而没人会想到是这里。
 func TestJobToScheduleView_KeepsScheduleFields(t *testing.T) {
 	next := time.Now().Add(time.Hour)
 	v := jobToScheduleView(scheduler.Job{

@@ -243,7 +243,6 @@ func TestParseYAML_CommentEdgeCases(t *testing.T) {
 	}
 }
 
-// TestLoad_ProjectConfig 防回归：仓库自带的示例配置必须始终可被解析。
 func TestLoad_ProjectConfig(t *testing.T) {
 	if _, err := os.Stat("../../configs/config.yaml"); err != nil {
 		t.Skip("示例配置不存在")

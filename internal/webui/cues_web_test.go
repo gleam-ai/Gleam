@@ -10,9 +10,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// 候补目标的判据一律走**真实路由**。引擎层测的是「算得出这几张卡」，这一层要挡的失效是
-// 路由没注册、handler 把空视图返回给界面、处置端点写了盘却没让卡消失——纯函数测试一律绿。
-
 func cueRun(taskID, goal, trace string, status types.GoalStatus, errKind map[types.ErrorKind]int) *types.GoalResult {
 	start := time.Now().Add(-2 * time.Hour)
 	return &types.GoalResult{
@@ -21,11 +18,6 @@ func cueRun(taskID, goal, trace string, status types.GoalStatus, errKind map[typ
 	}
 }
 
-// seedCueHistory 落两份同一目标的失败归档。TraceID 相同正是「同一个问题反复出现」的依据。
-//
-// 每份只记 1 步失败，故意压在 tool_failure 的门槛（累计 3 步）之下：这一层要盯的是
-// 「一张卡进出」的接线，两张卡会让"消失/回来"的计数说不清到底滤掉了哪一张。
-// 多条线索同时够格时的取舍由引擎层 TestCues_RepeatedFailureWinsOverHalfDone 那组负责。
 func seedCueHistory(t *testing.T, f *fixture) {
 	t.Helper()
 	for i, id := range []string{"cue-1", "cue-2"} {
@@ -51,7 +43,6 @@ func cueRows(t *testing.T, f *fixture) []map[string]any {
 	return rows
 }
 
-// TestCues_RouteServesDerivedRows 走路由能拿到卡，且每张卡带着「凭什么提这个」。
 func TestCues_RouteServesDerivedRows(t *testing.T) {
 	f := newFixture(t, nil)
 	if rows := cueRows(t, f); len(rows) != 0 {
@@ -81,7 +72,6 @@ func TestCues_RouteServesDerivedRows(t *testing.T) {
 	}
 }
 
-// TestCues_DismissAdoptAndUnsuppressRoundTrip 处置要真的让卡消失，而「别再提」要能反悔。
 func TestCues_DismissAdoptAndUnsuppressRoundTrip(t *testing.T) {
 	f := newFixture(t, nil)
 	seedCueHistory(t, f)
@@ -119,10 +109,6 @@ func TestCues_DismissAdoptAndUnsuppressRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCues_AdoptDoesNotStartAnything 采纳只改状态：这一层没有手。
-//
-// 判据是盘上的文件集合——真跑起来会留下运行日志、任务归档、快照目录，
-// 那些比任何字段断言都硬。
 func TestCues_AdoptDoesNotStartAnything(t *testing.T) {
 	f := newFixture(t, nil)
 	seedCueHistory(t, f)
@@ -143,7 +129,6 @@ func TestCues_AdoptDoesNotStartAnything(t *testing.T) {
 	}
 }
 
-// TestCues_UnknownOrStaleIDIs404 已经不成立的卡（历史被裁剪）处置时要报错，不许静默成功。
 func TestCues_UnknownOrStaleIDIs404(t *testing.T) {
 	f := newFixture(t, nil)
 	if code, _ := f.raw("POST", "/api/cues/no-such-cue/dismiss", nil); code != 404 {

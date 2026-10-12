@@ -1,19 +1,3 @@
-// Command gleam 是 Gleam 桌面智能体的主入口。
-//
-// 用法：
-//
-//	gleam app      [--addr ADDR] [--mock-llm] [--no-browser]           # 桌面端应用模式（默认窗口）
-//	gleam serve    [--config FILE] [--mock-llm] [--mock-script FILE]  # JSON-RPC stdio 服务（编辑器插件接入）
-//	gleam goal "…" [--mode auto] [--mock-llm] [--workspace DIR]       # 命令行执行一个目标
-//	gleam webui    [--addr ADDR]                                       # Web UI 服务（不自动开窗口）
-//	gleam tools                                                        # 列出已注册工具
-//	gleam rules    [--task-mode work|code|chat] [--tier T] [--role R]   # 规则集回查（版本指纹 / 场景生效规则）
-//	gleam skills list|show NAME                                        # 技能管理
-//	gleam schedule list                                                # 定时任务
-//	gleam memory search Q | memory save TEXT                           # 记忆检索/写入
-//	gleam eval     [--depth select|plan|full] [--baseline FILE]        # 提示词/行为回归评测
-//	gleam mcp-fake-server                                              # 内置 MCP 测试服务器（自测用）
-//	gleam version
 package main
 
 import (
@@ -66,7 +50,6 @@ func main() {
 		cmd = args[0]
 		args = args[1:]
 	} else if !hasConsole() {
-		// windowsgui 桌面版双击启动（无控制台、无参数）→ 直接进入应用模式
 		cmd = "app"
 	}
 	var err error
@@ -78,7 +61,6 @@ func main() {
 	case "webui":
 		err = cmdWebUI(args)
 	case "desktop-sidecar":
-		// 隐藏子命令：给 Electron 桌面壳用，不列进 help
 		err = cmdDesktopSidecar(args)
 	case "goal":
 		err = cmdGoal(args)
@@ -114,7 +96,6 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		// --help 是正常请求：flag 包已打印用法，这里安静退 0，别报「错误: flag: help requested」
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
 		}
@@ -166,48 +147,35 @@ Flags:
 `)
 }
 
-// ---------- 公共装配 ----------
-
 type runtime struct {
-	cfg     *config.Config
-	client  llm.Client
-	reg     *registry.Registry
-	mem     *memory.Manager
-	gate    *safety.Gate
-	skills  *skill.Store
-	sched   *scheduler.Scheduler
-	agent   *agent.Agent
-	cleanup func()
-	growth  *growth.Log
-	// startMCP 在 WithAsyncMCP 下才有实质内容：装配期不连 MCP，由调用方在就绪后调它。
+	cfg      *config.Config
+	client   llm.Client
+	reg      *registry.Registry
+	mem      *memory.Manager
+	gate     *safety.Gate
+	skills   *skill.Store
+	sched    *scheduler.Scheduler
+	agent    *agent.Agent
+	cleanup  func()
+	growth   *growth.Log
 	startMCP func()
 }
 
-// runtimeOption 装配的可选开关。
 type runtimeOption func(*runtimeConfig)
 
-// runtimeConfig 装配过程中的可调项。
 type runtimeConfig struct {
 	noDefaultWorkspace bool
 	asyncMCP           bool
 }
 
-// WithNoDefaultWorkspace 关闭「没指定工作区就用当前目录兜底」。
-// 桌面应用用它：打包后进程 CWD 是主目录，把文件边界悄悄划到整个主目录没有意义；
-// 用户没显式选过工作区时，界面停在「不指定工作区」才是诚实的。
 func WithNoDefaultWorkspace() runtimeOption {
 	return func(rc *runtimeConfig) { rc.noDefaultWorkspace = true }
 }
 
-// WithAsyncMCP 让 MCP 服务器不在装配期连接，改由调用方在**就绪之后**调 rt.startMCP()。
-// 桌面壳用它：npx -y … 这类外部 MCP 要先 npm 解析再起一个 Node 进程，本机实测 ~2.2 s，
-// 同步连会把整条「打开到能用」堵在那儿（2413 ms → 解耦后 ~150 ms）。连上之前少几个
-// MCP 工具，不影响其它功能。
 func WithAsyncMCP() runtimeOption {
 	return func(rc *runtimeConfig) { rc.asyncMCP = true }
 }
 
-// buildRuntime 装配全部子系统。
 func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScript string, notifier agent.Notifier, opts ...runtimeOption) (*runtime, error) {
 	var rc runtimeConfig
 	for _, opt := range opts {
@@ -228,25 +196,18 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	if dataDir != "" {
 		cfg.DataDir = dataDir
 	}
-	// 设置覆盖层（设置页保存的用户偏好，优先于 config.yaml；命令行标志在其后仍可覆盖）
 	_ = config.LoadOverlay(cfg, filepath.Join(cfg.DataDir, config.OverlayFile))
-	// 工作区兜底放在覆盖层之后：配置、环境与用户选择都看过一遍了，还是空，才轮到「当前目录」。
-	// CLI 沿用这个便利默认；桌面应用用 WithNoDefaultWorkspace 跳过它。
 	if cfg.Workspace == "" && !rc.noDefaultWorkspace {
 		if cwd, err := os.Getwd(); err == nil {
 			cfg.Workspace = cwd
 		}
 	}
 
-	// 工作区根：空表示没有文件边界（工具不再限定目录，写操作仍逐条走安全门控）。
 	var wsRoots []string
 	if cfg.Workspace != "" {
 		wsRoots = []string{cfg.Workspace}
 	}
 
-	// 本地凭证（LLM API Key / 云端会话），独立 0600 文件。
-	// 密钥的**取用**推迟到预设解析之后（applyLLMKey）：作用域是按生效主机算的，
-	// 先取密钥再解析等于拿一个还不知道要发给谁的值。
 	credStore, err := credentials.Open(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("打开本地凭证失败: %w", err)
@@ -260,13 +221,10 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	}
 	agent.DataDir(cfg)
 
-	// 出网方式先定下来：模型客户端的传输层在这里取一次，之后再改要重启。
-	// 代理地址填错不拦启动——那是设置页该报的错，不是"程序起不来"。
 	if err := llm.SetProxyMode(cfg.Network.ProxyMode, cfg.Network.ProxyURL); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 代理设置没生效（%v），本次按跟随系统处理\n", err)
 	}
 
-	// LLM 客户端（协议工厂：openai_chat / openai_responses / anthropic；厂商套餐解析官方入口）
 	var client llm.Client
 	if cfg.LLM.Provider == "mock" {
 		m := llm.NewMock()
@@ -281,8 +239,6 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	} else {
 		baseURL, model, protocol := llm.ResolveTarget(cfg.LLM.ProviderID, cfg.LLM.Plan, cfg.LLM.BaseURL, cfg.LLM.Model, cfg.LLM.Protocol)
 		cfg.LLM.BaseURL, cfg.LLM.Model, cfg.LLM.Protocol = baseURL, model, protocol
-		// 密钥按生效主机取用：先给配置/环境变量带进来的那把贴上当次主机，
-		// 再由 BindLLMKey 决定本次实际用哪把（换厂商后不会把上一家的发出去）。
 		agent.MarkInjectedLLMKey(cfg, baseURL)
 		key, keyErr := agent.BindLLMKey(cfg, credStore, baseURL, "", false)
 		if keyErr != nil {
@@ -292,26 +248,21 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
 	}
 
-	// 记忆
 	mem, err := memory.Open(cfg.DataDir, cfg.Memory.ShortTermCap, cfg.Memory.VectorDim, cfg.Memory.MaxItems)
 	if err != nil {
 		return nil, fmt.Errorf("打开记忆失败: %w", err)
 	}
 
-	// 技能
-	// 成长日志
 	growthLog, err := growth.Open(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("打开成长日志失败: %w", err)
 	}
 
-	// 多会话持久化（左侧会话列表）
 	convoStore, err := conversation.Open(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("打开会话存储失败: %w", err)
 	}
 
-	// 微光空间（按工作文件夹隔离分组对话），首次自动创建默认空间
 	spaceStore, err := space.Open(cfg.DataDir, cfg.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("打开空间存储失败: %w", err)
@@ -322,13 +273,10 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 		return nil, fmt.Errorf("打开技能库失败: %w", err)
 	}
 
-	// 注册表与内置工具
 	reg := registry.New()
 	fileTools := file.New(wsRoots...)
 	fileTools.RegisterAll(reg)
-	// shell.exec 的工作目录限制在工作区内（P5-1），与文件工具同一套边界
 	reg.MustRegister(shell.NewWithRoots(time.Duration(cfg.Agent.StepTimeoutSecs)*time.Second, wsRoots...))
-	// git 动作（建分支 / 提交 / 推送）：三个偏好每次动作时现取，改设置立即生效，不用重启
 	gitCfg := func() gittools.Config {
 		return gittools.Config{
 			BranchPrefix:       cfg.Git.BranchPrefix,
@@ -341,22 +289,15 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(gittools.NewCommit(gitCfg))
 	reg.MustRegister(gittools.NewPush(gitCfg))
 	webTool := web.New()
-	// web.fetch 默认拒绝本机/内网地址（防提示词注入把 Agent 当 SSRF 跳板）；
-	// 本地优先的场景（读本机 dev server、内网 wiki）用配置显式放宽。
 	webTool.AllowPrivate = cfg.Safety.AllowPrivateWeb
 	reg.MustRegister(webTool)
-	// 桌面集成工具（剪贴板/截屏/通知/片段）
-	// 剪贴板按副作用拆成读、写两个工具：Permission() 不接受参数，
-	// 混装两种等级时声明哪一种都是错的（写会绕过审批闸门）。
 	reg.MustRegister(desktop.NewClipboardRead())
 	reg.MustRegister(desktop.NewClipboardWrite())
 	reg.MustRegister(desktop.NewScreenshot())
 	reg.MustRegister(desktop.NewNotify())
 	reg.MustRegister(desktop.NewSnippets(cfg.DataDir))
 	reg.MustRegister(std.NewReply())
-	// 记忆/调度/技能适配器在 agent 创建后补充
 
-	// 调度器
 	var sched *scheduler.Scheduler
 	if cfg.Scheduler.Enabled {
 		sched, err = scheduler.Open(filepath.Join(cfg.DataDir, "schedules.json"), nil)
@@ -365,24 +306,12 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 		}
 	}
 
-	// 安全门控
 	gate := safety.New(cfg.Safety.Mode, cfg.Safety.TrustedTools, cfg.Safety.TrustedPaths,
 		wsRoots, time.Duration(cfg.Safety.ApprovalTimeoutSecs)*time.Second)
-	// 审计全量落盘（P5-2）：内存环只够复盘最近 200 条，重启即失忆。
-	// 追加式 JSONL——审计的价值在于"发生过什么"，重写会把它变成"当前状态"。
 	gate.SetAuditPath(filepath.Join(cfg.DataDir, auditFile))
-	// 数据出网留痕（P1-3）：本地优先的产品必须能自证"什么数据出了本机"。
-	// 四条出网路径都要接上：模型调用（提示词）、web.fetch（抓取目标）在这里，
-	// 云端登录在下面的 a.Auth，反馈投递在 webui 的 feedbackSink。
-	// **"一条都没漏"这件事由闸门判**（scripts/check-egress-owner.py：每个 RecordEgress
-	// 的落点都必须在「连接与出网」台账上有一行，反之亦然），所以这段注释数错了会红。
-	// 只记主机名与字节量，内容留在本机；见 safety.AuditEntry.Egress 的边界说明。
 	llm.SetEgressHook(func(host string, nbytes int) { gate.RecordEgress("llm", host, nbytes) })
 	webTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("web.fetch", host, nbytes) }
-	// 远端 MCP（streamable-http）也是出网：用户装的远端服务器会被调用，数据发到对方主机。
-	// 这条留痕和 web.fetch 同级——远端 MCP 是**用户自己装的**第三方端点，更该看得见。
 	mcp.SetRemoteEgressHook(func(host string, nbytes int) { gate.RecordEgress("mcp.remote", host, nbytes) })
-	// 等待审批状态落盘（P4-2）：进程若在等待审批期间退出，重启后能列出卡住的任务。
 	gate.SetPendingPath(filepath.Join(cfg.DataDir, pendingFile))
 	if len(cfg.Safety.ToolPermissions) > 0 {
 		overrides := map[string]types.Permission{}
@@ -396,25 +325,17 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	a.MCP = agent.NewMCPManager()
 	a.FileTools = fileTools
 	a.Growth = growthLog
-	a.RebuildFastClient() // 可选：辅助调用走便宜模型（cfg.LLM.FastModel）
-	// GEO 分析历史（创作产出自动分析留档，供 GEO 板块回看）
+	a.RebuildFastClient()
 	if geoStore, err := geo.Open(filepath.Join(cfg.DataDir, "geo_history.json")); err == nil {
 		a.GEO = geoStore
 	}
 	a.Convos = convoStore
 	a.Spaces = spaceStore
 	a.Creds = credStore
-	// 云端登录（注册/登录/续期/登出）同样把东西发出去，此前在审计里不存在。
-	// 台账要能列出这一行，就得先有这一笔留痕；发包已收敛到 auth.Manager.do 一处。
-	// 在交给接口字段之前设好：AuthProvider 只声明"能做哪些账号动作"，
-	// 留痕是装配的事，不该为了装一个回调去扩那个接口。
 	authMgr := auth.New(credStore)
 	authMgr.OnEgress = func(host string, nbytes int) { gate.RecordEgress("cloud", host, nbytes) }
 	a.Auth = authMgr
 
-	// 依赖 Agent 的适配器工具
-	// 提示词步骤（prompt.run）：外部技能（Claude 的 SKILL.md 那类提示词包）靠它落地。
-	// 注册在 agent 建好之后：provider 现取 a.LLM，用户换模型后下一次调用就用新的。
 	reg.MustRegister(prompt.NewGenerate(func() llm.Client { return a.LLM }))
 	reg.MustRegister(std.NewMemSave(&memAdapter{m: mem, scope: a.MemoryScope}))
 	reg.MustRegister(std.NewMemSearch(&memAdapter{m: mem, scope: a.MemoryScope}))
@@ -428,7 +349,6 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(std.NewSkillRun(&skillAdapter{s: skills}, a))
 	reg.MustRegister(std.NewAgentDelegate(a))
 
-	// MCP 连接器（尽力而为）
 	startMCP := func() {}
 	connectMCP := func() {
 		if len(cfg.MCP) > 0 {
@@ -446,7 +366,6 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 		connectMCP()
 	}
 
-	// 调度器启动：到点自动执行目标
 	cleanup := func() {
 		a.MCP.CloseAll()
 		if sched != nil {
@@ -461,11 +380,6 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	return &runtime{cfg: cfg, client: client, reg: reg, mem: mem, gate: gate, skills: skills, sched: sched, agent: a, cleanup: cleanup, growth: growthLog, startMCP: startMCP}, nil
 }
 
-// sysNotify 发系统通知。抽成变量是为了两件事：
-//   - **测试能替换它**（否则跑测试会在开发机上真的弹窗）；
-//   - **无头/自动化环境能关掉它**（GLEAM_NO_SYS_NOTIFY=1）：关掉时不是静默丢弃，
-//     而是把"本来要发什么"打到 stderr——否则冒烟测试里"通知发了没有"就无从断言，
-//     而"断言不了"最后会变成"没人验证过"。
 var sysNotify = func(title, message string) error {
 	if os.Getenv("GLEAM_NO_SYS_NOTIFY") != "" {
 		fmt.Fprintf(os.Stderr, "[schedule] 系统通知（已禁用，仅打印）：%s — %s\n", title, message)
@@ -474,17 +388,6 @@ var sysNotify = func(title, message string) error {
 	return desktop.Notify(title, message)
 }
 
-// notifyScheduledDone 定时任务跑完之后的**送达**。
-//
-// 抽成独立函数而不是内联在 fire 闭包里，是为了能测"接线"：
-// 单测 `ShouldNotify` 只能证明**判据**对，证明不了**它真的被调用了**——
-// 而本仓库栽过四次的恰好是这一类（判据对、线没接）。这里可以注入假的系统通知
-// 与假的事件出口，断言"该弹的时候弹了、不该弹的时候没弹，而送达两次都发生了"。
-//
-// **打扰与送达是两件事**：通知策略回答的是"这次要不要弹窗"，不是"这次跑完算不算发生过"。
-// 早先它们共用一个开关，于是 `notify: never` 的定时任务既不进界面任务表、也不进归档，
-// 跑完什么都没留下——恰好是 `Notifier.OnTaskDone` 的注释里说不能做的事：
-// 结果不送达，用户就必须一直盯着，而定时任务的整个价值就是不用盯着。
 func notifyScheduledDone(j scheduler.Job, res *types.GoalResult, sink agent.Notifier) {
 	if res == nil {
 		return
@@ -495,11 +398,8 @@ func notifyScheduledDone(j scheduler.Job, res *types.GoalResult, sink agent.Noti
 		Result: *res,
 	}
 	if !j.ShouldNotify(ev.Succeeded()) {
-		// 静默的是弹窗，不是记录：这一行仍然打日志，"跑过了"在 stderr 上留痕。
 		fmt.Fprintf(os.Stderr, "[schedule] %s（按通知策略不弹系统通知）\n", ev.Line())
 	} else if err := sysNotify(ev.Title(), ev.Line()); err != nil {
-		// 通知送不出去不影响任务本身，但不能装作没发生——否则"没收到通知"
-		// 会被误读成"任务没跑"。
 		fmt.Fprintf(os.Stderr, "[schedule] 系统通知未送达（%v）\n", err)
 	}
 	if sink != nil {
@@ -507,25 +407,10 @@ func notifyScheduledDone(j scheduler.Job, res *types.GoalResult, sink agent.Noti
 	}
 }
 
-// runGoalFor 是 fire 路径调目标执行器的入口。
-//
-// 抽成变量是为了能测「接线」：真跑一次 RunGoal 要 LLM 加整套装配，而这里要验的是
-// **通知有没有接上**，不是规划器好不好。用真 RunGoal 会把两个问题搅在一起，
-// 而且模型一不稳测试就红——那会让人把"接线断了"读成"模型抽风"，然后去查错的地方。
 var runGoalFor = func(a *agent.Agent, ctx context.Context, req types.GoalRequest) *types.GoalResult {
 	return a.RunGoal(ctx, req)
 }
 
-// fireScheduledJob 定时任务真正跑一次。
-//
-// 定时任务的**结果必须送达**。跑完之后把 GoalResult 丢掉，等于要求用户一直盯着——
-// 而定时任务的整个价值就是不用盯着；更坏的是**失败也静默**：一个每天 9 点的巡检
-// 连坏一周，用户会以为一切正常。
-//
-// **为什么在这里（而不是绑定时）读 notifier**：本函数在 notifier 装配之前就被绑定
-// （`app` 模式里 `bindSchedulerFire` 在 `webui.NewServer` 之前），绑定时拿到的是
-// 装配期的 nil——原来的 `_ = notifier` 就是这个顺序问题被绕过时留下的痕迹。
-// 必须在**跑的时候**惰性读 `rt.agent.Notifier`，那时它已经被换成真正的宿主。
 func fireScheduledJob(rt *runtime, j scheduler.Job) {
 	mode := j.Mode
 	if mode == "" {
@@ -533,23 +418,18 @@ func fireScheduledJob(rt *runtime, j scheduler.Job) {
 	}
 	fmt.Fprintf(os.Stderr, "[schedule] 触发任务 %q: %s\n", j.Name, types.Shorten(j.Goal, 60))
 	res := runGoalFor(rt.agent, context.Background(), types.GoalRequest{Goal: j.Goal, Mode: mode})
-	// 定时任务也要归档，而且要在这里（不是在某个宿主的 OnTaskDone 里）：一次跑完没人盯着，
-	// 留痕的价值比交互路径更高；放在宿主侧就会漏掉"这个宿主没实现落盘"的那种。
 	if err := agent.SaveTaskResult(rt.cfg.DataDir, res); err != nil {
 		fmt.Fprintf(os.Stderr, "[schedule] 任务未存档：%v\n", err)
 	}
 	notifyScheduledDone(j, res, rt.agent.Notifier)
 }
 
-// bindSchedulerFire 调度器 fire 延迟绑定（避免装配顺序问题）：装配完成后设置。
 func bindSchedulerFire(rt *runtime) {
 	if rt.sched == nil {
 		return
 	}
 	rt.sched.SetFire(func(j scheduler.Job) { fireScheduledJob(rt, j) })
 }
-
-// ---------- serve ----------
 
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -572,11 +452,6 @@ func cmdServe(args []string) error {
 	return server.RunStdio(rt.agent)
 }
 
-// ---------- goal ----------
-
-// splitFlagArgs 把参数重排为「标志在前、位置参数在后」：
-// Go flag 包遇到首个非标志参数即停止解析，这里允许用户以任意顺序书写。
-// 取值判断直接查询 FlagSet（布尔型标志不带独立取值）。
 func splitFlagArgs(args []string, fs *flag.FlagSet) (flagArgs, positionals []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -588,7 +463,7 @@ func splitFlagArgs(args []string, fs *flag.FlagSet) (flagArgs, positionals []str
 			}
 			if f := fs.Lookup(name); f != nil {
 				if bv, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bv.IsBoolFlag() {
-					continue // 布尔标志不吞下一个参数
+					continue
 				}
 				if i+1 < len(args) {
 					flagArgs = append(flagArgs, args[i+1])
@@ -631,16 +506,11 @@ func cmdGoal(args []string) error {
 	bindSchedulerFire(rt)
 
 	result := rt.agent.RunGoal(context.Background(), types.GoalRequest{Goal: goal, Mode: *mode})
-	// 归档到 tasks/<id>.json：与 serve 模式共用**同一个出口**（agent.SaveTaskResult）。
-	// ExecutedPlan 随结果落盘，gleam replay 才有凭据回放"当时到底打算怎么做、做成了什么样"。
-	// 归档失败要说出来：以前是静默吞掉，用户以为 `gleam replay <id>` 随时能回放，
-	// 到跟前才发现这条运行根本不存在。
 	if err := agent.SaveTaskResult(rt.cfg.DataDir, result); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 任务未存档：%v\n", err)
 	} else {
 		fmt.Fprintf(os.Stderr, "[gleam] 任务已存档：gleam replay %s 可回放（trace_id %s）\n", result.TaskID, result.TraceID)
 	}
-	// 结果摘要到 stdout（可管道），过程在 stderr
 	fmt.Println(result.Summary)
 	if os.Getenv("GLEAM_DEBUG") != "" {
 		for _, st := range result.Steps {
@@ -664,8 +534,6 @@ func cmdGoal(args []string) error {
 	}
 }
 
-// printFailureBreakdown 失败时的归因分布：失败率只回答"坏了多少"，
-// 这一行回答"该先修哪一层"——参数错改参数、业务拒绝换方案、权限不足别重试。
 func printFailureBreakdown(result *types.GoalResult) {
 	if len(result.FailureBreakdown) == 0 {
 		return
@@ -681,8 +549,6 @@ func printFailureBreakdown(result *types.GoalResult) {
 	}
 	fmt.Fprintf(os.Stderr, "[gleam] 失败归因：%s（trace_id %s）\n", strings.Join(parts, " "), result.TraceID)
 }
-
-// ---------- tools / skills / schedule / memory ----------
 
 func cmdTools(args []string) error {
 	rt, err := buildRuntime("", "", "", false, "", agent.NopNotifier{})
@@ -736,8 +602,6 @@ func cmdSchedule(args []string) error {
 	}
 	defer rt.cleanup()
 	if rt.sched == nil {
-		// Scheduler can be disabled in configuration; listing should remain a
-		// harmless read operation instead of dereferencing a nil scheduler.
 		return nil
 	}
 	for _, j := range rt.sched.ListJobs() {
@@ -789,8 +653,6 @@ func cmdMemory(args []string) error {
 	return nil
 }
 
-// ---------- 守护进程管理 ----------
-
 func cmdDaemon(args []string) error {
 	sub := "status"
 	var rest []string
@@ -799,7 +661,6 @@ func cmdDaemon(args []string) error {
 		rest = args[1:]
 	}
 
-	// 获取数据目录和二进制路径
 	dataDir := defaultDataDir()
 	binPath, err := os.Executable()
 	if err != nil {
@@ -848,7 +709,6 @@ func cmdDaemon(args []string) error {
 		fmt.Printf("开机自启：%v\n", info.Enabled)
 
 	case "queue":
-		// 查看任务队列
 		queue, err := daemon.OpenQueue(dataDir)
 		if err != nil {
 			return err
@@ -885,7 +745,6 @@ func cmdDaemon(args []string) error {
 	return nil
 }
 
-// defaultDataDir 返回默认数据目录（~/.gleam）。
 func defaultDataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -893,8 +752,6 @@ func defaultDataDir() string {
 	}
 	return filepath.Join(home, ".gleam")
 }
-
-// ---------- 控制台 Notifier ----------
 
 type consoleNotifier struct {
 	stdin *bufio.Reader
@@ -910,13 +767,33 @@ func (c *consoleNotifier) OnProgress(ev types.ProgressEvent) {
 	fmt.Fprintf(os.Stderr, "\n[gleam %3d%%] %s\n", ev.Progress, ev.Message)
 }
 
+func (c *consoleNotifier) OnTool(ev types.ToolEvent) {
+	if ev.Phase != types.ToolEnd {
+		return
+	}
+	icon, ms := "✓", ""
+	switch ev.Status {
+	case types.ToolFailed:
+		icon = "✗"
+	case types.ToolSkipped:
+		icon = "⏭"
+	}
+	if ev.DurationMS > 0 {
+		ms = fmt.Sprintf(" · %dms", ev.DurationMS)
+	}
+	line := fmt.Sprintf("[gleam] %s %s%s", icon, types.Shorten(ev.Title, 80), ms)
+	if ev.Error != "" {
+		line += fmt.Sprintf("（%s）", types.Shorten(ev.Error, 80))
+	}
+	fmt.Fprintln(os.Stderr, line)
+}
+
 func (c *consoleNotifier) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	fmt.Fprintf(os.Stderr, "\n⚠ 需要你的批准（风险: %s）%s\n", req.Risk, req.Reason)
 	for _, line := range req.Plan {
 		fmt.Fprintf(os.Stderr, "  - %s\n", line)
 	}
 	fmt.Fprintf(os.Stderr, "允许执行吗? [y/N]（%v 秒内未答复将自动拒绝）> ", int(gApprovalTimeout().Seconds()))
-	// 带超时的读取
 	ch := make(chan string, 1)
 	go func() {
 		line, err := c.stdin.ReadString('\n')
@@ -951,8 +828,6 @@ func (c *consoleNotifier) OnTaskDone(ev types.TaskDoneEvent) {
 	fmt.Fprintf(os.Stderr, "\n🔔 %s：%s\n", ev.Title(), ev.Line())
 }
 
-// gApprovalTimeout / s.AgentGateApprovalTimeout 由装配时的配置决定；
-// 控制台简化为环境变量或默认值。
 func gApprovalTimeout() time.Duration {
 	if v := os.Getenv("GLEAM_APPROVAL_TIMEOUT_SEC"); v != "" {
 		var n int
@@ -963,10 +838,6 @@ func gApprovalTimeout() time.Duration {
 	return 5 * time.Minute
 }
 
-// ---------- 适配器 ----------
-
-// memAdapter 把记忆子系统接给内存工具。scope 决定条目归属哪个工作区：
-// 直接复用 agent.memoryScope，规则只有一处定义（开了项目级记忆才带工作区）。
 type memAdapter struct {
 	m     *memory.Manager
 	scope func() string
@@ -1053,7 +924,6 @@ func (a *skillAdapter) ListSummaries() []std.SkillSummary {
 }
 func (a *skillAdapter) GetParams(name string) ([]string, error) { return a.s.GetParams(name) }
 
-// permFromStr 权限字符串解析（设置页/配置文件共用）。
 func permFromStr(s string) types.Permission {
 	switch s {
 	case "readonly":

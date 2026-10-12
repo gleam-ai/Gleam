@@ -2,11 +2,6 @@ package eval
 
 import "testing"
 
-// ---------- P3-1 指标口径 ----------
-
-// TestJudge_UnsolvableHardGuess 不可解用例（full 深度）只判一件事：
-// 有没有硬猜成功。状态不是 success 即算识别——"怎么拒绝"可以多样，
-// "硬猜成功"只有一种形态。
 func TestJudge_UnsolvableHardGuess(t *testing.T) {
 	c := Case{ID: "u1", Unsolvable: true}
 
@@ -24,8 +19,6 @@ func TestJudge_UnsolvableHardGuess(t *testing.T) {
 	}
 }
 
-// TestJudge_UnsolvableIgnoredInSelect Unsolvable 只在 full 深度生效：
-// select/plan 根本不产生"完成与否"的结论，判不了这件事，也不该误伤既有用例。
 func TestJudge_UnsolvableIgnoredInSelect(t *testing.T) {
 	c := Case{ID: "u1", Unsolvable: true}
 	checks := judge(c, observation{Tools: []string{"file.search"}}, DepthSelect)
@@ -36,14 +29,11 @@ func TestJudge_UnsolvableIgnoredInSelect(t *testing.T) {
 	}
 }
 
-// TestTally_UnsolvableAxis 不可解是第三条轴：
-// 识别成功计入 Handled（不进 Passed，否则通过率被不可解用例污染）；
-// 识别失败计入 Failed；分母 Attempted = Total - Unsolvable。
 func TestTally_UnsolvableAxis(t *testing.T) {
 	rep := Report{Depth: DepthFull, Total: 3}
-	tally(&rep, Case{ID: "n1"}, &CaseResult{Passed: true})                    // 普通通过
-	tally(&rep, Case{ID: "u1", Unsolvable: true}, &CaseResult{Passed: true})  // 不可解被识别
-	tally(&rep, Case{ID: "u2", Unsolvable: true}, &CaseResult{Passed: false}) // 不可解被硬猜
+	tally(&rep, Case{ID: "n1"}, &CaseResult{Passed: true})
+	tally(&rep, Case{ID: "u1", Unsolvable: true}, &CaseResult{Passed: true})
+	tally(&rep, Case{ID: "u2", Unsolvable: true}, &CaseResult{Passed: false})
 
 	if rep.Passed != 1 {
 		t.Errorf("Passed 应只含普通用例 =1，实际 %d", rep.Passed)
@@ -59,8 +49,6 @@ func TestTally_UnsolvableAxis(t *testing.T) {
 	}
 }
 
-// TestTally_NormalDenominator 没有不可解用例时，分母等于总数——老口径不变，
-// 既有基线与门禁行为不受这次改动影响。
 func TestTally_NormalDenominator(t *testing.T) {
 	rep := Report{Depth: DepthSelect, Total: 2}
 	tally(&rep, Case{ID: "a"}, &CaseResult{Passed: true})

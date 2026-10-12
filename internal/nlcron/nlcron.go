@@ -1,6 +1,3 @@
-// Package nlcron 把中文自然语言时间描述解析成调度规则（Cron 或固定间隔）。
-// 面向“每天早上9点 / 工作日18:30 / 每周一和周五晚上8点 / 每月1号9点 / 每隔30分钟”等口语表达，
-// 覆盖日常场景，不追求完整时间语法；无法识别时返回带示例的错误。
 package nlcron
 
 import (
@@ -10,31 +7,23 @@ import (
 	"strings"
 )
 
-// Spec 解析结果：Cron 与 IntervalSec 二选一，Summary 为人读说明。
 type Spec struct {
 	Cron        string
 	IntervalSec int
 	Summary     string
 }
 
-// 数字片段：阿拉伯数字 / 中文数字 / “半”。
 const numPat = `(?:\d{1,3}|[零一二两三四五六七八九十]{1,3}|半)`
 
 var (
-	// 裸频率
 	intervalBareRe = regexp.MustCompile(`每(?:半个)?小时|每刻钟|每分钟|每分|每秒`)
-	// 周几范围：周一到周五 / 星期一至星期五
-	dowRangeRe = regexp.MustCompile(`(?:星期|礼拜|周)\s*([日天一二三四五六])\s*(?:到|至|~|～|-)\s*(?:星期|礼拜|周)?\s*([日天一二三四五六])`)
-	// 周几枚举：周一 / 星期三 / 礼拜五
-	dowItemRe = regexp.MustCompile(`(?:星期|礼拜|周)\s*([日天一二三四五六])`)
-	// 每月 N 号/日
-	monthlyRe = regexp.MustCompile(`每(?:个)?月\s*(` + numPat + `)\s*(?:号|日|天)`)
-	dailyRe   = regexp.MustCompile(`每天|每日|天天|每日定时|每天定时`)
-	// HH:MM
-	clockColonRe = regexp.MustCompile(`(\d{1,2})[:：](\d{1,2})`)
-	// X 点 [半|一刻|三刻|N 分]
-	clockDianRe = regexp.MustCompile(`(` + numPat + `)\s*点(?:\s*(半|一刻|三刻|` + numPat + `\s*分?))?`)
-	periodRe    = regexp.MustCompile(`凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|晚`)
+	dowRangeRe     = regexp.MustCompile(`(?:星期|礼拜|周)\s*([日天一二三四五六])\s*(?:到|至|~|～|-)\s*(?:星期|礼拜|周)?\s*([日天一二三四五六])`)
+	dowItemRe      = regexp.MustCompile(`(?:星期|礼拜|周)\s*([日天一二三四五六])`)
+	monthlyRe      = regexp.MustCompile(`每(?:个)?月\s*(` + numPat + `)\s*(?:号|日|天)`)
+	dailyRe        = regexp.MustCompile(`每天|每日|天天|每日定时|每天定时`)
+	clockColonRe   = regexp.MustCompile(`(\d{1,2})[:：](\d{1,2})`)
+	clockDianRe    = regexp.MustCompile(`(` + numPat + `)\s*点(?:\s*(半|一刻|三刻|` + numPat + `\s*分?))?`)
+	periodRe       = regexp.MustCompile(`凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|晚`)
 )
 
 var cnDigit = map[rune]int{
@@ -46,21 +35,18 @@ var dowCN = map[rune]int{'日': 0, '天': 0, '一': 1, '二': 2, '三': 3, '四'
 
 var dowName = []string{"日", "一", "二", "三", "四", "五", "六"}
 
-// Parse 解析中文时间描述。
 func Parse(text string) (Spec, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Spec{}, fmt.Errorf("时间描述为空")
 	}
 
-	// 1) 固定间隔：每隔 N 秒/分/时
 	if sp, ok, err := parseInterval(text); err != nil {
 		return Spec{}, err
 	} else if ok {
 		return sp, nil
 	}
 
-	// 2) 工作日 / 周末
 	switch {
 	case strings.Contains(text, "工作日") || strings.Contains(text, "平日"):
 		return buildCron(text, "1-5", 0, "工作日 %s（周一至周五）", false)
@@ -68,7 +54,6 @@ func Parse(text string) (Spec, error) {
 		return buildCron(text, "0,6", 0, "周末 %s（周六、周日）", false)
 	}
 
-	// 3) 每周几（范围 + 枚举）
 	dows := map[int]bool{}
 	for _, m := range dowRangeRe.FindAllStringSubmatch(text, -1) {
 		a, b := dowCN[[]rune(m[1])[0]], dowCN[[]rune(m[2])[0]]
@@ -87,7 +72,6 @@ func Parse(text string) (Spec, error) {
 		for d := range dows {
 			list = append(list, d)
 		}
-		// 展示按周一到周六、周日顺序
 		order := []int{1, 2, 3, 4, 5, 6, 0}
 		sorted := make([]int, 0, len(list))
 		names := make([]string, 0, len(list))
@@ -102,7 +86,6 @@ func Parse(text string) (Spec, error) {
 			"每"+strings.Join(names, "、")+" %s", false)
 	}
 
-	// 4) 每月 N 号
 	if m := monthlyRe.FindStringSubmatch(text); m != nil {
 		day, ok := atoiCN(m[1])
 		if !ok || day < 1 || day > 31 {
@@ -111,12 +94,11 @@ func Parse(text string) (Spec, error) {
 		return buildCron(text, "", day, fmt.Sprintf("每月 %d 号 %%s", day), false)
 	}
 
-	// 5) 每天（含无频率词、仅给时间点的兜底，在创建定时任务语境下视为每天）
 	hasDaily := dailyRe.MatchString(text)
 	h, mi, hasTime := parseClock(text)
 	if hasDaily || hasTime {
 		if !hasTime {
-			h, mi = 9, 0 // “每天定时整理”这类未给时刻的表达，默认上午 9 点
+			h, mi = 9, 0
 		}
 		cron := fmt.Sprintf("%d %d * * *", mi, h)
 		suffix := ""
@@ -129,8 +111,6 @@ func Parse(text string) (Spec, error) {
 	return Spec{}, fmt.Errorf("没看懂时间 %q，可试试「每天9点」「工作日18:30」「每周一早上9点」「每月1号9点」「每隔30分钟」", text)
 }
 
-// Resolve 统一优先级：显式 cron/interval 优先，否则解析自然语言 when。
-// 返回 cron、间隔秒与人类摘要。
 func Resolve(cron string, intervalSec int, when string) (string, int, string, error) {
 	cron = strings.TrimSpace(cron)
 	if cron != "" {
@@ -150,7 +130,6 @@ func Resolve(cron string, intervalSec int, when string) (string, int, string, er
 	return sp.Cron, sp.IntervalSec, sp.Summary, nil
 }
 
-// parseInterval 解析“每隔 N 秒/分/时”与裸“每小时/每分钟/每秒”。
 func parseInterval(text string) (Spec, bool, error) {
 	re := regexp.MustCompile(`每(?:隔)?\s*(` + numPat + `)\s*(?:个)?(秒钟|秒|分钟|分|小时|钟头)`)
 	if m := re.FindStringSubmatch(text); m != nil {
@@ -169,7 +148,7 @@ func parseInterval(text string) (Spec, bool, error) {
 		var sec int
 		switch {
 		case strings.Contains(m, "小时"):
-			sec = 1800 // 每半小时
+			sec = 1800
 			if !strings.Contains(m, "半") {
 				sec = 3600
 			}
@@ -178,7 +157,7 @@ func parseInterval(text string) (Spec, bool, error) {
 		case strings.Contains(m, "分"):
 			sec = 60
 		default:
-			sec = 5 // 每秒受最小间隔限制
+			sec = 5
 		}
 		return Spec{IntervalSec: sec, Summary: "每隔 " + humanInterval(sec)}, true, nil
 	}
@@ -196,7 +175,6 @@ func intervalUnitSec(unit string) int {
 	}
 }
 
-// buildCron 组装带时刻/星期/月日的 cron。day>0 时为每月任务，dow 非空时为每周任务。
 func buildCron(text, dow string, day int, summaryFmt string, _ bool) (Spec, error) {
 	h, mi, hasTime := parseClock(text)
 	if !hasTime {
@@ -218,7 +196,6 @@ func buildCron(text, dow string, day int, summaryFmt string, _ bool) (Spec, erro
 	return Spec{Cron: cron, Summary: summary}, validate(cron)
 }
 
-// parseClock 提取时刻：优先 HH:MM，其次“X点[Y分/半/一刻/三刻]”，并按上午/下午等时段词换算 24 小时制。
 func parseClock(text string) (int, int, bool) {
 	if m := clockColonRe.FindStringSubmatch(text); m != nil {
 		h, _ := strconv.Atoi(m[1])
@@ -252,20 +229,19 @@ func parseClock(text string) (int, int, bool) {
 	return 0, 0, false
 }
 
-// applyPeriod 依据时段词把 12 小时制读法换算成 24 小时制。
 func applyPeriod(h int, text string) int {
 	p := periodRe.FindString(text)
 	switch p {
 	case "下午", "傍晚", "晚上", "晚":
 		if h == 12 {
-			return 0 // 晚上 12 点即午夜 0 点
+			return 0
 		}
 		if h < 12 {
 			return h + 12
 		}
 	case "中午":
 		if h < 12 {
-			return h + 12 // 中午 1 点即 13 点
+			return h + 12
 		}
 	case "凌晨":
 		if h == 12 {
@@ -275,7 +251,6 @@ func applyPeriod(h int, text string) int {
 	return h
 }
 
-// compressDows 把连续的星期压缩成区间（如 1,2,3,4,5 → 1-5），其余用逗号拼接。
 func compressDows(dows []int) string {
 	if len(dows) == 0 {
 		return ""
@@ -312,7 +287,6 @@ func validate(cron string) error {
 	return nil
 }
 
-// atoiCN 支持阿拉伯数字与简单中文数字（一~九十九，含“两/十”）。
 func atoiCN(s string) (int, bool) {
 	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
 		return n, true
@@ -355,7 +329,6 @@ func atoiCN(s string) (int, bool) {
 	return tens*10 + ones, true
 }
 
-// fracNum 解析数量，允许“半”=0.5。
 func fracNum(s string) (float64, error) {
 	if strings.TrimSpace(s) == "半" {
 		return 0.5, nil

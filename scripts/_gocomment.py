@@ -22,7 +22,7 @@ def strip(text):
     """把 Go 源码里的注释替换成空格；字符串与其余字符原位保留。"""
     out = []
     i, n = 0, len(text)
-    state = ""  # "" | line | block | string | raw | rune
+    state = ""
     while i < n:
         c = text[i]
         nxt = text[i + 1] if i + 1 < n else ""
@@ -63,7 +63,6 @@ def strip(text):
             out.append("\n" if c == "\n" else " ")
             i += 1
             continue
-        # 字符串系：原样保留，只找结束位
         if c == "\\" and state in ("string", "rune") and nxt:
             out.append(c)
             out.append(nxt)

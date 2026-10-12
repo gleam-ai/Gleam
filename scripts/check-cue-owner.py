@@ -45,12 +45,11 @@ import re
 import sys
 
 import _gocomment
-import _utf8  # noqa: F401  # Windows 下 stdout 默认按 GBK 写，中文会变乱码
+import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
 OWNER_FILE = os.path.join("internal", "agent", "cues.go")
 STORE_FILE = os.path.join("internal", "agent", "cues_store.go")
 
-# 提议层不许碰的入口：提交任务、叫调度器立刻跑、还原改动、把卡片写进盘。
 HANDS = ("RunGoal(", "TriggerNow(", "Revert(", "atomicfile.Write(")
 
 SIGNALS_RE = re.compile(r"var\s+cueSignals\s*=\s*\[\]string\{(.*?)\}", re.S)
@@ -312,7 +311,6 @@ func cueSignalText(signal string) string {
         else:
             print("  拦住：%s（%s）" % (name, sink[0][:56]))
 
-    # 干扰文本一：注释里提 `RunGoal`（cues.go 的文件头注释就是在解释"为什么不调它"）。
     decoy_hand = (
         "// **只提议，不执行**：这一层不调 RunGoal(ctx, req)，也不 TriggerNow。\n"
         + good
@@ -324,7 +322,6 @@ func cueSignalText(signal string) string {
     else:
         print("  不误报：注释里提到的 RunGoal 不算伸手")
 
-    # 干扰文本二：注释里用 `**` 标重点（这个文件的注释本来就在这么写）。
     decoy_md = "// cueSignals 三条线索，**信号类型的唯一 owner**。\n" + good
     if markdown_in_texts(_gocomment.strip(decoy_md)):
         print("注释里的 markdown 标记被当成了文案 —— 剥注释没生效")

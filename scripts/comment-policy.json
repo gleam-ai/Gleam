@@ -1,0 +1,5 @@
+{
+  "max_violations": 0,
+  "comment_ratio_max": 0.3,
+  "note": "Budget may only move down. Raise it only by fixing violations, never by editing this number. See CONTRIBUTING.md > Comments."
+}

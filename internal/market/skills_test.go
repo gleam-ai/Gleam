@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-// skillToolAllowlist 技能步骤里允许出现的工具名。
-//
-// 这张表是**判据的一部分**，不是从代码里推出来的：技能是随程序发布的内容，
-// 一旦某条写错工具名（`file_read` 而不是 `file.read`），装到用户机器上才会在执行时炸——
-// 而那时错误信息离"技能模板写错了"很远。所以在这里挡一道。
-//
-// 加了新工具要同步这张表；忘了改的后果是新增技能被判红，而不是静默放行。
 var skillToolAllowlist = map[string]bool{
 	"file.list": true, "file.read": true, "file.write": true, "file.mkdir": true,
 	"file.move": true, "file.delete": true, "file.search": true,
@@ -24,10 +17,6 @@ var skillToolAllowlist = map[string]bool{
 var kebabRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 var paramRefRe = regexp.MustCompile(`\{\{([^}]+)\}\}`)
 
-// TestSkillCatalogIntegrity 整个技能目录的机械判据。
-//
-// 逐条抓的是"装到用户机器上才会暴露"的那类错：名字重复、工具名打错、
-// 引用了不存在的步骤或没声明的参数。这些都**不会**在编译期被发现。
 func TestSkillCatalogIntegrity(t *testing.T) {
 	if len(SkillCatalog) < 20 {
 		t.Fatalf("技能目录只有 %d 条：这个判据的前提是目录够大，先补内容或修判据", len(SkillCatalog))
@@ -77,7 +66,6 @@ func TestSkillCatalogIntegrity(t *testing.T) {
 				}
 			}
 			for _, ref := range refsIn(st.Args) {
-				// 带点的引用是「步骤 id + 字段路径」，不带点的是「声明过的参数」
 				if i := strings.IndexByte(ref, '.'); i > 0 {
 					if !steps[ref[:i]] {
 						t.Errorf("%s 的步骤 %s 引用了不存在的步骤 %q", sk.Name, st.ID, ref[:i])
@@ -92,7 +80,6 @@ func TestSkillCatalogIntegrity(t *testing.T) {
 	}
 }
 
-// refsIn 取出参数值里出现的所有 {{...}} 引用（含嵌套 map/slice）。
 func refsIn(v any) []string {
 	var out []string
 	switch x := v.(type) {
@@ -112,7 +99,6 @@ func refsIn(v any) []string {
 	return out
 }
 
-// TestSkillCategoriesAreDistinctAndOrdered 分类表本身要干净：不重复、非空、顺序稳定。
 func TestSkillCategoriesAreDistinctAndOrdered(t *testing.T) {
 	cats := SkillCategories()
 	if len(cats) < 6 {
@@ -128,7 +114,6 @@ func TestSkillCategoriesAreDistinctAndOrdered(t *testing.T) {
 		}
 		seen[c] = true
 	}
-	// 每个分类至少要有一条技能，否则界面上会出现点了没结果的空白格
 	used := map[string]bool{}
 	for _, sk := range SkillCatalog {
 		used[sk.Category] = true

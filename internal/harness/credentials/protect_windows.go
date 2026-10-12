@@ -1,8 +1,5 @@
 //go:build windows
 
-// protect_windows.go 用 Windows DPAPI（CryptProtectData，当前用户域）给凭证文件加密封装。
-// 纯标准库 syscall 实现，不引第三方依赖；额外绑定一段应用熵，防止同用户下其它进程
-// 直接调用未保护解密把文件当明文读走。
 package credentials
 
 import (
@@ -18,10 +15,8 @@ var (
 	kernel32LocalFree    = syscall.NewLazyDLL("kernel32.dll").NewProc("LocalFree")
 )
 
-// CRYPTPROTECT_UI_FORBIDDEN：静默调用，禁止弹任何系统授权框。
 const cryptProtectUIForbidden = 0x1
 
-// appEntropy 应用级附加熵。不是秘密（防的是"顺手解密"，不是同用户恶意进程）。
 var appEntropy = []byte("Gleam.credentials.v1")
 
 type dataBlob struct {

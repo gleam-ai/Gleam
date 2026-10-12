@@ -1,9 +1,3 @@
-// Builds the Go sidecar (cmd/gleam) for the current (or a given) platform into
-// desktop/.sidecar/<platform>-<arch>/gleam[.exe]. Node naming (win32/darwin/linux, x64/arm64)
-// is used so electron-builder's ${platform}-${arch} macros pick the right folder.
-//
-//   node scripts/build-sidecar.mjs                 # host platform
-//   node scripts/build-sidecar.mjs win32 x64       # cross-compile (pure Go, no cgo)
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -22,7 +16,6 @@ if (!goos || !goarch) {
   process.exit(2);
 }
 
-// Read version from package.json so the sidecar reports the same version as the Electron shell.
 const pkg = JSON.parse(readFileSync(join(desktopDir, 'package.json'), 'utf8'));
 const version = pkg.version || '0.0.0';
 

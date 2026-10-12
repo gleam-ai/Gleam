@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// P5-1：cwd 不能是"任何地方"——否则模型可以用 cd / 把后续相对路径操作带出工作区。
 func TestExecute_CWDOutsideWorkspaceRejected(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -26,7 +25,6 @@ func TestExecute_CWDOutsideWorkspaceRejected(t *testing.T) {
 	}
 }
 
-// 未配置边界时拒绝任何 cwd：没配边界就放行，等于把"忘了配置"变成一次越权。
 func TestExecute_NoRootsRejectsCWD(t *testing.T) {
 	tool := New(5 * time.Second)
 	_, err := tool.Execute(context.Background(), map[string]any{
@@ -56,7 +54,6 @@ func TestExecute_CWDInsideWorkspaceAllowed(t *testing.T) {
 	}
 }
 
-// 无 cwd 时继承进程目录（既有行为不能因为加了校验而改变）。
 func TestExecute_NoCWDUnaffected(t *testing.T) {
 	tool := NewWithRoots(10*time.Second, t.TempDir())
 	out, err := tool.Execute(context.Background(), map[string]any{"command": "echo hi"})
@@ -68,7 +65,6 @@ func TestExecute_NoCWDUnaffected(t *testing.T) {
 	}
 }
 
-// P5-1：凭证类环境变量不进子进程——模型能读回命令输出，凭证进了子进程就等于进了上下文。
 func TestSanitizedEnv_StripsCredentials(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
@@ -94,7 +90,6 @@ func TestSanitizedEnv_StripsCredentials(t *testing.T) {
 	}
 }
 
-// 只拦"几乎确定是凭证"的模式：宽到把 PATH 也拦了，命令就跑不起来了。
 func TestIsCredentialVar_DoesNotOverBlock(t *testing.T) {
 	for _, name := range []string{"PATH", "HOME", "PWD", "TOKENIZER_PATH", "TEMP"} {
 		if isCredentialVar(name) {

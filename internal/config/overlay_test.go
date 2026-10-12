@@ -44,22 +44,15 @@ func TestSaveLoadOverlay_Roundtrip(t *testing.T) {
 	if fresh.Persona.Style != "gentle" || fresh.Persona.Name != "小光" {
 		t.Errorf("persona = %+v", fresh.Persona)
 	}
-	// 上下文窗口是占用水位的分母，存不下来就会在重启后悄悄换回兜底值——
-	// 界面上那个百分比跟着变，而用户没改过任何设置。
 	if fresh.LLM.ContextWindow != 200000 {
 		t.Errorf("context_window = %d，应为 200000", fresh.LLM.ContextWindow)
 	}
 }
 
-// TestSaveLoadOverlay_WorktreesRoundtrip worktree 那四项要能存能读。
-//
-// 尤其盯住默认值：四项默认全关、上限为 0（不限制）。存读一圈之后若变成"开着"或
-// "上限 15"，那等于替用户打开了"任务不再改你的工作区"这件事——最坏的一种默认值漂移。
 func TestSaveLoadOverlay_WorktreesRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, OverlayFile)
 
-	// 先验默认值本身
 	if d := Default().Worktrees; d.Enabled || d.FetchBeforeCreate || d.AutoDelete || d.MaxCount != 0 {
 		t.Fatalf("worktree 默认应当全关且不限数量，实际 %+v", d)
 	}
@@ -78,8 +71,6 @@ func TestSaveLoadOverlay_WorktreesRoundtrip(t *testing.T) {
 	}
 }
 
-// TestSaveLoadOverlay_ModelTiersRoundtrip 模型档位表要能存能读：
-// 它是个开放的映射，写丢一个键就等于某个场景悄悄退回主模型。
 func TestSaveLoadOverlay_ModelTiersRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Default()
@@ -106,7 +97,6 @@ func TestSaveLoadOverlay_ModelTiersRoundtrip(t *testing.T) {
 	}
 }
 
-// TestApply_ModelTiersClearedByEmptyMap 清空档位表要真的生效（空表 = 所有场景都用主模型）。
 func TestApply_ModelTiersClearedByEmptyMap(t *testing.T) {
 	cfg := Default()
 	cfg.LLM.Tiers = map[string]string{"coding": "x"}
@@ -116,7 +106,6 @@ func TestApply_ModelTiersClearedByEmptyMap(t *testing.T) {
 	}
 }
 
-// TestApply_ModelTiersIgnoresBlank 档位名或模型为空白时丢弃，避免造出"指向空模型的档位"。
 func TestApply_ModelTiersIgnoresBlank(t *testing.T) {
 	cfg := Default()
 	cfg.Apply(map[string]any{"llm": map[string]any{"tiers": map[string]any{
@@ -166,8 +155,6 @@ func TestApply_PartialPatch(t *testing.T) {
 	if cfg.Agent.StepRetries != 5 {
 		t.Errorf("step_retries = %d", cfg.Agent.StepRetries)
 	}
-	// 与 Default() 比对而不是写死数字：这条测的是"未提及的字段保持默认"，
-	// 默认值本身该改就改，写死 12 只会让调默认值的人来改测试（且改错了也没人发现）。
 	if want := Default().Agent.MaxSteps; cfg.Agent.MaxSteps != want {
 		t.Errorf("未提及字段应保持默认: max_steps = %d，期望 %d", cfg.Agent.MaxSteps, want)
 	}

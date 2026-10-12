@@ -11,8 +11,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// probingNotifier 在审批回调里探查"等待审批状态是否已落盘"，
-// 然后返回预设结果——这是唯一能观察到"审批进行中"的时点。
 type probingNotifier struct {
 	NopNotifier
 	gate      *safety.Gate
@@ -30,8 +28,6 @@ func (p *probingNotifier) OnApproval(req types.ApprovalRequest) types.ApprovalRe
 	return types.ApprovalResponse{Approved: p.approved, Note: "测试"}
 }
 
-// P4-2：进程若在等待审批期间退出，重启后必须能看到"有任务卡在审批"——
-// 而不是静默消失。所以审批**进行中**就落盘，审批有结果即摘除。
 func TestExecute_PendingRecordedWhileWaiting(t *testing.T) {
 	dir := t.TempDir()
 	pendingPath := filepath.Join(dir, "pending.json")
@@ -55,7 +51,6 @@ func TestExecute_PendingRecordedWhileWaiting(t *testing.T) {
 	if res.Steps[0].Status != types.StepFailed {
 		t.Fatalf("审批被拒应失败，实际 %s", res.Steps[0].Status)
 	}
-	// 审批有结果 → 摘除（否则重启后会看到一堆早已结束的"等待"）
 	if got := gate.PendingApprovals(); len(got) != 0 {
 		t.Errorf("审批结束后应清空等待记录，实际 %+v", got)
 	}
@@ -65,8 +60,6 @@ func TestExecute_PendingRecordedWhileWaiting(t *testing.T) {
 	}
 }
 
-// P5-2：自动放行的**副作用动作**也要留痕——审计的对象是"谁动了什么"，
-// 只记需审批的动作，等于把最常发生的那部分副作用放进了盲区。
 func TestExecute_AutoApprovedSideEffectAudited(t *testing.T) {
 	gate := safety.New("auto", []string{"trusted-writer"}, nil, nil, time.Second)
 	r := registry.New()
@@ -90,7 +83,6 @@ func TestExecute_AutoApprovedSideEffectAudited(t *testing.T) {
 	}
 }
 
-// 只读自动放行不记审计：它们没有副作用，记下来只是噪音（会把真事件淹掉）。
 func TestExecute_ReadOnlyNotAudited(t *testing.T) {
 	gate := safety.New("auto", nil, nil, nil, time.Second)
 	r := registry.New()

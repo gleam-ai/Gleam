@@ -15,7 +15,6 @@ import (
 	"gleam/internal/llm"
 )
 
-// freePort 找一个可用端口。
 func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -26,7 +25,6 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-// TestE2E_WebUI 启动真实二进制的 Web UI，走一遍 REST + 审批全流程。
 func TestE2E_WebUI(t *testing.T) {
 	bin := buildBinary(t)
 	ws := t.TempDir()
@@ -38,8 +36,6 @@ func TestE2E_WebUI(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// 两个场景串行消费 mock 脚本：
-	// 1) 高风险删除（走审批）  2) 普通写文件 + 回复
 	script := writeScript(t, []llm.Scripted{
 		{Kind: "plan", Texts: []string{`{"steps":[{"id":"s1","description":"删除文件","tool":"file.delete","args":{"path":"victim.txt","recursive":false}}]}`}},
 		{Kind: "reflect", Texts: []string{`{"score":95,"verdict":"done","reason":"已删除"}`}},
@@ -52,7 +48,6 @@ func TestE2E_WebUI(t *testing.T) {
 
 	cmd := exec.Command(bin, "webui", "--mock-llm", "--mock-script", script, "--workspace", ws,
 		"--data-dir", dataDir, "--addr", fmt.Sprintf("127.0.0.1:%d", port))
-	// 清掉可能从外部继承的预置口令：这里要测「随机口令 + 口令文件」这条默认路径。
 	cmd.Env = append(os.Environ(), "GLEAM_WEBUI_TOKEN=")
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
@@ -64,7 +59,6 @@ func TestE2E_WebUI(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	})
 
-	// 等服务就绪
 	client := &http.Client{Timeout: 5 * time.Second}
 	ready := false
 	for i := 0; i < 50; i++ {
@@ -80,7 +74,6 @@ func TestE2E_WebUI(t *testing.T) {
 		t.Fatalf("Web UI 未就绪: %s", stderr.String())
 	}
 
-	// /api 要口令：没带的请求必须被拒；脚本与 CLI 的拿法是读数据目录里的口令文件。
 	if resp, err := client.Get(base + "/api/info"); err != nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("无口令 GET /api/info 应为 401: %v %v", err, resp)
 	} else {
@@ -115,7 +108,6 @@ func TestE2E_WebUI(t *testing.T) {
 		return out
 	}
 
-	// 1) 信息与首页
 	info := call("GET", "/api/info", nil)
 	if info["name"] != "gleam" {
 		t.Fatalf("info = %v", info)
@@ -126,7 +118,6 @@ func TestE2E_WebUI(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// 2) 场景一：高风险删除 → 审批同意 → 成功
 	out := call("POST", "/api/goals", map[string]any{"goal": "删除 victim.txt", "mode": "auto"})
 	taskID, _ := out["task_id"].(string)
 	if taskID == "" {
@@ -151,7 +142,6 @@ func TestE2E_WebUI(t *testing.T) {
 		t.Error("批准后文件应被删除")
 	}
 
-	// 3) 场景二：普通目标
 	out2 := call("POST", "/api/goals", map[string]any{"goal": "创建 webui-e2e.txt 并验证"})
 	taskID2, _ := out2["task_id"].(string)
 	done := waitDone(t, client, base, taskID2, "success", 15*time.Second)
@@ -184,7 +174,6 @@ func waitDone(t *testing.T, client *http.Client, base, taskID, want string, time
 	return nil
 }
 
-// tokenTransport 给每个请求补上本次启动的 API 口令（与脚本读口令文件后的做法一致）。
 type tokenTransport struct{ token string }
 
 func (t tokenTransport) RoundTrip(r *http.Request) (*http.Response, error) {

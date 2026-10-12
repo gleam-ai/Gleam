@@ -11,15 +11,6 @@ import (
 	"gleam/pkg/types"
 )
 
-// llmReviewer 用辅助模型做执行前的动作快筛。
-//
-// 设计上刻意遵守三点：
-//  1. 独立：另一次调用、另一份上下文，与规划/执行互不干扰；
-//  2. 只管一件事：回答"这个动作算不算用户目标的合理解读"，不评估质量、不改写参数；
-//  3. 不看 Agent 的推理：只给「用户目标 + 要执行的动作」。Agent 能给任何动作配上说得过去
-//     的理由，让审核者看到推理过程，等于让它自己审自己。
-//
-// 快筛不通过不直接拒绝，而是升级为人工确认——最终决定权始终在人手里。
 type llmReviewer struct {
 	LLM    llm.Client
 	TaskID string
@@ -27,7 +18,6 @@ type llmReviewer struct {
 
 const reviewTimeout = 15 * time.Second
 
-// reviewVerdict 审核模型的输出（只关心一个是非题）。
 type reviewVerdict struct {
 	OK     bool   `json:"ok"`
 	Reason string `json:"reason"`
@@ -35,7 +25,7 @@ type reviewVerdict struct {
 
 func (r *llmReviewer) Review(userGoal, tool string, args map[string]any) (bool, string) {
 	if r == nil || r.LLM == nil {
-		return true, "" // 没配审核模型就不拦
+		return true, ""
 	}
 	argText, err := json.Marshal(args)
 	if err != nil {
@@ -68,11 +58,10 @@ func (r *llmReviewer) Review(userGoal, tool string, args map[string]any) (bool, 
 	defer cancel()
 	text, err := r.LLM.Chat(ctx, req)
 	if err != nil {
-		return true, "" // 审核模型不可用时不阻断主流程
+		return true, ""
 	}
 	raw, err := extractJSON(text)
 	if err != nil {
-		// 输出解析不了：宁可多标一次，交给人确认
 		return false, "审核输出无法解析，交人工确认"
 	}
 	var v reviewVerdict
@@ -82,17 +71,8 @@ func (r *llmReviewer) Review(userGoal, tool string, args map[string]any) (bool, 
 	return v.OK, strings.TrimSpace(v.Reason)
 }
 
-// deepReviewTimeout 深度扫描看的是整段计划，比逐动作那份大，给的时间也多些。
 const deepReviewTimeout = 30 * time.Second
 
-// deepReviewPlan 深度扫描：执行前把**整段计划**交给主模型审一遍。
-//
-// 与轻量扫描（Reviewer）的区别在视野，不在模型强弱：轻量扫描逐动作看、用的是辅助模型；
-// 这里一次看全局——每一步单看都合理、连起来却在做另一件事的计划，逐动作审核是看不见的。
-// 也正因为一条任务只做一次，用主模型才划算。
-//
-// 拿不到结论时**不阻断**（模型不可用、输出解析不了都算）：深度扫描是加一道人工确认，
-// 不是新的失败点。真要拦，会在下面交给人拍板。
 func (a *Agent) deepReviewPlan(ctx context.Context, taskID, goal string, plan *types.Plan) (bool, string) {
 	if a == nil || a.LLM == nil || plan == nil || len(plan.Steps) == 0 {
 		return true, ""
@@ -130,7 +110,7 @@ func (a *Agent) deepReviewPlan(ctx context.Context, taskID, goal string, plan *t
 	defer cancel()
 	text, err := a.LLM.Chat(cctx, req)
 	if err != nil {
-		return true, "" // 主模型不可用：不因为"审不了"而卡住任务
+		return true, ""
 	}
 	raw, err := extractJSON(text)
 	if err != nil {

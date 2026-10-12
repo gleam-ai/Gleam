@@ -57,7 +57,7 @@ func TestTitleTruncate(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := s.Get(c.ID)
-	if r := []rune(got.Title); len(r) != maxTitleRunes+1 { // 24 + 省略号
+	if r := []rune(got.Title); len(r) != maxTitleRunes+1 {
 		t.Fatalf("标题长度=%d, 期望 %d（含省略号）", len(r), maxTitleRunes+1)
 	}
 }
@@ -78,7 +78,6 @@ func TestRenameDelete(t *testing.T) {
 	if _, err := s.Get(c.ID); err == nil {
 		t.Fatal("删除后仍可读取")
 	}
-	// 重复删除不报错
 	if err := s.Delete(c.ID); err != nil {
 		t.Fatalf("重复删除应幂等: %v", err)
 	}

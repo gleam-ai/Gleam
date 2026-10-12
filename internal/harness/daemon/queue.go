@@ -12,7 +12,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// TaskState 任务状态。
 type TaskState string
 
 const (
@@ -23,27 +22,24 @@ const (
 	TaskCancelled TaskState = "cancelled"
 )
 
-// QueuedTask 队列中的任务。
 type QueuedTask struct {
-	ID        string    `json:"id"`
-	Goal      string    `json:"goal"`
-	Mode      string    `json:"mode"`
-	State     TaskState `json:"state"`
-	Priority  int       `json:"priority"` // 0=normal, 1=high, 2=urgent
-	CreatedAt time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	Goal      string     `json:"goal"`
+	Mode      string     `json:"mode"`
+	State     TaskState  `json:"state"`
+	Priority  int        `json:"priority"` // 0=normal, 1=high, 2=urgent
+	CreatedAt time.Time  `json:"created_at"`
 	StartedAt *time.Time `json:"started_at,omitempty"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	Result    string    `json:"result,omitempty"` // JSON 序列化的 GoalResult
+	Error     string     `json:"error,omitempty"`
+	Result    string     `json:"result,omitempty"` // marshalled types.GoalResult JSON
 }
 
-// Queue 任务队列（SQLite 持久化）。
 type Queue struct {
 	mu sync.Mutex
 	db *sql.DB
 }
 
-// OpenQueue 打开任务队列（文件不存在则创建）。
 func OpenQueue(dataDir string) (*Queue, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
@@ -55,7 +51,6 @@ func OpenQueue(dataDir string) (*Queue, error) {
 		return nil, fmt.Errorf("打开任务队列失败：%w", err)
 	}
 
-	// 创建表
 	if err := initSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("初始化队列 schema 失败：%w", err)
@@ -64,12 +59,10 @@ func OpenQueue(dataDir string) (*Queue, error) {
 	return &Queue{db: db}, nil
 }
 
-// Close 关闭队列。
 func (q *Queue) Close() error {
 	return q.db.Close()
 }
 
-// Enqueue 添加任务到队列。
 func (q *Queue) Enqueue(task *QueuedTask) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -95,7 +88,6 @@ func (q *Queue) Enqueue(task *QueuedTask) error {
 	return err
 }
 
-// Dequeue 取出下一个待执行任务（按优先级和创建时间排序）。
 func (q *Queue) Dequeue() (*QueuedTask, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -117,7 +109,7 @@ func (q *Queue) Dequeue() (*QueuedTask, error) {
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil // 队列为空
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -126,7 +118,6 @@ func (q *Queue) Dequeue() (*QueuedTask, error) {
 	return task, nil
 }
 
-// Complete 标记任务完成。
 func (q *Queue) Complete(id string, result interface{}) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -150,7 +141,6 @@ func (q *Queue) Complete(id string, result interface{}) error {
 	return err
 }
 
-// Fail 标记任务失败。
 func (q *Queue) Fail(id string, errMsg string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -165,7 +155,6 @@ func (q *Queue) Fail(id string, errMsg string) error {
 	return err
 }
 
-// Cancel 取消任务。
 func (q *Queue) Cancel(id string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -179,7 +168,6 @@ func (q *Queue) Cancel(id string) error {
 	return err
 }
 
-// ListPending 列出所有待执行任务。
 func (q *Queue) ListPending() ([]*QueuedTask, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -207,7 +195,6 @@ func (q *Queue) ListPending() ([]*QueuedTask, error) {
 	return tasks, rows.Err()
 }
 
-// ListRunning 列出所有运行中任务。
 func (q *Queue) ListRunning() ([]*QueuedTask, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -235,7 +222,6 @@ func (q *Queue) ListRunning() ([]*QueuedTask, error) {
 	return tasks, rows.Err()
 }
 
-// RecoverPending 恢复所有运行中任务为待执行（进程重启后调用）。
 func (q *Queue) RecoverPending() (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -253,7 +239,6 @@ func (q *Queue) RecoverPending() (int, error) {
 	return int(affected), err
 }
 
-// CleanupOld 清理已完成/失败的任务（保留最近 N 天）。
 func (q *Queue) CleanupOld(keepDays int) (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -271,7 +256,6 @@ func (q *Queue) CleanupOld(keepDays int) (int, error) {
 	return int(affected), err
 }
 
-// Stats 队列统计。
 type Stats struct {
 	Pending   int `json:"pending"`
 	Running   int `json:"running"`
@@ -280,7 +264,6 @@ type Stats struct {
 	Total     int `json:"total"`
 }
 
-// GetStats 获取队列统计。
 func (q *Queue) GetStats() (*Stats, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -310,7 +293,6 @@ func (q *Queue) GetStats() (*Stats, error) {
 	return stats, nil
 }
 
-// initSchema 初始化数据库 schema。
 func initSchema(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS tasks (

@@ -5,7 +5,6 @@ import (
 	"net"
 )
 
-// loopbackListener 在 127.0.0.1 上绑定一个随机可用端口，用于接收 OAuth 回调。
 type loopbackListener struct {
 	net.Listener
 	port int

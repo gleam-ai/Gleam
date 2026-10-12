@@ -7,11 +7,9 @@ import (
 	"time"
 )
 
-// Cron 五段 Cron 表达式（分 时 日 月 周），支持 * , - / 与数字。
-// 周字段 0/7 均为周日。
 type Cron struct {
 	min, hour, dom, mon, dow fieldSpec
-	domRestricted            bool // 日/周均为受限字段时的"或"语义（标准 Cron）
+	domRestricted            bool
 	dowRestricted            bool
 }
 
@@ -27,7 +25,6 @@ func (f fieldSpec) match(v int) bool {
 	return f.values[v]
 }
 
-// ParseCron 解析五段 Cron 表达式。
 func ParseCron(expr string) (*Cron, error) {
 	fields := strings.Fields(strings.TrimSpace(expr))
 	if len(fields) != 5 {
@@ -51,7 +48,6 @@ func ParseCron(expr string) (*Cron, error) {
 	if c.dow.any, c.dow.values, err = parseField(fields[4], 0, 7); err != nil {
 		return nil, fmt.Errorf("周字段: %w", err)
 	}
-	// 规范化 7 -> 0（周日）
 	if !c.dow.any {
 		if c.dow.values[7] {
 			c.dow.values[0] = true
@@ -63,7 +59,6 @@ func ParseCron(expr string) (*Cron, error) {
 	return c, nil
 }
 
-// parseField 解析单字段：支持 *、a-b、*/n、a-b/n、a,b,c。
 func parseField(s string, min, max int) (bool, map[int]bool, error) {
 	values := map[int]bool{}
 	any := false
@@ -115,14 +110,12 @@ func parseField(s string, min, max int) (bool, map[int]bool, error) {
 	return any, values, nil
 }
 
-// Match 判断时刻 t（本地时区）是否命中。
 func (c *Cron) Match(t time.Time) bool {
 	if !c.mon.match(int(t.Month())) {
 		return false
 	}
 	domOK := c.dom.match(t.Day())
 	dowOK := c.dow.match(int(t.Weekday()))
-	// 标准 Cron 语义：日与周都受限时取并集
 	if c.domRestricted && c.dowRestricted {
 		if !domOK && !dowOK {
 			return false
@@ -136,8 +129,6 @@ func (c *Cron) Match(t time.Time) bool {
 	return c.min.match(t.Minute())
 }
 
-// Next 返回 after 之后（不含 after）的下一次触发时刻。
-// 从 after+1 分钟起逐分钟扫描，最多回绕一年。
 func (c *Cron) Next(after time.Time) time.Time {
 	t := after.Truncate(time.Minute).Add(time.Minute)
 	limit := t.AddDate(1, 0, 0)

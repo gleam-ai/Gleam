@@ -1,11 +1,3 @@
-// 全局唤起快捷键：在任何应用里按这个组合，把 Gleam 拉到前台。
-//
-// 这是**桌面壳专属**能力（浏览器里没有 globalShortcut），所以偏好也存在壳这边：
-//   <userData>/global-shortcut.json
-// 不放 Go 侧的配置里，是因为它跟窗口生命周期绑着，Go 那边既用不上也管不着。
-//
-// 注册可能失败：组合被别的程序占了、或者根本不是合法组合，Electron 会返回 false 或直接抛。
-// 两种都要如实回给界面——不然用户设完发现没反应，只能猜。
 import { app, globalShortcut, BrowserWindow } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -30,16 +22,14 @@ function load(): string {
     };
     return typeof raw.accelerator === 'string' ? raw.accelerator : '';
   } catch {
-    return ''; // 没存过 / 文件坏了：都当没设过
+    return '';
   }
 }
 
 function persist(accelerator: string): void {
   try {
     writeFileSync(storePath(), JSON.stringify({ accelerator }));
-  } catch {
-    // 写不进去就只生效本次运行：不该因为存不下而让快捷键失效
-  }
+  } catch {}
 }
 
 function reveal(): void {
@@ -75,7 +65,6 @@ function apply(accelerator: string): ShortcutResult {
   return { ok: true, accelerator: accel };
 }
 
-/** 窗口就绪后装上：读上次存的，顺手把注册结果打出来，排障时不用猜。 */
 export function installGlobalShortcut(win: BrowserWindow): void {
   target = win;
   const saved = load();

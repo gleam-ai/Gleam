@@ -12,14 +12,8 @@ import (
 
 func testCtx() context.Context { return context.Background() }
 
-// TestValidateFallbackSharesConfigDefault MaxSteps<=0 时的兜底上限必须与 config 同源。
-//
-// 原先 planner 与 config 各写死一个 12，改一处忘一处就成了两份边界——
-// 而且是"改大了 config 却没改 planner"这种最难发现的形态：
-// 只在 MaxSteps 被显式置 0 时才暴露，而默认路径上看不出来。
-// 这个测试钉住的是"两者是同一个数"，不是"这个数等于多少"。
 func TestValidateFallbackSharesConfigDefault(t *testing.T) {
-	p := &Planner{Reg: menuRegistry(2)} // MaxSteps 未设 → 走兜底
+	p := &Planner{Reg: menuRegistry(2)}
 
 	planJSON := func(n int) string {
 		ids := make([]string, 0, n)
@@ -143,7 +137,6 @@ func TestPlanner_FencedOutput(t *testing.T) {
 	}
 }
 
-// mockOneShot 返回固定输出的最小 LLM 客户端。
 type mockOneShot struct{ text string }
 
 func (m *mockOneShot) Chat(_ context.Context, _ llm.ChatRequest) (string, error) { return m.text, nil }
@@ -155,5 +148,4 @@ func (m *mockOneShot) ChatStream(_ context.Context, _ llm.ChatRequest, onDelta f
 }
 func (m *mockOneShot) Name() string { return "mock-one-shot" }
 
-// mockReturning 构造固定输出的 Mock。
 func mockReturning(text string) *mockOneShot { return &mockOneShot{text: text} }

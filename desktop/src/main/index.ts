@@ -1,4 +1,3 @@
-// Gleam desktop shell (Electron) — Phase 0 spike entry point.
 import { app, BrowserWindow, dialog, session } from 'electron';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -18,11 +17,8 @@ const t0 = Date.now();
 const log = (msg: string) =>
   console.log(`[desktop +${Date.now() - t0}ms] ${msg}`);
 
-/** 内置运行时没就绪时，启动屏停几秒让人看清原因（主界面同时在后面加载）。 */
 const SPLASH_HOLD_SECONDS = 5;
 
-// Dev/test knob: isolate Electron's profile (localStorage prefs, single-instance lock) from the real one.
-// Must be set before the single-instance lock, which is scoped to userData.
 if (process.env.GLEAM_DESKTOP_USER_DATA)
   app.setPath('userData', resolve(process.env.GLEAM_DESKTOP_USER_DATA));
 
@@ -31,7 +27,6 @@ app.enableSandbox();
 
 function sidecarSpec(): SidecarSpec {
   const exe = process.platform === 'win32' ? 'gleam.exe' : 'gleam';
-  // Extra sidecar flags, e.g. "--mock-llm --data-dir /tmp/x". Dev/test knob; Phase 1 decides whether it ships.
   const args = (process.env.GLEAM_SIDECAR_ARGS || '')
     .split(/\s+/)
     .filter(Boolean);
@@ -52,8 +47,6 @@ function sidecarSpec(): SidecarSpec {
       extraPath,
     };
   }
-  // Dev: desktop/dist/main/index.js -> desktop/.sidecar/<platform>-<arch>/gleam; run from the repo root
-  // so the sidecar picks up configs/config.yaml exactly like `gleam webui` does.
   const desktopDir = resolve(__dirname, '..', '..');
   const bin = join(
     desktopDir,
@@ -65,7 +58,6 @@ function sidecarSpec(): SidecarSpec {
 }
 
 if (!app.requestSingleInstanceLock()) {
-  // Another instance owns the profile: it gets 'second-instance' and focuses its window. We just leave.
   console.log(
     '[desktop] another instance is running; handing over and exiting',
   );
@@ -78,7 +70,6 @@ function run(): void {
   let win: BrowserWindow | null = null;
   let sidecar: Sidecar | null = null;
   let quitting = false;
-  // 更新安装要走"关掉所有窗口再 app.quit()"，不经过 before-quit；那一下得放开 ✕ 的拦截。
   let allowWindowClose = false;
 
   app.on('second-instance', () => {
@@ -91,7 +82,6 @@ function run(): void {
 
   app.on('web-contents-created', (_e, contents) => hardenContents(contents));
 
-  // 窗口关掉不等于应用退出：✕ 收进托盘（见下面的 close 处理），所以这一条只在真退出时生效。
   app.on('window-all-closed', () => app.quit());
 
   app.on('before-quit', (e) => {
@@ -116,7 +106,6 @@ function run(): void {
     installIpc(
       () => ({ sidecarVersion: sidecar?.ready?.version ?? null }),
       () => {
-        // File ▸ New window (Ctrl+Shift+N): another window on the same sidecar / app:// origin.
         const extra = createMainWindow({ width: w, height: h });
         void extra.loadURL(`${APP_ORIGIN}/`);
       },
@@ -137,10 +126,6 @@ function run(): void {
       return;
     }
 
-    // ---------- 环境准备 ----------
-    // 先亮这一屏，再起后端：用户双击之后看到的第一眼应该是"在准备"，而不是一段空白。
-    // 检查是真的（跑 node -v / uv --version / git --version），所以通常几百毫秒就完；
-    // 内置运行时跑不起来时才停下来说清楚——那时候让它自己消失，用户永远不知道哪里坏了。
     const lang = systemLang();
     let splash: Splash | null = null;
     if (!process.env.GLEAM_NO_SPLASH) {
@@ -157,8 +142,6 @@ function run(): void {
     const broken = probes.filter((p) => p.bundled && !p.ok);
     for (const p of probes)
       log(`runtime ${p.name}: ${p.ok ? 'ok' : 'missing'} ${p.version || ''}`);
-    // 有坏消息时留几秒让人看清原因，到点自己放行；一切正常就不留——这屏是给"坏消息"用的，
-    // 不是给"每次都看一遍"用的。
     const holdSeconds = broken.length ? SPLASH_HOLD_SECONDS : 0;
     splash?.render({
       status: broken.length
@@ -175,7 +158,6 @@ function run(): void {
 
     sidecar = new Sidecar(spec);
     sidecar.on('unexpected-exit', (code, signal) => {
-      // Phase 1: restart with backoff and show a reconnect state. The spike surfaces it and quits.
       log(`sidecar exited unexpectedly (code=${code}, signal=${signal})`);
       if (quitting) return;
       quitting = true;
@@ -201,14 +183,9 @@ function run(): void {
     }
 
     win = createMainWindow({ width: w, height: h });
-    // 全局唤起快捷键：装在这一个窗口上（它才是"那个 Gleam"）
     installGlobalShortcut(win);
-    // 托盘：图标常驻通知区域，右键菜单见 tray.ts（菜单里的界面动作会回到渲染层执行）
     installTray();
     win.on('closed', () => (win = null));
-    // ✕ = 收进托盘，不是退出：常驻托盘的应用就是这个约定，用户要退出走托盘菜单里的「退出 Gleam」。
-    // 真退出时 before-quit 已把 quitting 立起来；更新安装前 updater 会调 allowClose——
-    // 那一下它要先关窗口再 app.quit()，两种都得放行，否则窗口永远关不掉。
     win.on('close', (e) => {
       if (quitting || allowWindowClose) return;
       e.preventDefault();
@@ -219,7 +196,6 @@ function run(): void {
       log('renderer did-finish-load'),
     );
     await win.loadURL(`${APP_ORIGIN}/`);
-    // 有坏消息时让那屏多留几秒（页面上有倒计时）；没坏消息时立刻收掉。
     if (holdSeconds > 0)
       await new Promise((r) => setTimeout(r, holdSeconds * 1000));
     splash?.close();
@@ -231,10 +207,6 @@ function run(): void {
         },
       });
 
-    // 测试/排障用（与 GLEAM_SIDECAR_ARGS 同类的 knob）：把若干托盘动作按序打一遍，
-    // 好让"点菜单"这条链路在本机能被自动走一遍。形如
-    //   GLEAM_TRAY_ACTION="settings,new-chat,open-convo:<id>"
-    // 不带这个变量时一行都不会跑。
     const demo = (process.env.GLEAM_TRAY_ACTION || '')
       .split(',')
       .map((s) => s.trim())

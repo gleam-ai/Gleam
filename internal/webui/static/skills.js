@@ -1,10 +1,3 @@
-// Skills：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 的 $ / api / toast / el / esc 等，所以必须排在 app.js 之后；
-// app.js 的 VIEW_LOADERS 用 `skills: () => loadSkills()` 惰性引用（那个 const 在 app.js 解析期就求值，
-// 直接写 `skills: loadSkills` 会 ReferenceError）。
-
-/* ---------- 技能 ---------- */
 async function loadSkills() {
   const grid = $('#skills-grid');
   grid.innerHTML =
@@ -40,7 +33,6 @@ function skillCard(sk) {
     runBtn.addEventListener('click', () => openSkillRunDialog(sk));
     actions.appendChild(runBtn);
   }
-  // 停用而不是删除：技能是用户攒下来的做法，临时不想让它被引用时，不该连步骤一起扔
   const toggle = el('button', 'btn btn-ghost btn-sm');
   toggle.type = 'button';
   toggle.textContent = sk.disabled ? '启用' : '停用';
@@ -184,7 +176,7 @@ function openSkillSaveDialog(sk) {
         nameInput.focus();
         return;
       }
-      if (save.disabled) return; // 连点两次会覆盖保存或报重名
+      if (save.disabled) return;
       save.disabled = true;
       try {
         await api('POST', '/api/skills', {

@@ -14,21 +14,10 @@ import (
 	"gleam/internal/agent"
 )
 
-// 从本机其他 AI 工具导入（记忆 / 规则 / MCP / 技能）。
-//
-// 三条自我约束：
-//  1. **只读扫描**：只看这些工具自己留在本机的配置与 Markdown，不联网、不改动它们的文件；
-//  2. **不回传密钥**：MCP 的 env 只回键名，值一律不出函数——那些值常常就是 API Key；
-//  3. **按 id 回写**：前端只提交候选 id，路径与命令由服务端从候选表里查回来。
-//     否则「导入记忆」就成了一个「填任意路径即可读任意文件」的接口。
-//
-// 导入的去重交给既有的安装路径：MCP 走 agent.MCPInstallCustom(force=false)，
-// 撞名回 agent.ErrAlreadyInstalled（接入层翻 409），界面据此跳过而不是覆盖。
-
 type memCandidate struct {
 	ID      string `json:"id"`
 	App     string `json:"app"`
-	Kind    string `json:"kind"` // 记忆 / 规则
+	Kind    string `json:"kind"`
 	Path    string `json:"path"`
 	Title   string `json:"title"`
 	Bytes   int    `json:"bytes"`
@@ -57,14 +46,11 @@ type skillCandidate struct {
 	Installed bool   `json:"installed"`
 }
 
-// candID 候选标识：app + 路径的稳定哈希。前端拿它来回指，服务端再查回真实路径。
 func candID(parts ...string) string {
 	h := sha1.Sum([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(h[:8])
 }
 
-// configRoots 各平台的「应用配置根」：Windows 用 %APPDATA%，macOS 用
-// ~/Library/Application Support，其余按 XDG。
 func configRoots() []string {
 	var out []string
 	if v := os.Getenv("APPDATA"); v != "" {
@@ -81,7 +67,6 @@ func configRoots() []string {
 	return out
 }
 
-// readHead 读取文件开头若干字节做预览，并给出总大小。空文件或目录返回 ok=false。
 func readHead(path string, limit int) (string, int, bool) {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() || info.Size() == 0 {
@@ -99,7 +84,6 @@ func readHead(path string, limit int) (string, int, bool) {
 	return s, int(info.Size()), true
 }
 
-// countEntries 条目数：按空行分段。没有空行就按非空行算，至少 1。
 func countEntries(text string) int {
 	blocks := regexp.MustCompile(`\n\s*\n`).Split(text, -1)
 	n := 0
@@ -114,13 +98,8 @@ func countEntries(text string) int {
 	return n
 }
 
-// ---------- 扫描：记忆与规则 ----------
-
-// mdSource 一份记忆/规则文件的位置。
 type mdSource struct{ App, Kind, Path, Title string }
 
-// markdownSources 各类工具的记忆/规则文件位置（相对 home / 配置根 / 当前工作区）。
-// workspace 非空时还会找项目级的那几份——多数人真正写下的记忆其实在这。
 func markdownSources(workspace string) []mdSource {
 	home, _ := os.UserHomeDir()
 	j := func(parts ...string) string { return filepath.Join(append([]string{home}, parts...)...) }
@@ -147,8 +126,6 @@ func markdownSources(workspace string) []mdSource {
 	return out
 }
 
-// projectRoots 常见放代码的地方。记忆/规则文件绝大多数躺在**项目根**，不在用户目录——
-// 只看 ~/.claude/CLAUDE.md 会得出「这台机器没有记忆」的错误结论（用户实际有十几个项目在写）。
 func projectRoots(workspace string) []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -167,18 +144,14 @@ func projectRoots(workspace string) []string {
 	return out
 }
 
-// projectRuleNames 项目里认这些文件名当「记忆 / 规则」。
 var projectRuleNames = []string{"CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursorrules", "copilot-instructions.md"}
 
 const (
-	projectScanDepth   = 3    // 往下看三层：够到 ~/dev/<repo>/CLAUDE.md 这种
-	projectScanMaxDirs = 4000 // 目录数上限：~/Documents 一个根就可能有几千个
-	projectScanMaxHits = 80   // 候选数上限
+	projectScanDepth   = 3
+	projectScanMaxDirs = 4000
+	projectScanMaxHits = 80
 )
 
-// scanProjectMemory 在常见项目根下浅扫记忆/规则文件。
-// 广度优先 + 限层 + 限目录数 + 跳过 .git/node_modules 这类——不加限制的话
-// 一次「扫描本机」就能把请求卡死。seen 与用户目录那批共用，避免同一路径列两遍。
 func scanProjectMemory(workspace string, seen map[string]bool) []memCandidate {
 	type item struct {
 		dir   string
@@ -260,7 +233,6 @@ func scanMemory(workspace string) []memCandidate {
 		})
 	}
 	for _, s := range markdownSources(workspace) {
-		// 目录型来源（Windsurf memories）展开成里面的 .md
 		if info, err := os.Stat(s.Path); err == nil && info.IsDir() {
 			if ents, err := os.ReadDir(s.Path); err == nil {
 				for _, e := range ents {
@@ -273,7 +245,6 @@ func scanMemory(workspace string) []memCandidate {
 		}
 		add(s.App, s.Kind, s.Path, s.Title)
 	}
-	// Cursor 的规则是每文件一条 .mdc
 	for _, root := range configRoots() {
 		dir := filepath.Join(root, ".cursor", "rules")
 		if ents, err := os.ReadDir(dir); err == nil {
@@ -285,7 +256,6 @@ func scanMemory(workspace string) []memCandidate {
 			}
 		}
 	}
-	// 项目里的记忆/规则：顺着常见项目根浅扫一遍（用户目录里那份通常反而是空的）
 	out = append(out, scanProjectMemory(workspace, seen)...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].App != out[j].App {
@@ -296,9 +266,6 @@ func scanMemory(workspace string) []memCandidate {
 	return out
 }
 
-// ---------- 扫描：MCP ----------
-
-// mcpJSONFile 一种「JSON 里存 mcpServers」的配置（Claude Code / Claude Desktop / Cursor 同一形状）。
 type mcpJSONFile struct{ App, Path string }
 
 func mcpJSONFiles() []mcpJSONFile {
@@ -319,7 +286,6 @@ func mcpJSONFiles() []mcpJSONFile {
 	return out
 }
 
-// parseMCPJSON 只取 mcpServers 里每台的 command / args / env 键名。
 func parseMCPJSON(raw []byte) map[string]struct {
 	Command string
 	Args    []string
@@ -343,7 +309,7 @@ func parseMCPJSON(raw []byte) map[string]struct {
 	for name, s := range doc.MCPServers {
 		keys := make([]string, 0, len(s.Env))
 		for k := range s.Env {
-			keys = append(keys, k) // 只留键名：值是密钥，不出本函数
+			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		out[name] = struct {
@@ -355,8 +321,6 @@ func parseMCPJSON(raw []byte) map[string]struct {
 	return out
 }
 
-// parseCodexTOML 从 ~/.codex/config.toml 里抠出 [mcp_servers.<name>] 段的 command 与 args。
-// 只认这一小块形状，不引入 TOML 依赖：值可能带引号（单/双）或裸写。
 func parseCodexTOML(text string) map[string]struct {
 	Command string
 	Args    []string
@@ -405,8 +369,6 @@ func parseCodexTOML(text string) map[string]struct {
 	return out
 }
 
-// scanMCP 的第二返回值是「看得见但接不进来」的台数：URL / SSE 型的服务器没有 command，
-// 而 Gleam 的接入目前只有 stdio 一条路。跳过可以，但要让用户知道跳过了多少。
 func scanMCP(installed map[string]bool) ([]mcpCandidate, int) {
 	out := []mcpCandidate{}
 	seen := map[string]bool{}
@@ -452,13 +414,9 @@ func scanMCP(installed map[string]bool) ([]mcpCandidate, int) {
 	return out, skipped
 }
 
-// ---------- 扫描：技能 ----------
-
 func scanSkills(installed map[string]bool) []skillCandidate {
 	home, _ := os.UserHomeDir()
 	out := []skillCandidate{}
-	// ~/.agents/skills 是 CC Switch 那套「一份主副本、同步到各应用」的规范位置，
-	// 其它几个是各工具自己的目录。同一份技能在多个目录下会各列一条，导入时按名字去重。
 	dirs := []struct{ App, Dir string }{
 		{"共享技能库 (~/.agents)", filepath.Join(home, ".agents", "skills")},
 		{"CC Switch", filepath.Join(home, ".cc-switch", "skills")},
@@ -491,7 +449,6 @@ func scanSkills(installed map[string]bool) []skillCandidate {
 	return out
 }
 
-// localImportScan 汇总三类候选；installed 标记用于界面上的「已安装」。
 func localImportScan(a *agent.Agent) map[string]any {
 	instMCP := map[string]bool{}
 	for _, m := range a.MCPList() {
@@ -514,15 +471,10 @@ func localImportScan(a *agent.Agent) map[string]any {
 	}
 }
 
-// ---------- 接入层 ----------
-
-// handleImportScan 列出本机可导入的记忆 / MCP / 技能候选。
 func (s *Server) handleImportScan(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, localImportScan(s.Agent))
 }
 
-// handleImportApply 按选中的 id 导入。路径与命令都由服务端从候选表查回，
-// 客户端提交的 id 查不到就跳过——不给它指定任意路径的机会。
 func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Memory []string `json:"memory"`
@@ -557,7 +509,6 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 			skippedMem++
 			continue
 		}
-		// 按空行分段写：一段一条，检索时粒度更细，也不会把整份文件塞进一条记忆
 		n := 0
 		for _, block := range regexp.MustCompile(`\n\s*\n`).Split(string(raw), -1) {
 			block = strings.TrimSpace(block)
@@ -588,14 +539,12 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 		case err == nil:
 			instMCP++
 		case strings.Contains(err.Error(), agent.ErrAlreadyInstalled.Error()):
-			dupMCP++ // 本机已经有了：跳过，不覆盖别人的配置
+			dupMCP++
 		default:
 			failMCP++
 		}
 	}
 	res["mcp"] = map[string]int{"imported": instMCP, "already": dupMCP, "failed": failMCP}
 
-	// 技能只检测、不导入：Gleam 的技能是「可执行的步骤清单」，别的工具留下的是 Markdown 说明，
-	// 硬把一段散文塞进 Steps 里，跑起来只会得到一句空回复。界面据此把技能列成只读信息。
 	writeJSON(w, 200, res)
 }

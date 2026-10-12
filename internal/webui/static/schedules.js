@@ -1,10 +1,3 @@
-// Schedules：从 app.js 拆出来的独立一屏。
-//
-// 依赖 app.js 的 $ / api / toast / el / esc 等，所以必须排在 app.js 之后；
-// app.js 的 VIEW_LOADERS 用 `schedules: () => loadSchedules()` 惰性引用（那个 const 在 app.js 解析期就求值，
-// 直接写 `schedules: loadSchedules` 会 ReferenceError）。
-
-/* ---------- 定时任务 ---------- */
 async function loadSchedules() {
   const list = $('#schedules-list');
   list.innerHTML = '<div class="skeleton" style="height:56px"></div>';
@@ -14,7 +7,7 @@ async function loadSchedules() {
     list.innerHTML = '';
     if (!jobs || !jobs.length) {
       list.innerHTML = `<div class="empty empty--card"><div class="empty-hero" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div><div class="empty-title">暂无定时任务</div><p class="empty-desc">创建一个任务，让 Gleam 按时自动执行目标。</p></div>`;
-      return; // 新建表单默认收起，点右上角「新建定时任务」才展开
+      return;
     }
     jobs.forEach((j, i) => {
       const c = scheduleCard(j);
@@ -27,7 +20,6 @@ async function loadSchedules() {
   }
 }
 
-// 定时任务卡片：开关 · 标题 + 状态 · 目标预览 · 时间胶囊 · 更多（删除）
 function scheduleCard(j) {
   const card = el('article', 'auto-card' + (j.enabled ? '' : ' is-off'));
   card.dataset.enabled = String(!!j.enabled);
@@ -126,7 +118,6 @@ document.addEventListener('click', () =>
   }),
 );
 
-// 定时任务列表的筛选（全部 / 已启用 / 已停用）与排序：只在前端重排已拉到的卡片
 let schFilter = 'all';
 function applySchView() {
   const list = $('#schedules-list');
@@ -172,7 +163,6 @@ $('#sch-new-toggle').addEventListener('click', () =>
   setSchFormOpen($('#sch-form').hidden),
 );
 
-// 自然语言时间芯片：点击填充并高亮，手动编辑则取消高亮。
 const whenInput = $('#sch-when');
 document.querySelectorAll('#sch-when-chips .when-chip').forEach((chip) => {
   chip.addEventListener('click', () => {
@@ -200,7 +190,6 @@ $('#sch-create').addEventListener('click', async () => {
     toast('任务名与“到点要做什么”都要填哦', 'error');
     return;
   }
-  // 任务名会进 REST 路径：带斜杠的名字创建得出来，却永远停不掉、删不掉
   if (/[/\\]/.test(name)) {
     toast('任务名不能含 / 或 \\，换一个说法即可', 'error');
     $('#sch-name').focus();
@@ -234,7 +223,6 @@ $('#sch-create').addEventListener('click', async () => {
   }
 });
 
-// 把秒数转成小白可读的间隔。
 function humanInterval(sec) {
   sec = Number(sec) || 0;
   if (sec >= 86400 && sec % 86400 === 0) return sec / 86400 + ' 天';
