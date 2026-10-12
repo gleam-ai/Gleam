@@ -36,6 +36,7 @@ import (
 	"gleam/internal/harness/auth"
 	"gleam/internal/harness/conversation"
 	"gleam/internal/harness/credentials"
+	"gleam/internal/harness/daemon"
 	"gleam/internal/harness/growth"
 	"gleam/internal/harness/memory"
 	"gleam/internal/harness/registry"
@@ -99,6 +100,8 @@ func main() {
 		err = cmdReplay(args)
 	case "eval":
 		err = cmdEval(args)
+	case "daemon":
+		err = cmdDaemon(args)
 	case "mcp-fake-server":
 		err = runMCPFakeServer()
 	case "version":
@@ -136,6 +139,7 @@ func printUsage() {
   gleam memory search QUERY            检索长期记忆
   gleam memory save TEXT               写入长期记忆
   gleam pending [--clear]              列出/清理「等待审批中」的任务（进程重启后仍可见）
+  gleam daemon install|uninstall|start|stop|status|queue  守护进程管理（24/7 后台运行）
   gleam doctor [flags]                 就绪体检（九坑自检）
   gleam replay <taskID> [flags]        回放历史任务：当时的计划与逐步结果；--rerun 用原计划真实重跑
   gleam eval   [flags]                 提示词/行为回归评测（默认 select 深度，离线可跑）
@@ -783,6 +787,111 @@ func cmdMemory(args []string) error {
 		return fmt.Errorf("未知子命令 %q", sub)
 	}
 	return nil
+}
+
+// ---------- 守护进程管理 ----------
+
+func cmdDaemon(args []string) error {
+	sub := "status"
+	var rest []string
+	if len(args) > 0 {
+		sub = args[0]
+		rest = args[1:]
+	}
+
+	// 获取数据目录和二进制路径
+	dataDir := defaultDataDir()
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("获取可执行文件路径失败：%w", err)
+	}
+
+	mgr := daemon.New("gleam", dataDir, binPath)
+
+	switch sub {
+	case "install":
+		fmt.Println("正在注册 Gleam 守护进程...")
+		if err := mgr.Install(); err != nil {
+			return err
+		}
+		fmt.Println("✓ 守护进程已注册（开机自启）")
+		fmt.Println("  使用 'gleam daemon start' 立即启动")
+
+	case "uninstall":
+		fmt.Println("正在卸载 Gleam 守护进程...")
+		if err := mgr.Uninstall(); err != nil {
+			return err
+		}
+		fmt.Println("✓ 守护进程已卸载")
+
+	case "start":
+		fmt.Println("正在启动 Gleam 守护进程...")
+		if err := mgr.Start(); err != nil {
+			return err
+		}
+		fmt.Println("✓ 守护进程已启动")
+
+	case "stop":
+		fmt.Println("正在停止 Gleam 守护进程...")
+		if err := mgr.Stop(); err != nil {
+			return err
+		}
+		fmt.Println("✓ 守护进程已停止")
+
+	case "status":
+		info, err := mgr.Status()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("服务名称：%s\n", info.Name)
+		fmt.Printf("状态：%s\n", info.State)
+		fmt.Printf("开机自启：%v\n", info.Enabled)
+
+	case "queue":
+		// 查看任务队列
+		queue, err := daemon.OpenQueue(dataDir)
+		if err != nil {
+			return err
+		}
+		defer queue.Close()
+
+		stats, err := queue.GetStats()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("任务队列统计：\n")
+		fmt.Printf("  待执行：%d\n", stats.Pending)
+		fmt.Printf("  运行中：%d\n", stats.Running)
+		fmt.Printf("  已完成：%d\n", stats.Completed)
+		fmt.Printf("  失败：%d\n", stats.Failed)
+		fmt.Printf("  总计：%d\n", stats.Total)
+
+		if len(rest) > 0 && rest[0] == "--pending" {
+			fmt.Println("\n待执行任务：")
+			tasks, err := queue.ListPending()
+			if err != nil {
+				return err
+			}
+			for _, t := range tasks {
+				fmt.Printf("  %-20s %s %s\n", t.ID[:8], t.Mode, types.Shorten(t.Goal, 50))
+			}
+		}
+
+	default:
+		return fmt.Errorf("未知子命令 %q（可用：install/uninstall/start/stop/status/queue）", sub)
+	}
+
+	return nil
+}
+
+// defaultDataDir 返回默认数据目录（~/.gleam）。
+func defaultDataDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".gleam"
+	}
+	return filepath.Join(home, ".gleam")
 }
 
 // ---------- 控制台 Notifier ----------
