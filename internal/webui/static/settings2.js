@@ -472,6 +472,50 @@ const S2 = (() => {
     );
     const agentToggle = (key, ok) =>
       toggle(a[key], (v) => save({ agent: { [key]: v } }, ok || null));
+
+    // 后台运行开关：状态从 /api/daemon 异步加载，初始禁用等加载完再启用。
+    const daemonToggleEl = toggle(false, () => {}, {
+      disabled: true,
+      labelText: '后台运行',
+    });
+    const daemonCard = card(
+      row({
+        icon: 'server',
+        title: '后台运行',
+        desc: '注册为系统服务，关闭应用后定时任务仍会继续执行（Windows 需管理员权限）。',
+        control: daemonToggleEl,
+      }),
+    );
+    // 加载完守护进程状态后启用开关并绑定真实切换逻辑。
+    const loadDaemonStatus = async () => {
+      try {
+        const st = await api('GET', '/api/daemon');
+        daemonToggleEl.checked = st.state === 'running';
+        daemonToggleEl.disabled = false;
+        daemonToggleEl.onchange = async () => {
+          daemonToggleEl.disabled = true;
+          try {
+            if (daemonToggleEl.checked) {
+              await api('POST', '/api/daemon', { action: 'install' });
+              await api('POST', '/api/daemon', { action: 'start' });
+              toast('后台运行已开启', 'success');
+            } else {
+              await api('POST', '/api/daemon', { action: 'stop' });
+              await api('POST', '/api/daemon', { action: 'uninstall' });
+              toast('后台运行已关闭', 'success');
+            }
+          } catch (err) {
+            daemonToggleEl.checked = !daemonToggleEl.checked;
+            toast(err.message || String(err), 'error');
+          } finally {
+            daemonToggleEl.disabled = false;
+          }
+        };
+      } catch {
+        daemonToggleEl.disabled = true;
+      }
+    };
+
     root.replaceChildren(
       head(
         '常规',
@@ -570,7 +614,10 @@ const S2 = (() => {
           ),
         }),
       ),
+      label('后台运行'),
+      daemonCard,
     );
+    loadDaemonStatus();
   }
   function timeoutOptions(cur) {
     const base = [60, 120, 300, 600, 1800, 3600];

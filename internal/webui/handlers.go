@@ -179,6 +179,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/onboarding", s.handleOnboardingGet)
 	mux.HandleFunc("POST /api/onboarding", s.handleOnboardingSave)
 
+	// 守护进程（后台运行：注册/启动/停止系统服务，实现 24/7 执行）
+	mux.HandleFunc("GET /api/daemon", s.handleDaemonStatus)
+	mux.HandleFunc("POST /api/daemon", s.handleDaemonAction)
+
 	return mux
 }
 
