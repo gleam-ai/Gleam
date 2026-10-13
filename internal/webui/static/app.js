@@ -8162,6 +8162,11 @@ const ComposerControls = (() => {
         String((b.dataset.mode === 'code') === code),
       );
     });
+    // Set data-mode on #view-goals for CSS layout rules
+    const viewGoals = document.getElementById('view-goals');
+    if (viewGoals) {
+      viewGoals.setAttribute('data-mode', task);
+    }
     updateModePill();
   }
   function updateModePill() {
