@@ -83,10 +83,34 @@ export function installUpdater(host: UpdaterHost): void {
   ipcMain.handle('desktop:update:restart', (e) => {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     if (!supported || latest.kind !== 'downloaded') return { ok: false };
-    log('restarting to install the downloaded update');
-    host.allowClose();
-    setImmediate(() => autoUpdater.quitAndInstall());
-    return { ok: true };
+    
+    // CRITICAL: Do NOT use autoUpdater.quitAndInstall() on Windows NSIS builds.
+    // The NSIS installer overwrites resources/bin/gleam.exe (the sidecar binary)
+    // with the 253MB installer itself, corrupting the application.
+    // Instead, instruct users to download and run the full installer from GitHub.
+    log('update downloaded — user should install manually from GitHub Release');
+    
+    // Show a dialog telling the user to install manually
+    const { dialog } = require('electron');
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: 'A new version is ready!',
+      detail: 'To avoid installation issues, please:\n\n' +
+              '1. Visit https://github.com/gleam-ai/Gleam/releases/latest\n' +
+              '2. Download Gleam-Setup.exe\n' +
+              '3. Run the installer to update\n\n' +
+              'This ensures all files are correctly replaced.',
+      buttons: ['Open Releases Page', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((result) => {
+      if (result.response === 0) {
+        require('electron').shell.openExternal('https://github.com/gleam-ai/Gleam/releases/latest');
+      }
+    });
+    
+    return { ok: true, manualInstall: true };
   });
 
   app.on('browser-window-created', (_e, win) => {
