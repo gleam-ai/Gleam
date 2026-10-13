@@ -33,6 +33,7 @@ import (
 	"gleam/internal/tools/desktop"
 	"gleam/internal/tools/file"
 	gittools "gleam/internal/tools/git"
+	"gleam/internal/tools/hardware"
 	"gleam/internal/tools/mcp"
 	"gleam/internal/tools/prompt"
 	"gleam/internal/tools/shell"
@@ -296,6 +297,7 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(desktop.NewScreenshot())
 	reg.MustRegister(desktop.NewNotify())
 	reg.MustRegister(desktop.NewSnippets(cfg.DataDir))
+	hardware.New().RegisterAll(reg)
 	reg.MustRegister(std.NewReply())
 
 	var sched *scheduler.Scheduler

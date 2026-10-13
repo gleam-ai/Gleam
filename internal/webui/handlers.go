@@ -183,6 +183,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/daemon", s.handleDaemonStatus)
 	mux.HandleFunc("POST /api/daemon", s.handleDaemonAction)
 
+	// AI 硬件设备（小鸿、录音卡 A2 等）
+	s.registerHardwareRoutes(mux)
+
 	return mux
 }
 
