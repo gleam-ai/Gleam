@@ -8264,6 +8264,8 @@ const Updater = (() => {
 
   const btn = document.getElementById('cp-update-btn');
   const btnText = document.getElementById('cp-update-text');
+  const badge = document.getElementById('sb-update-badge');
+  const badgeLabel = document.getElementById('sb-update-label');
   let state = 'idle'; // idle | available | downloading | downloaded
   let version = '';
 
@@ -8272,6 +8274,22 @@ const Updater = (() => {
   }
   function hideBtn() {
     if (btn) btn.hidden = true;
+  }
+
+  function paintBadge(text, tone) {
+    if (!badge) return;
+    badge.hidden = false;
+    badge.dataset.tone = tone;
+    if (badgeLabel) badgeLabel.textContent = text;
+    badge.title =
+      tone === 'ready'
+        ? `点击安装 Gleam ${version}`
+        : tone === 'downloading'
+          ? `正在下载 Gleam ${version}`
+          : `Gleam ${version} 可用`;
+  }
+  function hideBadge() {
+    if (badge) badge.hidden = true;
   }
 
   function paintBtn(text, tone) {
@@ -8320,10 +8338,16 @@ const Updater = (() => {
   }
 
   function init() {
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-      if (state === 'downloaded') openInstallDialog();
-    });
+    if (btn) {
+      btn.addEventListener('click', () => {
+        if (state === 'downloaded') openInstallDialog();
+      });
+    }
+    if (badge) {
+      badge.addEventListener('click', () => {
+        if (state === 'downloaded') openInstallDialog();
+      });
+    }
 
     desk.update.onStatus((s) => {
       if (!s || !s.kind) return;
@@ -8335,27 +8359,32 @@ const Updater = (() => {
           version = s.version;
           showBtn();
           paintBtn('更新', 'available');
+          paintBadge(`v${version}`, 'available');
           break;
         case 'downloading':
           state = 'downloading';
           showBtn();
           paintBtn(`更新 ${s.percent}%`, 'downloading');
+          paintBadge(`${s.percent}%`, 'downloading');
           break;
         case 'downloaded':
           state = 'downloaded';
           version = s.version;
           showBtn();
           paintBtn('重启', 'ready');
+          paintBadge('重启', 'ready');
           break;
         case 'not-available':
           state = 'idle';
           version = '';
           hideBtn();
+          hideBadge();
           break;
         case 'error':
           state = 'idle';
           version = '';
           hideBtn();
+          hideBadge();
           break;
       }
     });
