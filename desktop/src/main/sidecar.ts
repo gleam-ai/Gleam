@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { createInterface } from 'node:readline';
+import { statSync } from 'node:fs';
 import { pathWithRuntimes } from './runtimes';
 
 export const READY_PREFIX = 'GLEAM_READY ';
@@ -44,6 +45,25 @@ export class Sidecar extends EventEmitter {
   }
 
   start(timeoutMs = 15_000): Promise<SidecarReady> {
+    // Guard against corrupted sidecar binary (e.g. NSIS installer copied over it).
+    // The real sidecar is ~16 MB; the NSIS installer is ~250 MB.
+    try {
+      const size = statSync(this.spec.bin).size;
+      if (size > 50 * 1024 * 1024) {
+        throw new Error(
+          `sidecar binary looks wrong (${(size / 1048576).toFixed(0)} MB — expected ~16 MB). ` +
+          `This usually means the NSIS installer was copied over the sidecar during an update. ` +
+          `Reinstall Gleam to fix.`,
+        );
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`sidecar binary not found: ${this.spec.bin}`);
+      }
+      if ((err as Error).message.includes('sidecar binary looks wrong')) throw err;
+      // stat failed for other reasons — let spawn fail naturally
+    }
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       GLEAM_WEBUI_TOKEN: this.token,
