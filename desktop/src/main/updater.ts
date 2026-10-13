@@ -91,7 +91,7 @@ export function installUpdater(host: UpdaterHost): void {
     log('update downloaded — user should install manually from GitHub Release');
     
     // Show a dialog telling the user to install manually
-    const { dialog } = require('electron');
+    const { dialog, shell } = require('electron');
     dialog.showMessageBox({
       type: 'info',
       title: 'Update Ready',
@@ -104,9 +104,9 @@ export function installUpdater(host: UpdaterHost): void {
       buttons: ['Open Releases Page', 'Later'],
       defaultId: 0,
       cancelId: 1,
-    }).then((result) => {
+    }).then((result: { response: number }) => {
       if (result.response === 0) {
-        require('electron').shell.openExternal('https://github.com/gleam-ai/Gleam/releases/latest');
+        shell.openExternal('https://github.com/gleam-ai/Gleam/releases/latest');
       }
     });
     
