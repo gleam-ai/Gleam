@@ -150,6 +150,73 @@ func (s *Server) handleHardwareInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
+func (s *Server) handleHardwareScanWiFi(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+
+	d, ok := hardware.GetInstance(req.DeviceID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "device not connected"})
+		return
+	}
+
+	// Type assert to xiaohong-specific interface
+	type WiFiScanner interface {
+		ScanWiFi(ctx context.Context) ([]map[string]any, error)
+	}
+	scanner, ok := d.(WiFiScanner)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "device does not support WiFi scanning"})
+		return
+	}
+
+	networks, err := scanner.ScanWiFi(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"networks": networks})
+}
+
+func (s *Server) handleHardwareConfigureWiFi(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+		SSID     string `json:"ssid"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+
+	d, ok := hardware.GetInstance(req.DeviceID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "device not connected"})
+		return
+	}
+
+	// Type assert to xiaohong-specific interface
+	type WiFiConfigurator interface {
+		ConfigureWiFi(ctx context.Context, ssid, password string) error
+	}
+	configurator, ok := d.(WiFiConfigurator)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "device does not support WiFi configuration"})
+		return
+	}
+
+	if err := configurator.ConfigureWiFi(r.Context(), req.SSID, req.Password); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "configured", "ssid": req.SSID})
+}
+
 // registerHardwareRoutes adds hardware API routes to the mux.
 func (s *Server) registerHardwareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/hardware/devices", s.handleHardwareDevices)
@@ -159,6 +226,8 @@ func (s *Server) registerHardwareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/hardware/send", s.handleHardwareSend)
 	mux.HandleFunc("POST /api/hardware/receive", s.handleHardwareReceive)
 	mux.HandleFunc("GET /api/hardware/info/{id}", s.handleHardwareInfo)
+	mux.HandleFunc("POST /api/hardware/scan-wifi", s.handleHardwareScanWiFi)
+	mux.HandleFunc("POST /api/hardware/configure-wifi", s.handleHardwareConfigureWiFi)
 }
 
 // shutdownHardware disconnects all devices on server shutdown.

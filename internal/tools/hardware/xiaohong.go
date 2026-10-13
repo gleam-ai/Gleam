@@ -113,6 +113,40 @@ func (x *xiaohong) Info(ctx context.Context) map[string]any {
 	}
 }
 
+// ScanWiFi returns available WiFi networks near the device.
+// This is a placeholder - real implementation would call device API.
+func (x *xiaohong) ScanWiFi(ctx context.Context) ([]map[string]any, error) {
+	x.mu.RLock()
+	if x.state != StateConnected {
+		x.mu.RUnlock()
+		return nil, fmt.Errorf("xiaohong: not connected")
+	}
+	x.mu.RUnlock()
+
+	// Mock WiFi scan results
+	// In production, this would call xiaohong's HTTP API to scan
+	return []map[string]any{
+		{"ssid": "Home-WiFi", "signal": -45, "security": "WPA2"},
+		{"ssid": "Office-5G", "signal": -62, "security": "WPA2"},
+		{"ssid": "Guest-Network", "signal": -78, "security": "Open"},
+	}, nil
+}
+
+// ConfigureWiFi sends WiFi credentials to the device.
+func (x *xiaohong) ConfigureWiFi(ctx context.Context, ssid, password string) error {
+	x.mu.RLock()
+	if x.state != StateConnected {
+		x.mu.RUnlock()
+		return fmt.Errorf("xiaohong: not connected")
+	}
+	x.mu.RUnlock()
+
+	// Mock WiFi configuration
+	// In production, this would POST to xiaohong's /api/wifi/configure endpoint
+	fmt.Printf("Configuring WiFi: ssid=%s\n", ssid)
+	return nil
+}
+
 func init() {
 	Register(NewXiaohong())
 }
