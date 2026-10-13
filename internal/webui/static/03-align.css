@@ -1580,9 +1580,14 @@ html[data-theme="light"] .composer-meta-btn {
 .sidebar .space-group-head .space-count {
   display: none;
 }
+/* 头部（筛选行 / 问候 / cue / 快捷启动）与目标流、输入框共用同一根居中的
+   --home-w 列：头部若铺满整行，里面的内容就会贴到主区最左，而 feed 却在
+   中间——左缘对不齐，读起来就是"排版乱了"。 */
 .view-chat > .chat-header {
-  max-width: none;
-  width: 100%;
+  width: calc(100% - 32px);
+  max-width: var(--home-w);
+  margin-left: auto;
+  margin-right: auto;
 }
 .view-chat #goal-feed,
 .view-chat .empty--filtered,
