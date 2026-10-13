@@ -317,12 +317,12 @@
   border-radius: var(--radius-stage);
   box-shadow: var(--shadow-1);
   padding: 18px 20px 16px;
-  min-height: calc(100vh - 48px);
+  min-height: calc(100vh - var(--topbar-h) - 8px);
 }
 .view-chat.active {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 48px);
+  min-height: calc(100vh - var(--topbar-h) - 8px);
 }
 .chat-header {
   border-bottom-color: transparent;
