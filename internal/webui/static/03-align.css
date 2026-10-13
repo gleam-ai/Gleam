@@ -1596,8 +1596,14 @@ html[data-theme="light"] .composer-meta-btn {
 .view-chat > .composer-foot {
   margin-top: 8px;
 }
+/* 滚动区内的目标流：仍按居中的 --home-w 列宽排布（与输入框、chip 对齐），
+   而不是铺满整个滚动区。宽屏下列宽到顶后由 auto 边距居中，
+   窄屏下 calc(100% - 32px) 保证两侧留 16px 呼吸。 */
 .view-chat .chat-scroll #goal-feed {
-  width: 100%;
+  width: calc(100% - 32px);
+  max-width: var(--home-w);
+  margin-left: auto;
+  margin-right: auto;
 }
 .sidebar .convo-pane-label {
   padding: 0;
