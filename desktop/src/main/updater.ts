@@ -83,34 +83,28 @@ export function installUpdater(host: UpdaterHost): void {
   ipcMain.handle('desktop:update:restart', (e) => {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     if (!supported || latest.kind !== 'downloaded') return { ok: false };
-    
-    // CRITICAL: Do NOT use autoUpdater.quitAndInstall() on Windows NSIS builds.
-    // The NSIS installer overwrites resources/bin/gleam.exe (the sidecar binary)
-    // with the 253MB installer itself, corrupting the application.
-    // Instead, instruct users to download and run the full installer from GitHub.
-    log('update downloaded — user should install manually from GitHub Release');
-    
-    // Show a dialog telling the user to install manually
-    const { dialog, shell } = require('electron');
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Ready',
-      message: 'A new version is ready!',
-      detail: 'To avoid installation issues, please:\n\n' +
-              '1. Visit https://github.com/gleam-ai/Gleam/releases/latest\n' +
-              '2. Download Gleam-Setup.exe\n' +
-              '3. Run the installer to update\n\n' +
-              'This ensures all files are correctly replaced.',
-      buttons: ['Open Releases Page', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then((result: { response: number }) => {
-      if (result.response === 0) {
-        shell.openExternal('https://github.com/gleam-ai/Gleam/releases/latest');
+
+    // Use shell.openPath() to run the downloaded installer directly.
+    // This avoids autoUpdater.quitAndInstall() which uses elevate.exe and
+    // can corrupt resources/bin/gleam.exe on Windows NSIS builds.
+    const installerPath = (autoUpdater as any).installerPath;
+    if (!installerPath) {
+      log('update downloaded but installer path not available');
+      return { ok: false };
+    }
+
+    log(`running installer: ${installerPath}`);
+    const { shell } = require('electron');
+    shell.openPath(installerPath).then((err: string) => {
+      if (err) {
+        log(`failed to open installer: ${err}`);
+      } else {
+        log('installer launched, quitting app');
+        app.quit();
       }
     });
-    
-    return { ok: true, manualInstall: true };
+
+    return { ok: true };
   });
 
   app.on('browser-window-created', (_e, win) => {
@@ -124,7 +118,7 @@ export function installUpdater(host: UpdaterHost): void {
 
   autoUpdater.logger = { info: log, warn: log, error: log };
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false; // User must explicitly click restart
 
   autoUpdater.on('checking-for-update', () => push({ kind: 'checking' }));
   autoUpdater.on('update-available', (info: UpdateInfo) => {
