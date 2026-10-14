@@ -13,7 +13,7 @@ import (
 	"gleam/pkg/types"
 )
 
-// RunSkill 执行已固化的技能（一键复用）。
+// RunSkill executes a crystallized skill (one-click reuse).
 func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]string) (map[string]any, error) {
 	if a.Skills == nil {
 		return nil, fmt.Errorf("技能系统未启用")
@@ -23,7 +23,9 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 		return nil, err
 	}
 	if sk.Disabled {
-		// 停用的技能连参数都留着，就是要"先别跑但别忘"。让它跑等于把停掉的东西重新挂上。
+		// A disabled skill keeps its parameters precisely so it can be
+		// "paused but not forgotten". Letting it run re-mounts what was
+		// switched off.
 		return nil, fmt.Errorf("技能 %q 已停用，请先在技能页启用它", name)
 	}
 	plan := types.Plan{Goal: "运行技能 " + name}
@@ -50,15 +52,18 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 	exec := executor.Execute(ctx, plan, taskID, string(types.ModeAuto), false)
 	ok := exec.Failed == 0 && exec.Succeeded > 0
 	if err := a.Skills.RecordRun(name, ok); err != nil {
-		// 统计写不进去 = 面板上的次数与成功率偏少，而没有任何东西会报这个错。必须说出来。
+		// Stats that cannot be written = counts and success rates on the panel
+		// run low, with nothing reporting the error. It must be said out loud.
 		a.Notifier.OnProgress(types.ProgressEvent{
 			TaskID: taskID, Phase: "reflect",
 			Message:  fmt.Sprintf("技能 %s 的运行统计未写入（次数与成功率会偏少）: %v", name, err),
 			Progress: 95, Kind: "warn",
 		})
 	}
-	// 成长日志：只记跑通的复用。跑坏一次也算 5 分，等级就成了「用了多少次技能」而不是
-	// 「攒下多少能用的做法」——那正是这套体系要回答的反面。
+	// Growth log: only successful reuse counts. If a failed run also scored,
+	// the level would measure "how many times skills were used" instead of
+	// "how much reusable practice was banked" -- the exact opposite of what
+	// this system exists to answer.
 	if ok && a.Growth != nil {
 		a.Growth.Record(growth.Entry{
 			Type: "skill_used", SkillName: name, Goal: "复用技能 " + name,
@@ -68,8 +73,10 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 	if !ok && !exec.Cancelled {
 		a.autoOptimizeSkill(ctx, taskID, name, sk, exec)
 	}
-	// 技能计划目前不带验收标准（上面只填了 Steps），所以这里 hasChecks 恒为 false。
-	// 仍按契约传进去：万一以后技能也声明验收标准，这条路径不该悄悄退回"全成功即完成"。
+	// Skill plans carry no acceptance criteria for now (only Steps were filled
+	// above), so hasChecks is always false here. It is still passed per the
+	// contract: if skills ever declare acceptance criteria, this path must not
+	// quietly fall back to "all succeeded means done".
 	result := a.buildResult("技能 "+name, exec, heuristicReflection(exec, "", len(plan.Acceptance) > 0), plan.Acceptance, types.ContextBreakdown{})
 	result.TaskID = taskID
 	result.StartedAt = time.Now()
@@ -87,8 +94,11 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 	}, nil
 }
 
-// autoOptimizeSkill 技能运行失败后的自动参数优化（设计文档 §4.2.2）：
-// 把失败摘要交给 LLM 修订步骤，经规划校验后保存为新版本。Mock 模型下跳过，保证离线自测确定性。
+// autoOptimizeSkill is automatic parameter optimization after a skill run
+// fails (design doc section 4.2.2): hand the failure summary to the LLM to
+// revise
+// the steps, then save as a new version after plan validation. Skipped under
+// the mock model to keep offline self-tests deterministic.
 func (a *Agent) autoOptimizeSkill(ctx context.Context, taskID, name string, sk *skill.Skill, exec *Result) {
 	if a.LLM == nil || llm.IsMockClient(a.LLM) || !a.Cfg.Agent.SkillAutoOptimize {
 		return
@@ -142,7 +152,8 @@ func (a *Agent) autoOptimizeSkill(ctx context.Context, taskID, name string, sk *
 	}
 }
 
-// stepDepsJSON 步骤依赖列表的 JSON 表示（用于优化器提示词）。
+// stepDepsJSON is the JSON representation of the step dependency list (for the
+// optimizer prompt).
 func stepDepsJSON(deps []string) string {
 	if len(deps) == 0 {
 		return "[]"
@@ -151,11 +162,13 @@ func stepDepsJSON(deps []string) string {
 	return string(b)
 }
 
-// delegateTimeout 委派调用的硬超时：子任务应该聚焦，60 秒足够。
+// delegateTimeout is the hard timeout for delegate calls: subtasks should stay
+// focused, 60 seconds is enough.
 const delegateTimeout = 60 * time.Second
 
-// Delegate 把子目标交给独立 LLM 调用处理，不污染主对话上下文。
-// role 为空时使用通用助手角色；非空时注入对应角色的系统提示词。
+// Delegate hands a sub-goal to an independent LLM call, without polluting the
+// main conversation context. An empty role uses the general assistant role; a
+// non-empty one injects that role's system prompt.
 func (a *Agent) Delegate(ctx context.Context, goal string, role string) (string, error) {
 	dctx, cancel := context.WithTimeout(ctx, delegateTimeout)
 	defer cancel()

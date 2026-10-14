@@ -80,7 +80,7 @@ MUTATIONS = [
     },
     {
         "name": "取消的原因一律写成「用户拒绝了执行计划」",
-        "file": "internal/agent/agent.go",
+        "file": "internal/agent/rungoal.go",
         "edits": [
             (
                 """				cause := "用户拒绝了执行计划"

@@ -64,7 +64,10 @@ func buildBinary(t *testing.T) string {
 		}
 		buildCtx, cancel := context.WithTimeout(context.Background(), buildTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(buildCtx, goTool, "build", "-p", "2", "-ldflags=-s -w", "-o", buildPath, "gleam/cmd/gleam")
+		// Match the real release builds (smoke.sh, build-desktop.sh, install.ps1
+		// and package.sh all use -trimpath -ldflags="-s -w"). Without -trimpath
+		// the size gate measures a build that never ships.
+		cmd := exec.CommandContext(buildCtx, goTool, "build", "-p", "2", "-trimpath", "-ldflags=-s -w", "-o", buildPath, "gleam/cmd/gleam")
 		cmd.Dir = projectRoot(t)
 		cmd.Env = append(os.Environ(), "GOMAXPROCS=2")
 		if cacheDir != "" {

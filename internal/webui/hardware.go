@@ -8,7 +8,7 @@ import (
 	"gleam/internal/tools/hardware"
 )
 
-// ── Hardware API Endpoints ─────────────────────────────────────────────────────
+// Hardware API endpoints.
 //
 // GET  /api/hardware/devices      List registered devices
 // GET  /api/hardware/instances    List connected instances

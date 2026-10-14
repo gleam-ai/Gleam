@@ -9,9 +9,9 @@ import (
 	"gleam/pkg/types"
 )
 
-// ---------- 消耗统计（消耗看板） ----------
+// Usage accounting (usage dashboard)
 
-// initUsage 为任务建立用量计数。
+// initUsage establishes usage accounting for a task.
 func (a *Agent) initUsage(taskID string) {
 	a.installUsageHook()
 	a.usageMu.Lock()
@@ -30,7 +30,7 @@ func (a *Agent) initUsage(taskID string) {
 	a.usageMu.Unlock()
 }
 
-// budgetExtra 读取用户确认后追加的额度。
+// budgetExtra reads the quota granted after user confirmation.
 func (a *Agent) budgetExtra(taskID string) taskBudget {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
@@ -40,7 +40,7 @@ func (a *Agent) budgetExtra(taskID string) taskBudget {
 	return taskBudget{}
 }
 
-// grantBudget 用户确认继续后追加一倍预算额度。
+// grantBudget doubles the budget quota after the user confirms continuation.
 func (a *Agent) grantBudget(taskID string) {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
@@ -56,7 +56,7 @@ func (a *Agent) grantBudget(taskID string) {
 	b.extraTokens += a.Cfg.Agent.MaxTokensPerTask
 }
 
-// taskStarted 返回任务开始时间。
+// taskStarted returns the task's start time.
 func (a *Agent) taskStarted(taskID string) (time.Time, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -66,8 +66,8 @@ func (a *Agent) taskStarted(taskID string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// overBudget 判断任务是否超出预算，返回超限原因（空表示未超限）。
-// 预算全部为 0 时不做限制。
+// overBudget reports whether the task is over budget, returning the reason
+// (empty means within budget). No limit applies when all budgets are 0.
 func (a *Agent) overBudget(taskID string) string {
 	if a == nil || a.Cfg == nil {
 		return ""
@@ -100,7 +100,8 @@ func (a *Agent) overBudget(taskID string) string {
 	return ""
 }
 
-// checkBudget 超预算时征求用户确认：批准则追加一倍额度并继续，拒绝则停止。
+// checkBudget asks the user for confirmation when over budget: approved, add
+// one more round of quota and continue; rejected, stop.
 func (a *Agent) checkBudget(taskID, reason string) bool {
 	if a == nil || a.Notifier == nil {
 		return false
@@ -118,9 +119,11 @@ func (a *Agent) checkBudget(taskID, reason string) bool {
 	return true
 }
 
-// confirmDeepReview 深度扫描否决后交用户拍板：批准 = 我知道风险，按原计划继续。
-// 没人可问时**放行**：深度扫描是"多一道人工确认"，不是新的硬闸——问不到人就把任务
-// 卡死在一个用户看不见的原因上，比多跑一次更糟。
+// confirmDeepReview puts the decision to the user after a deep-review veto:
+// approved = I accept the risk, continue with the original plan. When nobody
+// can be asked it lets the task through: deep review is "one extra human
+// confirmation", not a new hard gate -- stalling the task on a reason the user
+// cannot see is worse than one extra run.
 func (a *Agent) confirmDeepReview(taskID, reason string) bool {
 	if a == nil || a.Notifier == nil {
 		return true
@@ -133,7 +136,8 @@ func (a *Agent) confirmDeepReview(taskID, reason string) bool {
 	}).Approved
 }
 
-// reviewer 构造动作审核器：未开启审核或未配辅助模型时返回 nil（不拦截）。
+// reviewer builds the action reviewer: nil when review is off or no auxiliary
+// model is configured (no interception).
 func (a *Agent) reviewer() Reviewer {
 	if a == nil || a.Cfg == nil || !a.Cfg.Safety.AIReview || a.FastLLM == nil {
 		return nil
@@ -141,11 +145,13 @@ func (a *Agent) reviewer() Reviewer {
 	return &llmReviewer{LLM: a.FastLLM, TaskID: ""}
 }
 
-// ---------- 防打转（跨重规划的原地打转检测） ----------
+// Anti-spin (in-place spinning detection across replans)
 
-// noteSteps 记录本轮真正执行过的步骤指纹，返回达到阈值的指纹与其出现轮数。
-// 单轮内同一指纹只计一次——去重产生的多条结果不会被重复计数。
-// 只统计真正跑过的步骤：因依赖失败而跳过的不算一次尝试。
+// noteSteps records this round's actually executed step fingerprints,
+// returning the fingerprint that reached the threshold and how many rounds it
+// appeared in. A fingerprint counts once per round -- multiple results from
+// deduplication are not counted twice. Only steps that actually ran count:
+// steps skipped due to a failed dependency are not an attempt.
 func (a *Agent) noteSteps(taskID string, steps []types.StepResult) (fp string, rounds int) {
 	if a == nil || a.Cfg == nil || a.Cfg.Agent.StuckThreshold <= 0 {
 		return "", 0
@@ -179,7 +185,8 @@ func (a *Agent) noteSteps(taskID string, steps []types.StepResult) (fp string, r
 	return "", 0
 }
 
-// describeFingerprint 把「工具|参数」指纹还原成人能看懂的一句话。
+// describeFingerprint restores a "tool|args" fingerprint into a
+// human-readable sentence.
 func describeFingerprint(fp string) string {
 	i := indexOf(fp, "|")
 	if i < 0 {
@@ -192,7 +199,8 @@ func describeFingerprint(fp string) string {
 	return tool + " " + types.Shorten(args, 120)
 }
 
-// indexOf 是 strings.Index 的简单包装，避免在 budget.go 里多引一个包。
+// indexOf is a thin wrapper around strings.Index, avoiding one more import in
+// budget.go.
 func indexOf(s, substr string) int {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		if s[i:i+len(substr)] == substr {
@@ -202,9 +210,12 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
-// budgetCheckpoint 预算检查点：超限则通过审批通道询问用户是否继续。
-// 返回 nil 表示可以继续；非 nil 表示应当中断任务（用户拒绝或无法询问）。
-// 检查点放在顺序执行的位置（每轮规划前 / 反思前），避免在并发步骤里争抢审批通道。
+// budgetCheckpoint is the budget checkpoint: when over budget, ask the user
+// through the approval channel whether to continue. nil means continue; non-nil
+// means the task should be interrupted (user rejected or nobody to ask).
+// Checkpoints sit at sequential points (before each planning round / before
+// reflection) to avoid contending for the approval channel inside concurrent
+// steps.
 func (a *Agent) budgetCheckpoint(ctx context.Context, taskID, goal string, steps []types.StepResult) *types.GoalResult {
 	if a == nil || ctx == nil || ctx.Err() != nil {
 		return nil
@@ -230,7 +241,8 @@ func (a *Agent) budgetCheckpoint(ctx context.Context, taskID, goal string, steps
 	}
 }
 
-// installUsageHook 注册一次全局用量钩子：按 taskID 认领本引擎的调用。
+// installUsageHook registers the one-time global usage hook: claims this
+// engine's calls by taskID.
 func (a *Agent) installUsageHook() {
 	a.hookOnce.Do(func() {
 		llm.AddUsageHook(func(taskID, kind string, req llm.ChatRequest, text string, u llm.Usage) {
@@ -239,9 +251,11 @@ func (a *Agent) installUsageHook() {
 	})
 }
 
-// addUsage 累加一次模型调用用量；非本引擎的任务（taskID 未登记）直接忽略。
+// addUsage accumulates one model call's usage; tasks not belonging to this
+// engine (unregistered taskID) are ignored.
 func (a *Agent) addUsage(taskID string, u llm.Usage) {
-	// 先记窗口读数，再看 taskID：它问的是"当前上下文有多大"，跟哪次任务无关。
+	// Record the window reading first, then look at taskID: it answers "how
+	// big is the current context", which is independent of any task.
 	a.notePromptSize(u)
 	if taskID == "" {
 		return
@@ -264,7 +278,8 @@ func (a *Agent) addUsage(taskID string, u llm.Usage) {
 	}
 }
 
-// BumpUsage 累加工具调用、重试与去重次数（由执行器调用）。
+// BumpUsage accumulates tool calls, retries and dedupe counts (called by the
+// executor).
 func (a *Agent) BumpUsage(taskID string, toolCalls, retries, deduped int) {
 	if taskID == "" || (toolCalls == 0 && retries == 0 && deduped == 0) {
 		return
@@ -278,7 +293,7 @@ func (a *Agent) BumpUsage(taskID string, toolCalls, retries, deduped int) {
 	}
 }
 
-// usageOf 返回任务用量快照。
+// usageOf returns a snapshot of the task's usage.
 func (a *Agent) usageOf(taskID string) types.TaskUsage {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
@@ -288,7 +303,8 @@ func (a *Agent) usageOf(taskID string) types.TaskUsage {
 	return types.TaskUsage{}
 }
 
-// dropUsage 释放任务用量计数（任务淘汰时调用，避免长期运行内存增长）。
+// dropUsage releases the task's usage counters (called on eviction to avoid
+// unbounded memory growth in long runs).
 func (a *Agent) dropUsage(taskID string) {
 	a.usageMu.Lock()
 	delete(a.usage, taskID)

@@ -52,16 +52,17 @@ export class Sidecar extends EventEmitter {
       if (size > 50 * 1024 * 1024) {
         throw new Error(
           `sidecar binary looks wrong (${(size / 1048576).toFixed(0)} MB — expected ~16 MB). ` +
-          `This usually means the NSIS installer was copied over the sidecar during an update. ` +
-          `Reinstall Gleam to fix.`,
+            `This usually means the NSIS installer was copied over the sidecar during an update. ` +
+            `Reinstall Gleam to fix.`,
         );
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(`sidecar binary not found: ${this.spec.bin}`);
       }
-      if ((err as Error).message.includes('sidecar binary looks wrong')) throw err;
-      // stat failed for other reasons — let spawn fail naturally
+      if ((err as Error).message.includes('sidecar binary looks wrong'))
+        throw err;
+      // stat failed for other reasons: let spawn fail naturally
     }
 
     const env: NodeJS.ProcessEnv = {

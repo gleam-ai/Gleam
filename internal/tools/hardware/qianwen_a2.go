@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// ─ Qianwen Office A2 Recording Card (千问办公录音卡 A2) ──────────────────────
+// Qianwen Office A2 Recording Card.
 //
 // A2 is a smart recording card by Qianwen Office. It features:
 // - High-quality microphone array
@@ -29,9 +29,11 @@ func NewQianwenA2() Device {
 	return &qianwenA2{state: StateDisconnected}
 }
 
-func (q *qianwenA2) ID() string          { return "qianwen_a2" }
-func (q *qianwenA2) Name() string        { return "千问办公录音卡 A2" }
-func (q *qianwenA2) Description() string { return "智能录音卡，支持本地语音转文字、USB-C 连接、云端同步" }
+func (q *qianwenA2) ID() string   { return "qianwen_a2" }
+func (q *qianwenA2) Name() string { return "千问办公录音卡 A2" }
+func (q *qianwenA2) Description() string {
+	return "智能录音卡，支持本地语音转文字、USB-C 连接、云端同步"
+}
 
 func (q *qianwenA2) Capabilities() []Capability {
 	return []Capability{CapAudioIn, CapTranscribe, CapStorage, CapUSB}
@@ -110,20 +112,20 @@ func (q *qianwenA2) Receive(ctx context.Context) (any, error) {
 
 	// Poll for recording status or transcription results
 	return map[string]any{
-		"recording": false,
-		"storage_used_mb": 256,
+		"recording":        false,
+		"storage_used_mb":  256,
 		"storage_total_mb": 2048,
 	}, nil
 }
 
 func (q *qianwenA2) Info(ctx context.Context) map[string]any {
 	return map[string]any{
-		"firmware":       "2.1.0",
-		"storage_used":   "256 MB",
-		"storage_total":  "2 GB",
-		"recordings":     12,
-		"battery":        92,
-		"usb_connected":  true,
+		"firmware":      "2.1.0",
+		"storage_used":  "256 MB",
+		"storage_total": "2 GB",
+		"recordings":    12,
+		"battery":       92,
+		"usb_connected": true,
 	}
 }
 

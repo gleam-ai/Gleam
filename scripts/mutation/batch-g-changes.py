@@ -200,7 +200,7 @@ MUTATIONS = [
     },
     {
         "name": "DataDir 没传进执行器（快照整层不生效）",
-        "file": "internal/agent/agent.go",
+        "file": "internal/agent/rungoal.go",
         "edits": [
             (
                 """			DataDir:        a.Cfg.DataDir,

@@ -8498,8 +8498,16 @@ const Hardware = (function () {
     qianwen_a2: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`,
   };
   const CAPABILITY_LABELS = {
-    audio_in: '麦克风', audio_out: '扬声器', sensor: '传感器', display: '显示屏',
-    button: '按键', storage: '存储', network: '网络', usb: 'USB', ble: '蓝牙', transcribe: '语音转写',
+    audio_in: '麦克风',
+    audio_out: '扬声器',
+    sensor: '传感器',
+    display: '显示屏',
+    button: '按键',
+    storage: '存储',
+    network: '网络',
+    usb: 'USB',
+    ble: '蓝牙',
+    transcribe: '语音转写',
   };
 
   let devices = [];
@@ -8517,7 +8525,7 @@ const Hardware = (function () {
     const refreshBtn = document.getElementById('refresh-btn');
     if (refreshBtn) refreshBtn.addEventListener('click', loadDevices);
 
-    document.querySelectorAll('[data-close]').forEach(btn => {
+    document.querySelectorAll('[data-close]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const modal = document.getElementById('xiaohong-modal');
         if (modal) modal.classList.remove('active');
@@ -8560,8 +8568,10 @@ const Hardware = (function () {
       return;
     }
 
-    devices.devices.forEach(device => {
-      const isConnected = instances.instances && instances.instances.some(i => i.id === device.id);
+    devices.devices.forEach((device) => {
+      const isConnected =
+        instances.instances &&
+        instances.instances.some((i) => i.id === device.id);
       const card = document.createElement('div');
       card.className = 'device-card';
       card.innerHTML = `
@@ -8569,10 +8579,12 @@ const Hardware = (function () {
           <div class="device-icon">${DEVICE_ICONS[device.id] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>'}</div>
           <div class="device-info"><h3>${device.name}</h3><p>${device.description}</p></div>
         </div>
-        <div class="device-capabilities">${(device.capabilities || []).map(cap => `<span class="capability-tag">${CAPABILITY_LABELS[cap] || cap}</span>`).join('')}</div>
-        <div class="device-actions">${isConnected
-          ? `<button class="btn btn-secondary" onclick="Hardware.disconnectDevice('${device.id}')">断开</button>`
-          : `<button class="btn btn-primary" onclick="Hardware.connectDevice('${device.id}')">${device.id === 'xiaohong' ? '一键配置' : '连接'}</button>`}</div>
+        <div class="device-capabilities">${(device.capabilities || []).map((cap) => `<span class="capability-tag">${CAPABILITY_LABELS[cap] || cap}</span>`).join('')}</div>
+        <div class="device-actions">${
+          isConnected
+            ? `<button class="btn btn-secondary" onclick="Hardware.disconnectDevice('${device.id}')">断开</button>`
+            : `<button class="btn btn-primary" onclick="Hardware.connectDevice('${device.id}')">${device.id === 'xiaohong' ? '一键配置' : '连接'}</button>`
+        }</div>
       `;
       grid.appendChild(card);
     });
@@ -8588,7 +8600,7 @@ const Hardware = (function () {
     }
 
     list.innerHTML = '';
-    instances.instances.forEach(inst => {
+    instances.instances.forEach((inst) => {
       const item = document.createElement('div');
       item.className = 'connected-item';
       item.innerHTML = `
@@ -8610,24 +8622,30 @@ const Hardware = (function () {
     } else {
       try {
         const res = await fetch(`${API_BASE}/connect`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ device_id: deviceId, config: {} }),
         });
         const data = await res.json();
         if (res.ok) await loadDevices();
         else alert(`连接失败：${data.error}`);
-      } catch (err) { alert(`连接失败：${err.message}`); }
+      } catch (err) {
+        alert(`连接失败：${err.message}`);
+      }
     }
   }
 
   async function disconnectDevice(deviceId) {
     try {
       const res = await fetch(`${API_BASE}/disconnect`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: deviceId }),
       });
       if (res.ok) await loadDevices();
-    } catch (err) { console.error('Disconnect failed:', err); }
+    } catch (err) {
+      console.error('Disconnect failed:', err);
+    }
   }
 
   async function showDeviceInfo(deviceId) {
@@ -8635,11 +8653,15 @@ const Hardware = (function () {
       const res = await fetch(`${API_BASE}/info/${deviceId}`);
       const info = await res.json();
       console.log('Device info:', info);
-    } catch (err) { console.error('Failed to get device info:', err); }
+    } catch (err) {
+      console.error('Failed to get device info:', err);
+    }
   }
 
   function goToStep(stepNum) {
-    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document
+      .querySelectorAll('.step')
+      .forEach((s) => s.classList.remove('active'));
     const step = document.querySelector(`.step[data-step="${stepNum}"]`);
     if (step) step.classList.add('active');
   }
@@ -8660,13 +8682,19 @@ const Hardware = (function () {
     btn.textContent = '扫描中...';
     try {
       const connectRes = await fetch(`${API_BASE}/connect`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: 'xiaohong', config: { base_url: 'http://xiaohong.local:8080' } }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'xiaohong',
+          config: { base_url: 'http://xiaohong.local:8080' },
+        }),
       });
-      if (!connectRes.ok) throw new Error('无法连接到小鸿，请确保设备已开机并处于配网模式');
+      if (!connectRes.ok)
+        throw new Error('无法连接到小鸿，请确保设备已开机并处于配网模式');
 
       const scanRes = await fetch(`${API_BASE}/scan-wifi`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_id: 'xiaohong' }),
       });
       if (!scanRes.ok) throw new Error('WiFi 扫描失败');
@@ -8689,12 +8717,14 @@ const Hardware = (function () {
     const list = document.getElementById('wifi-list');
     if (!list) return;
     list.innerHTML = '';
-    networks.forEach(net => {
+    networks.forEach((net) => {
       const item = document.createElement('div');
       item.className = 'wifi-item';
       item.innerHTML = `<span class="wifi-name">${net.name}</span><span class="wifi-signal">${getSignalStrength(net.signal)}</span>`;
       item.addEventListener('click', () => {
-        document.querySelectorAll('.wifi-item').forEach(i => i.classList.remove('selected'));
+        document
+          .querySelectorAll('.wifi-item')
+          .forEach((i) => i.classList.remove('selected'));
         item.classList.add('selected');
         selectedWifi = net.name;
       });
@@ -8709,22 +8739,33 @@ const Hardware = (function () {
   }
 
   async function connectWiFi() {
-    if (!selectedWifi) { alert('请先选择 WiFi 网络'); return; }
+    if (!selectedWifi) {
+      alert('请先选择 WiFi 网络');
+      return;
+    }
     const pwdInput = document.getElementById('wifi-password');
     const password = pwdInput ? pwdInput.value : '';
-    if (!password) { alert('请输入 WiFi 密码'); return; }
+    if (!password) {
+      alert('请输入 WiFi 密码');
+      return;
+    }
 
     goToStep(3);
     try {
       const configRes = await fetch(`${API_BASE}/configure-wifi`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: 'xiaohong', ssid: selectedWifi, password: password }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'xiaohong',
+          ssid: selectedWifi,
+          password: password,
+        }),
       });
       if (!configRes.ok) {
         const data = await configRes.json();
         throw new Error(data.error || 'WiFi 配置失败');
       }
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       const infoRes = await fetch(`${API_BASE}/info/xiaohong`);
       if (infoRes.ok) {
         goToStep(4);

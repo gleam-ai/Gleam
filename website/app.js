@@ -1,10 +1,10 @@
 (() => {
-  "use strict";
+  'use strict';
 
   // ── Glow Canvas: floating particles that drift upward like embers ──
-  const canvas = document.getElementById("glow-canvas");
+  const canvas = document.getElementById('glow-canvas');
   if (canvas) {
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext('2d');
     let w, h, particles, raf;
 
     function resize() {
@@ -35,7 +35,10 @@
         p.y += p.vy;
         p.pulse += 0.02;
 
-        if (p.y < -10) { p.y = h + 10; p.x = Math.random() * w; }
+        if (p.y < -10) {
+          p.y = h + 10;
+          p.x = Math.random() * w;
+        }
         if (p.x < -10) p.x = w + 10;
         if (p.x > w + 10) p.x = -10;
 
@@ -59,13 +62,16 @@
     draw();
 
     let resizeTimer;
-    window.addEventListener("resize", () => {
+    window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { resize(); initParticles(); }, 200);
+      resizeTimer = setTimeout(() => {
+        resize();
+        initParticles();
+      }, 200);
     });
 
     // pause when tab not visible
-    document.addEventListener("visibilitychange", () => {
+    document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         cancelAnimationFrame(raf);
       } else {
@@ -75,35 +81,35 @@
   }
 
   // ── Nav scroll state ──
-  const nav = document.getElementById("nav");
+  const nav = document.getElementById('nav');
   if (nav) {
     const onScroll = () => {
-      nav.classList.toggle("scrolled", window.scrollY > 20);
+      nav.classList.toggle('scrolled', window.scrollY > 20);
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
   }
 
   // ── Scroll Reveal (IntersectionObserver) ──
-  const reveals = document.querySelectorAll(".reveal");
+  const reveals = document.querySelectorAll('.reveal');
   if (reveals.length) {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
           if (e.isIntersecting) {
-            const delay = parseInt(e.target.dataset.delay || "0", 10);
-            setTimeout(() => e.target.classList.add("visible"), delay);
+            const delay = parseInt(e.target.dataset.delay || '0', 10);
+            setTimeout(() => e.target.classList.add('visible'), delay);
             observer.unobserve(e.target);
           }
         }
       },
-      { threshold: 0.15, rootMargin: "0px 0px -40px 0px" }
+      { threshold: 0.15, rootMargin: '0px 0px -40px 0px' },
     );
     reveals.forEach((el) => observer.observe(el));
   }
 
   // ── Animated Counters ──
-  const statValues = document.querySelectorAll(".stat-value[data-target]");
+  const statValues = document.querySelectorAll('.stat-value[data-target]');
   if (statValues.length) {
     const counterObserver = new IntersectionObserver(
       (entries) => {
@@ -111,7 +117,7 @@
           if (!e.isIntersecting) continue;
           const el = e.target;
           const target = parseInt(el.dataset.target, 10);
-          const suffix = el.dataset.suffix || "";
+          const suffix = el.dataset.suffix || '';
           const duration = 1200;
           const start = performance.now();
 
@@ -127,44 +133,44 @@
           counterObserver.unobserve(el);
         }
       },
-      { threshold: 0.5 }
+      { threshold: 0.5 },
     );
     statValues.forEach((el) => counterObserver.observe(el));
   }
 
   // ── Terminal Typing Animation ──
-  const typedCmd = document.getElementById("typed-cmd");
-  const typedOutput = document.getElementById("typed-output");
+  const typedCmd = document.getElementById('typed-cmd');
+  const typedOutput = document.getElementById('typed-output');
   if (typedCmd && typedOutput) {
     const commands = [
       {
         cmd: 'gleam goal "organize my markdown files"',
         out: [
-          "▸ Planning 4 steps...",
-          "  ✓ Scanned 23 files",
-          "  ✓ Grouped by topic (5 categories)",
-          "  ✓ Moved 18 files, updated 3 links",
-          "  ✓ Summary written to INDEX.md",
-          "Score: 94/100 — done.",
+          '▸ Planning 4 steps...',
+          '  ✓ Scanned 23 files',
+          '  ✓ Grouped by topic (5 categories)',
+          '  ✓ Moved 18 files, updated 3 links',
+          '  ✓ Summary written to INDEX.md',
+          'Score: 94/100 — done.',
         ],
       },
       {
         cmd: 'gleam goal "summarize recent git changes"',
         out: [
-          "▸ Planning 2 steps...",
-          "  ✓ Read last 15 commits",
-          "  ✓ Summary: 3 features, 2 fixes, 1 refactor",
-          "Score: 97/100 — done.",
+          '▸ Planning 2 steps...',
+          '  ✓ Read last 15 commits',
+          '  ✓ Summary: 3 features, 2 fixes, 1 refactor',
+          'Score: 97/100 — done.',
         ],
       },
       {
         cmd: 'gleam goal "review PR #42 for security issues"',
         out: [
-          "▸ Planning 3 steps...",
-          "  ✓ Fetched diff (142 lines changed)",
-          "  ✓ Found 1 potential SQL injection",
-          "  ✓ Suggested parameterized query fix",
-          "Score: 91/100 — 1 issue flagged.",
+          '▸ Planning 3 steps...',
+          '  ✓ Fetched diff (142 lines changed)',
+          '  ✓ Found 1 potential SQL injection',
+          '  ✓ Suggested parameterized query fix',
+          'Score: 91/100 — 1 issue flagged.',
         ],
       },
     ];
@@ -172,10 +178,10 @@
     let cmdIdx = 0;
 
     function typeCommand(entry, callback) {
-      typedCmd.textContent = "";
-      typedOutput.innerHTML = "";
+      typedCmd.textContent = '';
+      typedOutput.innerHTML = '';
       let i = 0;
-      const chars = entry.cmd.split("");
+      const chars = entry.cmd.split('');
 
       function typeChar() {
         if (i < chars.length) {
@@ -193,15 +199,15 @@
       let lineIdx = 0;
       function addLine() {
         if (lineIdx < lines.length) {
-          const div = document.createElement("div");
+          const div = document.createElement('div');
           div.textContent = lines[lineIdx];
-          div.style.opacity = "0";
-          div.style.transform = "translateY(4px)";
-          div.style.transition = "opacity 0.3s, transform 0.3s";
+          div.style.opacity = '0';
+          div.style.transform = 'translateY(4px)';
+          div.style.transition = 'opacity 0.3s, transform 0.3s';
           typedOutput.appendChild(div);
           requestAnimationFrame(() => {
-            div.style.opacity = "1";
-            div.style.transform = "translateY(0)";
+            div.style.opacity = '1';
+            div.style.transform = 'translateY(0)';
           });
           lineIdx++;
           setTimeout(addLine, 200 + Math.random() * 150);
@@ -220,7 +226,7 @@
     }
 
     // start when terminal scrolls into view
-    const terminal = typedCmd.closest(".hero-terminal");
+    const terminal = typedCmd.closest('.hero-terminal');
     if (terminal) {
       const termObs = new IntersectionObserver(
         (entries) => {
@@ -229,19 +235,18 @@
             setTimeout(loop, 600);
           }
         },
-        { threshold: 0.3 }
+        { threshold: 0.3 },
       );
       termObs.observe(terminal);
     }
   }
 
   // ── Bento Card Mouse Glow ──
-  document.querySelectorAll(".bento-card").forEach((card) => {
-    card.addEventListener("mousemove", (e) => {
+  document.querySelectorAll('.bento-card').forEach((card) => {
+    card.addEventListener('mousemove', (e) => {
       const rect = card.getBoundingClientRect();
-      card.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`);
-      card.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`);
+      card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+      card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
     });
   });
-
 })();

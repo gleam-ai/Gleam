@@ -473,7 +473,8 @@ const S2 = (() => {
     const agentToggle = (key, ok) =>
       toggle(a[key], (v) => save({ agent: { [key]: v } }, ok || null));
 
-    // 后台运行开关：状态从 /api/daemon 异步加载，初始禁用等加载完再启用。
+    // Background-run toggle: status loads asynchronously from /api/daemon;
+    // starts disabled and is enabled once loading finishes.
     const daemonToggleEl = toggle(false, () => {}, {
       disabled: true,
       labelText: '后台运行',
@@ -486,7 +487,7 @@ const S2 = (() => {
         control: daemonToggleEl,
       }),
     );
-    // 加载完守护进程状态后启用开关并绑定真实切换逻辑。
+    // Once the daemon status has loaded, enable the toggle and bind the real switch logic.
     const loadDaemonStatus = async () => {
       try {
         const st = await api('GET', '/api/daemon');

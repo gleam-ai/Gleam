@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"gleam/internal/agent/geo"
 	"gleam/internal/config"
 	"gleam/internal/harness/conversation"
 	"gleam/internal/harness/credentials"
-	"gleam/internal/agent/geo"
 	"gleam/internal/harness/growth"
 	"gleam/internal/harness/memory"
 	"gleam/internal/harness/registry"
@@ -25,7 +25,8 @@ import (
 	"gleam/pkg/types"
 )
 
-// Agent Gleam 核心引擎：Plan-Execute-Reflect 循环 + 任务登记。
+// Agent is the Gleam core engine: the Plan-Execute-Reflect loop plus the task
+// registry.
 type Agent struct {
 	LLM       llm.Client
 	Reg       *registry.Registry
@@ -36,43 +37,49 @@ type Agent struct {
 	Cfg       *config.Config
 	Notifier  Notifier
 	MCP       *MCPManager
-	FileTools *file.Tools         // 文件工具集（工作区热切换时更新 Roots）
-	Growth    *growth.Log         // 成长日志
-	Convos    *conversation.Store // 多会话持久化（左侧会话列表）
-	Spaces    *space.Store        // 微光空间（按工作文件夹隔离对话）
-	Creds     *credentials.Store  // 本地敏感凭证（LLM Key / 云端会话，0600）
-	Auth      AuthProvider        // 云端账号（可选）
-	GEO       *geo.Store          // GEO 分析历史（创作产出自动分析的留档，供 GEO 板块回看）
-	FastLLM   llm.Client          // 可选：辅助调用（压缩/GEO/技能优化）用的便宜模型，nil 时用主模型
+	FileTools *file.Tools         // file toolset (Roots updated on workspace hot-switch)
+	Growth    *growth.Log         // growth log
+	Convos    *conversation.Store // multi-conversation persistence (left sidebar list)
+	Spaces    *space.Store        // Gleam spaces (conversations isolated per working folder)
+	Creds     *credentials.Store  // local sensitive credentials (LLM key / cloud session, 0600)
+	Auth      AuthProvider        // cloud account (optional)
+	GEO       *geo.Store          // GEO analysis history (archive of auto-analyzed creative output)
+	FastLLM   llm.Client          // optional: cheap model for auxiliary calls (compression/GEO/skill tuning); main model when nil
 
 	mu    sync.Mutex
 	tasks map[string]*taskHandle
 
-	// 消耗统计（消耗看板）：按 taskID 归集模型调用与工具调用开销
+	// Usage accounting (usage dashboard): model and tool call costs grouped
+	// by taskID.
 	usageMu  sync.Mutex
 	usage    map[string]*types.TaskUsage
-	budget   map[string]*taskBudget    // 用户确认后追加的预算额度
-	stuck    map[string]map[string]int // taskID -> 「工具+参数」指纹 -> 出现在多少轮里（防打转）
+	budget   map[string]*taskBudget    // extra quota granted after user confirmation
+	stuck    map[string]map[string]int // taskID -> "tool+args" fingerprint -> rounds it appeared in (anti-spin)
 	hookOnce sync.Once
 
-	// 模型档位客户端缓存：档位名 -> 客户端（按配置惰性构建，设置保存后由 RebuildTierClients 重建）
+	// Model tier client cache: tier name -> client (built lazily per config,
+	// rebuilt by RebuildTierClients after a settings save).
 	tierMu      sync.Mutex
 	tierClients map[string]llm.Client
 
-	// 上下文窗口的最近读数：最近一次请求的输入 token 规模（见 ctxwindow.go）。
-	// 它不属于某个任务：memory 的短窗口是这台机器上所有任务共用的那一份。
+	// Latest context window reading: input token size of the most recent
+	// request (see ctxwindow.go). It belongs to no task: memory's short window
+	// is the one shared by all tasks on this machine.
 	ctxMu               sync.Mutex
 	lastPromptTokens    int
 	lastPromptEstimated bool
 }
 
-// taskBudget 用户批准后追加的额度（在配置上限之上再加）。
+// taskBudget is extra quota granted after user approval (on top of the config
+// cap).
 type taskBudget struct {
 	extraCalls  int
 	extraTokens int
 }
 
-// AuthProvider 云端账号能力（由 internal/harness/auth.Manager 实现），agent 不直接依赖 auth 包。
+// AuthProvider is the cloud account capability (implemented by
+// internal/harness/auth.Manager); agent does not depend on the auth package
+// directly.
 type AuthProvider interface {
 	Configured() bool
 	Session() map[string]any
@@ -93,7 +100,7 @@ type taskHandle struct {
 	started time.Time
 }
 
-// New 创建 Agent（各子系统由运行时装配）。
+// New creates an Agent (subsystems are wired by the runtime).
 func New(cfg *config.Config, client llm.Client, reg *registry.Registry, mem *memory.Manager,
 	gate *safety.Gate, skills *skill.Store, sched *scheduler.Scheduler, notifier Notifier) *Agent {
 	if notifier == nil {
@@ -106,8 +113,9 @@ func New(cfg *config.Config, client llm.Client, reg *registry.Registry, mem *mem
 	}
 }
 
-// ValidateGoalRequest 校验 Web/JSON-RPC 等外部入口的目标参数。
-// 空模式使用兼容默认值；非空未知值必须显式拒绝，避免静默降级。
+// ValidateGoalRequest validates goal parameters from external entry points
+// such as Web/JSON-RPC. An empty mode uses the compatible default; a non-empty
+// unknown value must be rejected explicitly, avoiding silent downgrade.
 func ValidateGoalRequest(req types.GoalRequest) error {
 	if err := types.ValidateReferences(req.References); err != nil {
 		return err
@@ -121,19 +129,22 @@ func ValidateGoalRequest(req types.GoalRequest) error {
 	if req.Role != "" && !HasRole(req.Role) {
 		return fmt.Errorf("不支持的专家角色 %q", req.Role)
 	}
-	// task_id 会被拼成任务归档的文件名（tasks/<id>.json），所以它的形状在**入口**就得定：
-	// 放过去的话，任务会照常跑完、照常花 token，最后归档那一步默默失败——
-	// 人在 `gleam replay` 报"读不到"的时候才发现，而那次的凭据已经没了。
+	// task_id becomes part of the task archive filename (tasks/<id>.json), so
+	// its shape must be fixed at the entry: letting it through, the task runs
+	// normally and spends tokens as usual, and the archive step fails
+	// silently -- the user only notices when `gleam replay` reports "not
+	// found", and by then the evidence is gone.
 	if req.TaskID != "" && SafeTaskName(req.TaskID) == "" {
 		return fmt.Errorf("task_id %q 不能作文件名：只允许字母、数字与 - _，长度不超过 128", req.TaskID)
 	}
 	return nil
 }
 
-// maxRetainedTasks 已完成任务保留上限（防止长期运行内存无限增长）。
+// maxRetainedTasks caps retained completed tasks (prevents unbounded memory
+// growth in long runs).
 const maxRetainedTasks = 200
 
-// pruneTasksLocked 淘汰最旧的已完成任务（须持有 a.mu）。
+// pruneTasksLocked evicts the oldest completed tasks (a.mu must be held).
 func (a *Agent) pruneTasksLocked() {
 	if len(a.tasks) <= maxRetainedTasks {
 		return
@@ -155,11 +166,12 @@ func (a *Agent) pruneTasksLocked() {
 	}
 }
 
-// BuildPlanner 按一次目标请求装配规划器。
+// BuildPlanner assembles a planner for one goal request.
 //
-// 与 RunGoal 内部走的是**同一段逻辑**——评测与排障需要「只规划不执行」时调它，
-// 而不是自己再拼一个 Planner：两处各写一份，迟早改一边忘一边，
-// 那样评测出来的就不是真实运行时的行为了。
+// It is the same logic RunGoal uses internally -- call it when evaluation or
+// troubleshooting needs "plan only, no execute", instead of building another
+// Planner: two copies drift apart sooner or later, and then what is evaluated
+// is no longer the real runtime behavior.
 func (a *Agent) BuildPlanner(req types.GoalRequest) *Planner {
 	taskID := req.TaskID
 	if taskID == "" {
@@ -173,17 +185,23 @@ func (a *Agent) BuildPlanner(req types.GoalRequest) *Planner {
 		CommitHint: a.Cfg.Git.CommitInstructions,
 		Role:       req.Role,
 		TaskID:     taskID,
-		// 生效档位：规则表据此决定"要不要给这一档换一版规则"（见 rules.go）。
-		// 未配档位时为空，规则一律落到通用版——保守优先，能力未知就不动规则。
+		// Effective tier: the rule table uses it to decide "whether to swap in
+		// a different rule version for this tier" (see rules.go). Empty when
+		// no tier is configured, and rules fall to the generic version --
+		// conservative first: unknown capability means no rule changes.
 		Tier: a.EffectiveTier(req.Role),
-		// 薄 Harness：工具多了只给能力菜单 + 按需筛选出的 schema。
-		// Helper 只在真配了辅助模型时才给——否则快筛会白白多花一次主模型的钱。
+		// Thin harness: with many tools, only the capability menu plus
+		// on-demand filtered schemas. Helper is given only when an auxiliary
+		// model is really configured -- otherwise screening wastes an extra
+		// main-model call.
 		MaxToolSchemas: a.Cfg.Agent.MaxToolSchemas,
 		Helper:         a.FastLLM,
-		// 场景模板带来的差异：核心工具（保证在）、产出格式与模型档位（见 buildSystemPrompt / TierLLM）。
+		// Differences from scenario templates: core tools (always present),
+		// output format and model tier (see buildSystemPrompt / TierLLM).
 		RoleTools: FindRole(req.Role).Tools,
 	}
-	// 钉住区（P2-1）：不可压缩的用户约束，注入时排易变段最前、绝不重排。
+	// Pinned zone (P2-1): incompressible user constraints, placed before the
+	// volatile segment at injection and never reordered.
 	if a.Mem != nil {
 		pl.Pinned = a.Mem.Pinned()
 	}
@@ -237,12 +255,12 @@ func planMaxRisk(reg *registry.Registry, plan types.Plan) string {
 	return risk
 }
 
-// SetNotifier 替换事件出口（服务层装配时调用）。
+// SetNotifier replaces the event sink (called when the service layer wires up).
 func (a *Agent) SetNotifier(n Notifier) {
 	a.Notifier = n
 }
 
-// ApprovalTimeout 安全门控的审批等待时长。
+// ApprovalTimeout is the safety gate's approval wait duration.
 func (a *Agent) ApprovalTimeout() time.Duration {
 	if a.Gate == nil {
 		return 5 * time.Minute
@@ -250,7 +268,7 @@ func (a *Agent) ApprovalTimeout() time.Duration {
 	return a.Gate.ApprovalTimeoutDuration()
 }
 
-// CancelTask 取消运行中的任务。
+// CancelTask cancels a running task.
 func (a *Agent) CancelTask(taskID string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -262,7 +280,7 @@ func (a *Agent) CancelTask(taskID string) bool {
 	return true
 }
 
-// TaskStatus 查询任务状态。
+// TaskStatus queries a task's status.
 func (a *Agent) TaskStatus(taskID string) (types.GoalStatus, *types.GoalResult) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -273,7 +291,7 @@ func (a *Agent) TaskStatus(taskID string) (types.GoalStatus, *types.GoalResult) 
 	return h.status, h.result
 }
 
-// RunningTasks 运行中任务数。
+// RunningTasks counts running tasks.
 func (a *Agent) RunningTasks() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -286,7 +304,7 @@ func (a *Agent) RunningTasks() int {
 	return n
 }
 
-// DataDir 保证数据目录存在。
+// DataDir ensures the data directories exist.
 func DataDir(cfg *config.Config) string {
 	_ = os.MkdirAll(filepath.Join(cfg.DataDir, "memory"), 0o755)
 	_ = os.MkdirAll(filepath.Join(cfg.DataDir, "skills"), 0o755)

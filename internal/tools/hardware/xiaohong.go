@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// ── AtomGit Xiaohong (小鸿) ────────────────────────────────────────────────────
+// Xiaohong (AtomGit desktop AI companion device).
 //
 // Xiaohong is a desktop AI companion device by AtomGit. It features:
 // - E-ink display for status/notifications
@@ -18,10 +18,10 @@ import (
 // Integration uses HTTP API over local network.
 
 type xiaohong struct {
-	mu     sync.RWMutex
-	state  DeviceState
+	mu      sync.RWMutex
+	state   DeviceState
 	baseURL string
-	apiKey string
+	apiKey  string
 }
 
 // NewXiaohong creates a new AtomGit Xiaohong device driver.
@@ -29,9 +29,11 @@ func NewXiaohong() Device {
 	return &xiaohong{state: StateDisconnected}
 }
 
-func (x *xiaohong) ID() string          { return "xiaohong" }
-func (x *xiaohong) Name() string        { return "AtomGit 小鸿" }
-func (x *xiaohong) Description() string { return "桌面 AI 伴侣设备，支持语音交互、电子墨水屏显示、物理按键" }
+func (x *xiaohong) ID() string   { return "xiaohong" }
+func (x *xiaohong) Name() string { return "AtomGit 小鸿" }
+func (x *xiaohong) Description() string {
+	return "桌面 AI 伴侣设备，支持语音交互、电子墨水屏显示、物理按键"
+}
 
 func (x *xiaohong) Capabilities() []Capability {
 	return []Capability{CapAudioIn, CapAudioOut, CapDisplay, CapButton, CapNetwork}

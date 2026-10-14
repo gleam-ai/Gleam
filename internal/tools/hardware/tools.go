@@ -26,12 +26,14 @@ func (t *Tools) RegisterAll(reg interface {
 	reg.MustRegister(&deviceInfoTool{})
 }
 
-// ── hardware.list ──────────────────────────────────────────────────────────────
+// hardware.list
 
 type listDevicesTool struct{}
 
-func (t *listDevicesTool) Name() string        { return "hardware.list" }
-func (t *listDevicesTool) Description() string  { return "List all registered AI hardware devices and their connection status." }
+func (t *listDevicesTool) Name() string { return "hardware.list" }
+func (t *listDevicesTool) Description() string {
+	return "List all registered AI hardware devices and their connection status."
+}
 func (t *listDevicesTool) Permission() types.Permission { return types.PermissionReadOnly }
 func (t *listDevicesTool) Schema() map[string]any {
 	return toolutil.Schema("List registered hardware devices", nil, map[string]any{
@@ -62,12 +64,14 @@ func (t *listDevicesTool) Execute(ctx context.Context, args map[string]any) (any
 	return map[string]any{"devices": result, "count": len(result)}, nil
 }
 
-// ── hardware.connect ───────────────────────────────────────────────────────────
+// hardware.connect
 
 type connectTool struct{}
 
-func (t *connectTool) Name() string        { return "hardware.connect" }
-func (t *connectTool) Description() string  { return "Connect to a hardware device. Requires device ID and optional configuration." }
+func (t *connectTool) Name() string { return "hardware.connect" }
+func (t *connectTool) Description() string {
+	return "Connect to a hardware device. Requires device ID and optional configuration."
+}
 func (t *connectTool) Permission() types.Permission { return types.PermissionUserApproved }
 func (t *connectTool) Schema() map[string]any {
 	return toolutil.Schema("Connect to a hardware device", []string{"device_id"}, map[string]any{
@@ -91,12 +95,12 @@ func (t *connectTool) Execute(ctx context.Context, args map[string]any) (any, er
 	return map[string]any{"status": "connected", "device_id": deviceID}, nil
 }
 
-// ── hardware.disconnect ────────────────────────────────────────────────────────
+// hardware.disconnect
 
 type disconnectTool struct{}
 
-func (t *disconnectTool) Name() string        { return "hardware.disconnect" }
-func (t *disconnectTool) Description() string  { return "Disconnect from a hardware device." }
+func (t *disconnectTool) Name() string                 { return "hardware.disconnect" }
+func (t *disconnectTool) Description() string          { return "Disconnect from a hardware device." }
 func (t *disconnectTool) Permission() types.Permission { return types.PermissionUserApproved }
 func (t *disconnectTool) Schema() map[string]any {
 	return toolutil.Schema("Disconnect from a hardware device", []string{"device_id"}, map[string]any{
@@ -114,12 +118,14 @@ func (t *disconnectTool) Execute(ctx context.Context, args map[string]any) (any,
 	return map[string]any{"status": "disconnected", "device_id": deviceID}, nil
 }
 
-// ── hardware.send ─────────────────────────────────────────────────────────────
+// hardware.send
 
 type sendTool struct{}
 
-func (t *sendTool) Name() string        { return "hardware.send" }
-func (t *sendTool) Description() string  { return "Send a command or data to a connected hardware device." }
+func (t *sendTool) Name() string { return "hardware.send" }
+func (t *sendTool) Description() string {
+	return "Send a command or data to a connected hardware device."
+}
 func (t *sendTool) Permission() types.Permission { return types.PermissionUserApproved }
 func (t *sendTool) Schema() map[string]any {
 	return toolutil.Schema("Send command to hardware device", []string{"device_id", "command"}, map[string]any{
@@ -150,16 +156,18 @@ func (t *sendTool) Execute(ctx context.Context, args map[string]any) (any, error
 	return map[string]any{"device_id": deviceID, "command": command, "result": result}, nil
 }
 
-// ── hardware.receive ──────────────────────────────────────────────────────────
+// hardware.receive
 
 type receiveTool struct{}
 
-func (t *receiveTool) Name() string        { return "hardware.receive" }
-func (t *receiveTool) Description() string  { return "Receive data or events from a connected hardware device." }
+func (t *receiveTool) Name() string { return "hardware.receive" }
+func (t *receiveTool) Description() string {
+	return "Receive data or events from a connected hardware device."
+}
 func (t *receiveTool) Permission() types.Permission { return types.PermissionReadOnly }
 func (t *receiveTool) Schema() map[string]any {
 	return toolutil.Schema("Receive data from hardware device", []string{"device_id"}, map[string]any{
-		"device_id": toolutil.SchemaProp("Device identifier", "string"),
+		"device_id":  toolutil.SchemaProp("Device identifier", "string"),
 		"timeout_ms": toolutil.SchemaProp("Timeout in milliseconds (default 5000)", "number"),
 	})
 }
@@ -180,12 +188,14 @@ func (t *receiveTool) Execute(ctx context.Context, args map[string]any) (any, er
 	return map[string]any{"device_id": deviceID, "data": result}, nil
 }
 
-// ── hardware.info ──────────────────────────────────────────────────────────────
+// hardware.info
 
 type deviceInfoTool struct{}
 
-func (t *deviceInfoTool) Name() string        { return "hardware.info" }
-func (t *deviceInfoTool) Description() string  { return "Get runtime information from a connected hardware device (battery, firmware, etc.)." }
+func (t *deviceInfoTool) Name() string { return "hardware.info" }
+func (t *deviceInfoTool) Description() string {
+	return "Get runtime information from a connected hardware device (battery, firmware, etc.)."
+}
 func (t *deviceInfoTool) Permission() types.Permission { return types.PermissionReadOnly }
 func (t *deviceInfoTool) Schema() map[string]any {
 	return toolutil.Schema("Get device runtime info", []string{"device_id"}, map[string]any{

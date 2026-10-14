@@ -118,7 +118,7 @@ MUTATIONS = [
     },
     {
         "name": "结果不带安全模式（重启后卡片的「对话/工作/编程」整列空掉）",
-        "file": "internal/agent/agent.go",
+        "file": "internal/agent/rungoal.go",
         "edits": [("	result.Mode = mode\n", "")],
         "targets": [t("./internal/webui", "TestGoalSubmit_ArchivesRunMode")],
     },

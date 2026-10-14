@@ -36,7 +36,7 @@ function setupEventListeners() {
   document.getElementById('refresh-btn').addEventListener('click', loadDevices);
 
   // Modal close buttons
-  document.querySelectorAll('[data-close]').forEach(btn => {
+  document.querySelectorAll('[data-close]').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.getElementById('xiaohong-modal').classList.remove('active');
       resetSetupSteps();
@@ -45,7 +45,9 @@ function setupEventListeners() {
 
   // Xiaohong setup flow
   document.getElementById('scan-wifi-btn').addEventListener('click', scanWiFi);
-  document.getElementById('connect-wifi-btn').addEventListener('click', connectWiFi);
+  document
+    .getElementById('connect-wifi-btn')
+    .addEventListener('click', connectWiFi);
   document.getElementById('retry-btn').addEventListener('click', () => {
     goToStep(1);
   });
@@ -72,8 +74,8 @@ function renderDeviceGrid() {
   const grid = document.getElementById('device-grid');
   grid.innerHTML = '';
 
-  devices.devices.forEach(device => {
-    const isConnected = instances.instances.some(i => i.id === device.id);
+  devices.devices.forEach((device) => {
+    const isConnected = instances.instances.some((i) => i.id === device.id);
     const card = document.createElement('div');
     card.className = 'device-card';
     card.innerHTML = `
@@ -87,12 +89,13 @@ function renderDeviceGrid() {
         </div>
       </div>
       <div class="device-capabilities">
-        ${device.capabilities.map(cap => `<span class="capability-tag">${CAPABILITY_LABELS[cap] || cap}</span>`).join('')}
+        ${device.capabilities.map((cap) => `<span class="capability-tag">${CAPABILITY_LABELS[cap] || cap}</span>`).join('')}
       </div>
       <div class="device-actions">
-        ${isConnected
-          ? `<button class="btn btn-secondary" onclick="disconnectDevice('${device.id}')">断开</button>`
-          : `<button class="btn btn-primary" onclick="connectDevice('${device.id}')">${device.id === 'xiaohong' ? '一键配置' : '连接'}</button>`
+        ${
+          isConnected
+            ? `<button class="btn btn-secondary" onclick="disconnectDevice('${device.id}')">断开</button>`
+            : `<button class="btn btn-primary" onclick="connectDevice('${device.id}')">${device.id === 'xiaohong' ? '一键配置' : '连接'}</button>`
         }
       </div>
     `;
@@ -114,7 +117,7 @@ function renderConnectedList() {
   }
 
   list.innerHTML = '';
-  instances.instances.forEach(inst => {
+  instances.instances.forEach((inst) => {
     const item = document.createElement('div');
     item.className = 'connected-item';
     item.innerHTML = `
@@ -184,7 +187,9 @@ async function showDeviceInfo(deviceId) {
 
 // Xiaohong Setup Flow
 function goToStep(stepNum) {
-  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document
+    .querySelectorAll('.step')
+    .forEach((s) => s.classList.remove('active'));
   const step = document.querySelector(`.step[data-step="${stepNum}"]`);
   if (step) step.classList.add('active');
 }
@@ -244,7 +249,7 @@ function renderWiFiList(networks) {
   const list = document.getElementById('wifi-list');
   list.innerHTML = '';
 
-  networks.forEach(net => {
+  networks.forEach((net) => {
     const item = document.createElement('div');
     item.className = 'wifi-item';
     item.innerHTML = `
@@ -252,7 +257,9 @@ function renderWiFiList(networks) {
       <span class="wifi-signal">${getSignalStrength(net.signal)}</span>
     `;
     item.addEventListener('click', () => {
-      document.querySelectorAll('.wifi-item').forEach(i => i.classList.remove('selected'));
+      document
+        .querySelectorAll('.wifi-item')
+        .forEach((i) => i.classList.remove('selected'));
       item.classList.add('selected');
       selectedWifi = net.name;
     });
@@ -298,7 +305,7 @@ async function connectWiFi() {
     }
 
     // Wait for device to connect to WiFi
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Verify connection by getting device info
     const infoRes = await fetch(`${API_BASE}/info/xiaohong`);

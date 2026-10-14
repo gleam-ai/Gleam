@@ -179,11 +179,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/onboarding", s.handleOnboardingGet)
 	mux.HandleFunc("POST /api/onboarding", s.handleOnboardingSave)
 
-	// 守护进程（后台运行：注册/启动/停止系统服务，实现 24/7 执行）
+	// Daemon (background run: register/start/stop system services for 24/7 execution).
 	mux.HandleFunc("GET /api/daemon", s.handleDaemonStatus)
 	mux.HandleFunc("POST /api/daemon", s.handleDaemonAction)
 
-	// AI 硬件设备（小鸿、录音卡 A2 等）
+	// AI hardware devices (Xiaohong, recorder card A2, etc.).
 	s.registerHardwareRoutes(mux)
 
 	return mux

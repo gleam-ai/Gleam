@@ -2520,6 +2520,23 @@
             <p class="view-desc">
               管理已注册的 AI 硬件设备，连接、配置和控制你的智能硬件。
             </p>
+            <button class="btn btn-ghost" id="refresh-btn" type="button">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <path d="M23 4v6h-6M1 20v-6h6" />
+                <path
+                  d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"
+                />
+              </svg>
+              刷新
+            </button>
           </header>
 
           <div class="hardware-content">
@@ -2527,7 +2544,17 @@
               <h2>已注册设备</h2>
               <div class="device-grid" id="device-grid">
                 <div class="empty-state">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                    <path d="M9 9h6v6H9z" />
+                  </svg>
                   <p>暂无已注册设备</p>
                 </div>
               </div>
@@ -2537,7 +2564,17 @@
               <h2>已连接设备</h2>
               <div class="connected-list" id="connected-list">
                 <div class="empty-state">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                    <path d="M9 9h6v6H9z" />
+                  </svg>
                   <p>暂无已连接设备</p>
                 </div>
               </div>
@@ -2558,7 +2595,9 @@
                     <div class="step-content">
                       <h4>扫描 WiFi 网络</h4>
                       <p>小鸿将扫描周围的 WiFi 网络</p>
-                      <button class="btn btn-primary" id="scan-wifi-btn">开始扫描</button>
+                      <button class="btn btn-primary" id="scan-wifi-btn">
+                        开始扫描
+                      </button>
                     </div>
                   </div>
                   <div class="step" data-step="2">
@@ -2567,8 +2606,14 @@
                       <h4>选择 WiFi 并输入密码</h4>
                       <div class="wifi-list" id="wifi-list"></div>
                       <div class="wifi-password">
-                        <input type="password" id="wifi-password" placeholder="输入 WiFi 密码" />
-                        <button class="btn btn-primary" id="connect-wifi-btn">连接</button>
+                        <input
+                          type="password"
+                          id="wifi-password"
+                          placeholder="输入 WiFi 密码"
+                        />
+                        <button class="btn btn-primary" id="connect-wifi-btn">
+                          连接
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2595,7 +2640,9 @@
                     <div class="step-content">
                       <h4>连接失败</h4>
                       <p id="error-message">WiFi 连接失败，请检查密码后重试</p>
-                      <button class="btn btn-secondary" id="retry-btn">重新配置</button>
+                      <button class="btn btn-secondary" id="retry-btn">
+                        重新配置
+                      </button>
                     </div>
                   </div>
                 </div>

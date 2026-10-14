@@ -5,16 +5,16 @@
 //
 // # Adding a new device
 //
-//  1. Implement the Device interface below
-//  2. Call Register() in init() or from main.go
-//  3. The device automatically appears in hardware.list and gains
+//   - Implement the Device interface below
+//   - Call Register() in init() or from main.go
+//   - The device automatically appears in hardware.list and gains
 //     hardware.send / hardware.receive tools
 //
 // # Example
 //
 //	type xiaohong struct{ port string }
 //	func (x *xiaohong) ID() string { return "xiaohong" }
-//	func (x *xiaohong) Name() string { return "AtomGit 小鸿" }
+//	func (x *xiaohong) Name() string { return "AtomGit Xiaohong" }
 //	// ... implement other methods
 //	func init() { hardware.Register(&xiaohong{}) }
 package hardware
@@ -40,16 +40,16 @@ const (
 type Capability string
 
 const (
-	CapAudioIn    Capability = "audio_in"    // Microphone / audio input
-	CapAudioOut   Capability = "audio_out"   // Speaker / audio output
-	CapSensor     Capability = "sensor"      // Environmental sensors
-	CapDisplay    Capability = "display"     // Screen / LED display
-	CapButton     Capability = "button"      // Physical buttons
-	CapStorage    Capability = "storage"     // Local storage / SD card
-	CapNetwork    Capability = "network"     // WiFi / Ethernet
-	CapUSB        Capability = "usb"         // USB host/device
-	CapBLE        Capability = "ble"         // Bluetooth Low Energy
-	CapTranscribe Capability = "transcribe"  // On-device speech-to-text
+	CapAudioIn    Capability = "audio_in"   // Microphone / audio input
+	CapAudioOut   Capability = "audio_out"  // Speaker / audio output
+	CapSensor     Capability = "sensor"     // Environmental sensors
+	CapDisplay    Capability = "display"    // Screen / LED display
+	CapButton     Capability = "button"     // Physical buttons
+	CapStorage    Capability = "storage"    // Local storage / SD card
+	CapNetwork    Capability = "network"    // WiFi / Ethernet
+	CapUSB        Capability = "usb"        // USB host/device
+	CapBLE        Capability = "ble"        // Bluetooth Low Energy
+	CapTranscribe Capability = "transcribe" // On-device speech-to-text
 )
 
 // Device is the interface every hardware device must implement.
@@ -57,7 +57,7 @@ type Device interface {
 	// ID returns a unique identifier for this device type (e.g. "xiaohong", "qianwen_a2").
 	ID() string
 
-	// Name returns a human-readable name (e.g. "AtomGit 小鸿").
+	// Name returns a human-readable name (e.g. "AtomGit Xiaohong").
 	Name() string
 
 	// Description returns a brief description of the device.

@@ -13,11 +13,14 @@ func (a *Agent) buildResult(goal string, exec *Result, refl types.Reflection, ac
 		Goal:  goal,
 		Score: refl.Score,
 		Steps: exec.Steps,
-		// 承诺了什么、验到哪一步——让"完成"可核对，而不只是一个分数
+		// What was promised and how far verification went -- makes "done"
+		// checkable instead of just a score.
 		Acceptance: acceptance,
 		Checks:     refl.Checks,
-		// 参数替换后的实际执行计划：tasks/<id>.json 有了它，"当时打算怎么做"
-		// 才能离线回放（gleam replay），而不是只留一个结果让复盘的人猜。
+		// The actually executed plan after parameter substitution: with it in
+		// tasks/<id>.json, "what was intended at the time" can be replayed
+		// offline (gleam replay) instead of leaving reviewers guessing from a
+		// bare result.
 		ExecutedPlan:     &exec.ExecutedPlan,
 		PromptBreakdown:  &bd,
 		FailureBreakdown: failureBreakdown(exec.Steps),
@@ -54,9 +57,11 @@ func statusOfExec(exec *Result) types.GoalStatus {
 	}
 }
 
-// failureBreakdown 统计失败步骤的归因分布。
-// 失败率只回答"坏了多少"，这份分布回答"该先修哪一层"——
-// 参数错要改参数、业务拒绝要换方案、权限不足重试无用，混在一起就是噪音。
+// failureBreakdown counts the attribution distribution of failed steps.
+// Failure rate only answers "how much broke"; this distribution answers
+// "which layer to fix first" -- wrong parameters need parameter fixes, business
+// rejections need a different plan, insufficient permissions make retries
+// useless; mixed together they are just noise.
 func failureBreakdown(steps []types.StepResult) map[types.ErrorKind]int {
 	var out map[types.ErrorKind]int
 	for _, st := range steps {
@@ -75,8 +80,9 @@ func failureBreakdown(steps []types.StepResult) map[types.ErrorKind]int {
 	return out
 }
 
-// deriveTraceID 由任务内容派生 trace 短 ID（FNV-1a，截断到 40 位、10 位十六进制）。
-// 输入相同 → ID 相同，这是"同一问题反复出现可自动聚类"的根据。
+// deriveTraceID derives a short trace ID from the task content (FNV-1a,
+// truncated to 40 bits, 10 hex digits). Same input -> same ID; this is what
+// makes "the same problem recurring" automatically clusterable.
 func deriveTraceID(parts ...string) string {
 	h := fnv.New64a()
 	for _, p := range parts {
@@ -86,16 +92,22 @@ func deriveTraceID(parts ...string) string {
 	return fmt.Sprintf("%010x", h.Sum64()&0xFFFFFFFFFF)
 }
 
-// completionReached 判定这次尝试是否够格算"完成"。三条守卫缺一不可：
+// completionReached decides whether this attempt counts as "done". All three
+// guards are required:
 //
-//  1. 模型说 done，或分数达到阈值——这是原来就有的那条；
-//  2. 验收标准全部通过——否则把阈值调低、或模型自己说一句 done，
-//     就能绕过逐条判定，让"没做到"变成"已完成"；
-//  3. 产物核对通过——**不看有没有验收标准**，它判的是代码实测到的现实。
-//     只靠第 1 条不够：产物核对不过时反思器已被压成 replan，但分数达标的
-//     那半边仍然会放行，所以必须在这里独立判一次。
+//   - The model says done, or the score reaches the threshold -- the original
+//     condition.
+//   - All acceptance criteria pass -- otherwise lowering the threshold, or the
+//     model simply saying done, bypasses the per-criterion check and turns
+//     "not done" into "completed".
+//   - Artifact verification passes -- regardless of whether acceptance
+//     criteria exist, it judges the reality measured by the code. Condition 1
+//     alone is not enough: when artifact verification fails the reflector is
+//     squeezed into replan, but the score-at-threshold half still lets it
+//     through, so it must be judged independently here.
 //
-// 抽成独立函数而不是留在 if 里：长条件少写一句看不出来，拆开后每条都能单测。
+// Extracted into its own function instead of staying inside the if: a missing
+// clause in a long condition is invisible; split apart, each is testable.
 func completionReached(refl types.Reflection, acceptance []string, exec *Result, doneThreshold int) bool {
 	if refl.Verdict != "done" && refl.Score < doneThreshold {
 		return false
@@ -110,17 +122,22 @@ func completionReached(refl types.Reflection, acceptance []string, exec *Result,
 	return artifactsSatisfied(verifyArtifacts(steps))
 }
 
-// acceptanceSatisfied 验收标准是否全部通过。三种情况必须分清，混在一起就会出现
-// 「反思器一挂、验收被整体绕过」那个洞：
+// acceptanceSatisfied reports whether all acceptance criteria pass. Three
+// cases must be distinguished; conflating them opens the "reflector dies,
+// acceptance bypassed wholesale" hole:
 //
-//   - 没有验收标准（len(acceptance)==0）：返回 true，即"不干预原有流程"。
-//     没承诺过什么，就没什么可核对的。
-//   - 有标准、也有判定：逐条看，全过才 true。
-//   - **有标准、却没有判定**（checks 为空）：返回 **false**。
-//     这不是"没问题"，而是"没核对过"——反思器故障回退时正是这个形态。
-//     原先它与第一种情况合并返回 true，于是反思器一失败，
-//     heuristicReflection 给出 done/85，这里再放行，任务就以"已完成"收尾，
-//     而它承诺的验收标准一条都没被核对过。判定缺失应当进失败处理，不能算通过。
+//   - No acceptance criteria (len(acceptance)==0): returns true, i.e. "does not
+//     interfere with the original flow". Nothing was promised, so there is
+//     nothing to verify.
+//   - Criteria present and verdicts present: check one by one, true only when
+//     all pass.
+//   - Criteria present but no verdicts (checks empty): returns false. This is
+//     not "no problems" but "never verified" -- exactly the shape of a
+//     reflector failure fallback. It used to be merged into the first case
+//     returning true, so when the reflector failed, heuristicReflection gave
+//     done/85 and this let it through, ending the task as "completed" without
+//     a single promised criterion having been verified. A missing verdict must
+//     go to the failure path, not count as a pass.
 func acceptanceSatisfied(acceptance []string, checks []types.CheckResult) bool {
 	if len(acceptance) == 0 {
 		return true
@@ -155,13 +172,17 @@ func (a *Agent) resultOf(h *taskHandle) *types.GoalResult {
 	return &types.GoalResult{TaskID: h.id, Goal: h.goal, Status: h.status, StartedAt: h.started}
 }
 
-// elapsedMs 已结束任务的耗时（整数毫秒），不足 1ms 记为 1ms。
+// elapsedMs is the duration of a finished task in whole milliseconds;
+// anything under 1ms is recorded as 1ms.
 //
-// 为什么钳到 1 而不是改成小数或向上取整：duration_ms 是对外的整数字段——前端、归档、
-// replay 的前后对比都按整数毫秒读，历史归档里也全是截断值。改类型会破坏这些读者；
-// 全量向上取整会让每一条新记录都比同口径的旧记录多出不到 1ms，replay 对比里凭空冒出差异。
-// 只有「不足 1ms」这一档会被截成 0，而 0 在这里的意思是「没记录耗时」，对一个确实跑完的
-// 任务是错的说法。所以只修这一档：其余数值与以前逐位相同。
+// Why clamp to 1 instead of fractions or rounding up: duration_ms is an
+// external integer field -- the frontend, the archive and replay's
+// before/after comparison all read whole milliseconds, and historical
+// archives are full of truncated values. Changing the type breaks those
+// readers; rounding up invents sub-ms differences in replay comparisons.
+// Only the "under 1ms" bucket truncates to 0, and 0 means "no duration
+// recorded", which is wrong for a task that did finish. So only that bucket
+// is fixed; every other value is unchanged.
 func elapsedMs(d time.Duration) int64 {
 	if ms := d.Milliseconds(); ms >= 1 {
 		return ms

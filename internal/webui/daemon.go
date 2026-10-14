@@ -8,7 +8,7 @@ import (
 	"gleam/internal/harness/daemon"
 )
 
-// handleDaemonStatus 返回守护进程状态。
+// handleDaemonStatus returns the daemon status.
 func (s *Server) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
 	mgr := s.daemonManager()
 	if mgr == nil {
@@ -27,7 +27,7 @@ func (s *Server) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDaemonAction 执行守护进程操作（install/uninstall/start/stop）。
+// handleDaemonAction performs a daemon operation (install/uninstall/start/stop).
 func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Action string `json:"action"`
@@ -63,7 +63,7 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 操作成功后返回最新状态
+	// Return the latest status after the operation succeeds.
 	info, _ := mgr.Status()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
@@ -73,7 +73,7 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// daemonManager 创建守护进程管理器。
+// daemonManager creates the daemon manager.
 func (s *Server) daemonManager() *daemon.Manager {
 	binPath, err := os.Executable()
 	if err != nil {

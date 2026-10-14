@@ -36,10 +36,13 @@ MUTATIONS = [
         "file": "README.md",
         "edits": [
             (
-                "`GET /api/growth` · `GET /api/growth/recent` · `GET /api/roles`"
-                " | 成长统计（等级、事件计数）/ 最近事件流 / 可用角色列表 |\n",
+                "- **Growth** — `/api/growth` · `/api/growth/recent`\n",
                 "",
-            )
+            ),
+            (
+                "- **Roles** — `/api/roles`\n",
+                "",
+            ),
         ],
         "targets": [CHECK],
     },
@@ -48,8 +51,8 @@ MUTATIONS = [
         "file": "README.md",
         "edits": [
             (
-                "`GET /api/events` | SSE 事件流",
-                "`GET /api/phantom-route` · `GET /api/events` | SSE 事件流",
+                "- **Events (SSE)** — `/api/events`",
+                "- **Events (SSE)** — `/api/phantom-route` · `/api/events`",
             )
         ],
         "targets": [CHECK],
@@ -59,9 +62,8 @@ MUTATIONS = [
         "file": "README.md",
         "edits": [
             (
-                "`GET /api/skills` · `POST /api/skills` · `POST /api/skills/{name}/run`"
-                " · `POST /api/skills/{name}/enabled` · `DELETE /api/skills/{name}`",
-                "`GET/POST /api/skills*`",
+                "- **Skills** — `/api/skills` · `/api/skills/{name}` · `/api/skills/{name}/enabled` · `/api/skills/{name}/run`",
+                "- **Skills** — `GET/POST /api/skills*`",
             )
         ],
         "targets": [CHECK],

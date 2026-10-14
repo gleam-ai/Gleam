@@ -19,7 +19,8 @@ import (
 
 var slugStrip = regexp.MustCompile(`[\s\p{P}]+`)
 
-// RunGoal 执行一个目标（同步；调用方可放 goroutine）。req.TaskID 非空时沿用。
+// RunGoal runs one goal synchronously; callers may wrap it in a goroutine.
+// A non-empty req.TaskID is reused.
 func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalResult {
 	taskID := req.TaskID
 	if taskID == "" {
@@ -29,11 +30,14 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	goal := strings.TrimSpace(req.Goal)
 	mode := normalizeMode(req.Mode)
 
-	// 重试检测（P3-4 / 站点 H15）：同一会话短时间内相似目标再次提交 = 用户重试。
-	// 必须在本条用户消息写入会话**之前**判定，否则检测到的是刚写入的这条自己。
+	// Retry detection (P3-4 / site H15): a similar goal resubmitted in the same
+	// conversation within a short window means the user is retrying.
+	// Must run before this user message is appended to the conversation,
+	// otherwise it detects the message it just wrote.
 	retried := req.ConversationID != "" && a.Convos != nil && a.Convos.DetectRetry(req.ConversationID, goal)
 
-	// 记录到持久化会话（左侧会话列表）；原始用户目标（不含系统注入的引用前缀）。
+	// Record in the persisted conversation (left sidebar list); the raw user
+	// goal, without the system-injected reference prefix.
 	a.appendConvo(req.ConversationID, conversation.Message{
 		Role: "user", Content: goal, TaskID: taskID,
 		Mode: string(normalizeTaskMode(req.TaskMode)), CreatedAt: time.Now(),
@@ -43,26 +47,30 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	a.mu.Lock()
 	if old, ok := a.tasks[taskID]; ok && old.status == types.GoalRunning {
 		a.mu.Unlock()
-		return a.resultOf(old) // 同 ID 正在运行，直接引用
+		return a.resultOf(old) // same ID already running: reuse its result
 	}
 	a.tasks[taskID] = handle
 	a.mu.Unlock()
-	// 建立用量计数（GEO 等任务完成后的异步调用也会计入）
+	// Start usage accounting (async calls after task completion, e.g. GEO, also count).
 	a.initUsage(taskID)
 
 	ctx, cancel := context.WithCancel(ctx)
 	handle.cancel = cancel
 	defer cancel()
 
-	// 配置快照取**启动时**的值，不是收尾时的：任务跑到一半用户在设置页改了模型或档位，
-	// 后半段用的就是新配置了，而"这次任务是用什么跑的"必须以启动时为准——
-	// 收尾时再取，记下的会是一个从未完整生效过的配置。
+	// The config snapshot captures startup values, not teardown values: if the
+	// user changes the model or tier mid-task, the second half runs on the new
+	// config, while "what this task ran with" must be judged by startup --
+	// taking it at teardown would record a config that never fully applied.
 	snap := a.Cfg.Snapshot()
-	// prog 收集循环内部的交付侧事实（第几轮才成、返工了几次），回来就写进结果——
-	// 与下面的成长记录紧挨着，避免"记了口径"和"用了口径"隔在文件两头。
+	// prog collects delivery-side facts from inside the loop (which attempt
+	// succeeded, how many reworks) and writes them back into the result --
+	// kept next to the growth record below so "what we count" and "what we
+	// use" stay in one place.
 	prog := &goalProgress{}
 	result := a.runGoalLoop(ctx, req, goal, mode, normalizeTaskMode(req.TaskMode), taskID, prog)
-	// 跑完就处置副本：该留的留（脏的一律留，见 settleWorktree），该清的在配置允许时清。
+	// Settle the worktree copy once done: dirty ones always stay (see
+	// settleWorktree), clean ones are removed when config allows.
 	a.settleWorktree(taskID)
 	prog.stamp(result)
 	result.ConfigSnapshot = &snap
@@ -70,13 +78,16 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	result.Mode = mode
 	result.TaskMode = normalizeTaskMode(req.TaskMode)
 	result.StartedAt = handle.started
-	// trace_id 由「目标 + 任务模式 + 角色 + 模型」派生，刻意不含时间戳：
-	// 同一个输入配同一个模型重复出现时 ID 相同，失败聚类按 ID 分组即可——
-	// "同一个问题反复出现"不需要额外索引就能看见。
+	// trace_id derives from goal + task mode + role + model, deliberately
+	// without a timestamp: the same input with the same model yields the same
+	// ID, so failed runs cluster by ID -- "the same problem recurring" becomes
+	// visible without an extra index.
 	result.TraceID = deriveTraceID(goal, string(normalizeTaskMode(req.TaskMode)), req.Role, a.LLMName())
-	// 这次产出用的是哪版规则集：版本指纹 + 实际生效的规则 ID。
-	// 改了规则之后第一个要回答的问题是"之前那批结果是哪一版跑出来的"，
-	// 回答不了就只能靠猜。对话模式不经规划器、没有规则参与，两个字段如实留空。
+	// Which rule set produced this run: version fingerprint plus the rule IDs
+	// actually in effect. After a rule change the first question is "which
+	// version produced that earlier batch of results"; unanswerable means
+	// guessing. Chat mode skips the planner and has no rules, so both fields
+	// stay honestly empty.
 	if tm := normalizeTaskMode(req.TaskMode); tm != types.TaskChat {
 		result.RuleSet = RuleSetVersion()
 		result.Rules = ActiveRuleIDs(string(tm), a.EffectiveTier(req.Role), req.Role)
@@ -85,7 +96,8 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	result.Usage = a.usageOf(taskID)
 	result.Usage.DurationMs = elapsedMs(result.FinishedAt.Sub(handle.started))
 
-	// 记录助手回复到同一会话；失败/取消也留痕，避免历史缺轮。
+	// Record the assistant reply in the same conversation; failures and
+	// cancellations leave a trace too, so history never misses a turn.
 	a.appendConvo(req.ConversationID, conversation.Message{
 		Role: "assistant", Content: convoReply(result), TaskID: taskID,
 		Mode: string(normalizeTaskMode(req.TaskMode)), Status: string(result.Status), CreatedAt: time.Now(),
@@ -96,18 +108,22 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	handle.result = result
 	a.pruneTasksLocked()
 	a.mu.Unlock()
-	// 记录成长日志。
-	// 取消单独记中断（task_aborted）：中断率与通过率混在一个分母里，
-	// "用户放弃"和"做砸了"就分不开了——两者要修的东西完全不同。
+	// Record the growth log.
+	// Cancellations are recorded separately as task_aborted: mixing abort rate
+	// with pass rate in one denominator makes "the user gave up" and "we
+	// failed" indistinguishable -- they need completely different fixes.
 	if a.Growth != nil {
 		entry := growth.Entry{
 			Goal: goal, Score: result.Score,
 			Steps: len(result.Steps), Duration: result.FinishedAt.Sub(result.StartedAt).Seconds(),
 			Tokens: result.Usage.TotalTokens(), LLMCalls: result.Usage.LLMCalls, ToolCalls: result.Usage.ToolCalls,
 			RuleSet: result.RuleSet,
-			// 交付侧口径（首次通过 / 返工轮数）：产物是不是一次就合格。
-			// 只对工作模式记——对话模式没有"产物"可核；而工作模式即便规划屡败回落直聊，
-			// 那也是一次失败的交付，必须留在分母里（摘掉最差的几个，比率就成了摆设）。
+			// Delivery-side metric (first pass / rework rounds): whether the
+			// artifact qualified on the first try. Work mode only -- chat mode
+			// has no artifact to check; and even when work mode falls back to
+			// chat after repeated planning failures, that is still a failed
+			// delivery and must stay in the denominator (dropping the worst
+			// few turns the ratio into decoration).
 			Delivery:  normalizeTaskMode(req.TaskMode) != types.TaskChat,
 			FirstPass: result.FirstPass,
 			Reworks:   result.Reworks,
@@ -123,38 +139,48 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	return result
 }
 
-// goalProgress 主循环内部的一次性事实，供交付侧口径（首次通过 / 返工轮数）使用。
+// goalProgress holds one-shot facts from inside the main loop, for the
+// delivery-side metric (first pass / rework rounds).
 //
-// 为什么不让调用方从 result 反推：**反推不出来**。"第几轮才成"与"返工了几次"是
-// 循环内部的局部事实——重试三次才成与一次做对，最后的 status/score 完全一样，
-// 只有循环自己知道中间多转了两圈。所以由循环写、由 RunGoal 读，而不是事后猜。
+// Why callers cannot infer it from result: they cannot. "Which attempt
+// succeeded" and "how many reworks" are local facts of the loop -- succeeding
+// on the third retry and getting it right the first time end with identical
+// status/score; only the loop knows it spun twice extra. So the loop writes it
+// and RunGoal reads it, instead of guessing after the fact.
 type goalProgress struct {
-	attempts   int  // 实际走到第几轮尝试；对话模式为 0（没进过循环）
-	reworks    int  // 反思判未达标后真正重新执行过的轮数
-	firstRound bool // 是否在第一轮尝试就走到了完成判定
+	attempts   int  // which attempt was actually reached; 0 in chat mode (never entered the loop)
+	reworks    int  // rounds actually re-executed after reflection judged the result below threshold
+	firstRound bool // whether the completion check was reached on the first attempt
 }
 
-// stamp 把循环里的交付侧事实写回结果。
+// stamp writes the loop's delivery-side facts back into the result.
 //
-// 只在真正进过工作循环时写：对话模式没有"轮"的概念，两个字段由对话管线按自己的
-// 核对结论给（见 runChatPath）。无条件写会把那边已经给出的结论覆盖成零值，
-// 于是"核对通过的对话"会被统计成"没通过首次验收"。
+// Only when the work loop actually ran: chat mode has no concept of "rounds",
+// and its two fields are set by the chat pipeline's own verdict (see
+// runChatPath). Writing unconditionally would overwrite that verdict with zero
+// values, so a chat that passed verification would be counted as "did not
+// pass first acceptance".
 func (p *goalProgress) stamp(res *types.GoalResult) {
 	if p == nil || res == nil || p.attempts == 0 {
 		return
 	}
 	res.Reworks = p.reworks
-	// 首次验收通过 = 第一轮走完流程 **且最终确实算成功**。两个条件都要：
-	// 完成判定通过之后 applyAcceptanceVerdict 仍可能把状态校正成"部分完成"
-	// （产物核对不过、反思器没核对），那不是"一次就合格"。
+	// First pass = completed the flow on the first round AND ended up
+	// genuinely successful. Both conditions: after the completion check,
+	// applyAcceptanceVerdict can still correct the status to "partially done"
+	// (artifact verification failed, reflector did not verify), which is not
+	// "qualified on the first try".
 	res.FirstPass = p.firstRound && res.Status == types.GoalSuccess
 }
 
-// runGoalLoop Plan-Execute-Reflect 主循环（含自动重规划）。taskMode=chat 时走直聊管线。
-// prog 由调用方传入并回读，记录"第几轮才成、返工了几次"（见 goalProgress）。
+// runGoalLoop is the Plan-Execute-Reflect main loop (with automatic
+// replanning). taskMode=chat takes the direct-chat pipeline.
+// prog is passed in by the caller and read back, recording "which attempt
+// succeeded, how many reworks" (see goalProgress).
 func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mode string, taskMode types.TaskMode, taskID string, prog *goalProgress) *types.GoalResult {
-	// 结构化引用由 Web UI 注入；在规划提示前转为明确的上下文段落，
-	// 同时保留原始目标文本，避免引用只停留在界面芯片层。
+	// Structured references are injected by the Web UI; converted into an
+	// explicit context section before the planning prompt, while the original
+	// goal text is preserved so references do not stay at the UI chip layer.
 	refs := req.References
 	if len(refs) == 0 {
 		if legacy, ok := req.Context["references"].([]map[string]string); ok {
@@ -171,7 +197,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		}
 		goal = b.String() + "\n用户目标：" + goal
 	}
-	// ---------- 对话模式：直连 LLM，不经规划/执行/反思 ----------
+	// Chat mode: straight to the LLM, no plan/execute/reflect
 	if taskMode == types.TaskChat {
 		return a.runChatPath(ctx, goal, taskID, req.Role)
 	}
@@ -183,21 +209,26 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	}
 
 	cwd := a.workspaceOf(req)
-	// ---------- 隔离：让这次任务在自己的 worktree 里跑 ----------
-	// 时机是**规划之前**：规划拿到的 cwd 与执行时的文件边界是同一件事的两面，
-	// 只改一边就会出现"照着主工作区规划、把文件写进 worktree"。
+	// Isolation: run this task in its own worktree
+	// Timed before planning: the cwd the planner sees and the file boundary at
+	// execution are two sides of one thing; changing only one side yields
+	// "planned against the main workspace, files written into the worktree".
 	if iso := a.isolateForTask(ctx, req, taskID, notify); len(iso.roots) > 0 {
 		ctx = toolutil.WithRoots(ctx, iso.roots)
 		cwd = iso.cwd
 	}
 
-	// 场景模板的模型档位：角色声明了档位且配置里有对应模型时换模型，否则就是主模型。
-	// 规划、执行、对话都走 TierLLM（BuildPlanner 内部解析的就是它）——同一场景内换模型
-	// 没有意义，只会让风格前后不一致。
+	// Model tier for scenario templates: switch models when the role declares
+	// a tier and config has a matching model, otherwise the main model.
+	// Planning, execution and chat all go through TierLLM (what BuildPlanner
+	// resolves internally) -- switching models within one scenario is
+	// pointless and only makes the style inconsistent.
 	//
-	// **反思是例外**：反思是验收，走 VerifyLLM 换一个不同档位的模型。
-	// 原先这里复用同一个客户端，于是"独立验收"只体现在"独立调用 + 独立上下文"上，
-	// 干活的和打分的仍是同一个模型——盲区相同，自评偏差没有任何东西去抵消。
+	// Reflection is the exception: it is verification, so it uses VerifyLLM
+	// with a different-tier model. This previously reused the same client, so
+	// "independent verification" only meant "independent call + independent
+	// context" while the doer and the scorer were still the same model -- same
+	// blind spots, with nothing to offset self-assessment bias.
 	planner := a.BuildPlanner(req)
 	reflector := &Reflector{
 		LLM:           a.VerifyLLM(req.Role),
@@ -208,8 +239,8 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 
 	var feedback string
 	var last *types.GoalResult
-	var usedTools []string  // 本任务各轮实际用到的工具（菜单模式下重规划时强制带上 schema）
-	var acceptance []string // 验收标准：一旦定下就跟着这个目标走，重规划重申与否都不丢
+	var usedTools []string  // tools actually used across rounds (schemas force-attached on replan in menu mode)
+	var acceptance []string // acceptance criteria: once set they follow this goal, restated or not
 	planned := false
 	attempts := a.Cfg.Agent.MaxReplans + 1
 	if attempts < 1 {
@@ -223,15 +254,17 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		if ctx.Err() != nil {
 			return a.cancelledResult(goal, last)
 		}
-		// ---------- 预算熔断检查点 ----------
+		// Budget circuit-breaker checkpoint
 		if stop := a.budgetCheckpoint(ctx, taskID, goal, nil); stop != nil {
 			notify("budget", stop.Error, 88, "error")
 			a.finalize(taskID, stop, nil, req.Role)
 			return stop
 		}
-		// ---------- Plan ----------
+		// Plan
 		notify("plan", tell.PlanStart(), 3, "info")
-		// 上下文自动压缩：短期窗口外被覆盖的旧对话汇总为滚动摘要（§9 风险应对）
+		// Automatic context compression: old conversation turns evicted from
+		// the short window are summarized into a rolling summary (section 9
+		// risk response).
 		if a.Cfg.Agent.ContextCompress && a.Mem != nil {
 			if a.Mem.Compress(a.CompressSummarizer(ctx, taskID)) {
 				notify("plan", tell.Compressed(), 4, "info")
@@ -239,7 +272,8 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		}
 		var recent []memory.Turn
 		if a.Mem != nil && a.Mem.Short != nil {
-			// 带几轮由 memory 说话（水位越线时会收紧，见 CarryTurns）。
+			// How many turns to carry is memory's call (tightened when the
+			// water level crosses the line, see CarryTurns).
 			recent = a.Mem.Short.Recent(a.Mem.CarryTurns())
 		}
 		var relevant []memory.Hit
@@ -248,18 +282,23 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		}
 		var summary string
 		if a.Mem != nil {
-			// 带省略量标注的摘要：「已自动压缩」要说清丢了多少，否则读者分不清全貌与残余
+			// Summary annotated with how much was omitted: "auto-compressed"
+			// must say how much was dropped, or readers cannot tell the whole
+			// from the remainder.
 			summary = a.Mem.SummaryAnnotated()
 		}
-		// 计划流只报进度，不转发内容：规划响应本身就是 JSON，逐 token 转给
-		// CLI/WebUI 会把原始 JSON 碎片打进进度行（2026-09-23 QA 报告 M5）。
+		// The plan stream reports progress only, never content: the planning
+		// response is itself JSON, and forwarding it token by token to
+		// CLI/WebUI would splinter raw JSON fragments into the progress line
+		// (2026-09-23 QA report M5).
 		var planChars int
 		onDelta, flush := DeltaThrottle(50, func(text string) {
 			planChars += len([]rune(text))
 			notify("plan", fmt.Sprintf("规划中…（已生成 %d 字）", planChars), 5, "llm")
 		})
 		planner.OnLLMDelta = onDelta
-		// 菜单模式下把此前各轮用过的工具固定带上，避免重规划时想看却没有 schema
+		// In menu mode, pin the tools used in earlier rounds so replanning
+		// does not want a schema that is missing.
 		planner.ForceTools = usedTools
 		plan, err := planner.Plan(ctx, goal, cwd, recent, relevant, summary, feedback)
 		flush()
@@ -267,8 +306,9 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			if ctx.Err() != nil {
 				return a.cancelledResult(goal, last)
 			}
-			// 模型调用失败（鉴权/网络/限流）：重试无意义，立即走直聊回落给出真实错误；
-			// 只有计划校验失败才值得重规划。
+			// Model call failure (auth/network/rate limit): retrying is
+			// pointless, fall back to direct chat immediately with the real
+			// error; only plan validation failures are worth replanning.
 			if attempt == attempts || strings.Contains(err.Error(), "llm:") {
 				notify("plan", "规划变更前，尝试直接回答…", 20, "warn")
 				last = &types.GoalResult{Goal: goal, Status: types.GoalFailed, Error: err.Error(), Score: 0}
@@ -280,18 +320,21 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		}
 		notify("plan", tell.PlanDone(len(plan.Steps)), 8, "info")
 		planned = true
-		// 验收标准只认第一次定下的那份：它是给用户的承诺，不该由没做到的那一方在重试时改写。
-		// 顺带解决"重规划没重申 → 验收悄悄消失 → 又能靠一句 done 蒙混过关"。
+		// Only the first round's acceptance criteria count: they are a promise
+		// to the user, not to be rewritten on retry by the side that failed to
+		// meet them. This also fixes "replan did not restate them -> criteria
+		// silently vanish -> a single done slips through again".
 		if len(acceptance) == 0 {
 			acceptance = plan.Acceptance
 		}
 		plan.Acceptance = acceptance
-		// 记下本轮用到的工具：下一轮规划时它们的 schema 一定在（菜单模式的漏筛兜底）
+		// Record the tools used this round: their schemas are guaranteed
+		// present in the next round (a backstop for menu mode's filter).
 		for _, st := range plan.Steps {
 			usedTools = appendUnique(usedTools, st.Tool)
 		}
 
-		// plan_first：先展示完整计划，一次批准
+		// plan_first: show the full plan first, one approval.
 		preApproved := false
 		if mode == string(types.ModePlanFirst) {
 			resp := a.Notifier.OnApproval(types.ApprovalRequest{
@@ -299,8 +342,10 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 				Risk: planMaxRisk(a.Reg, plan), Reason: "plan_first 模式：执行前需要确认完整计划",
 			})
 			if !resp.Approved {
-				// 这一行是用户会在卡片上读到的原因，不能一律写成"用户拒绝了执行计划"：
-				// 取消（宿主摘掉这扇门把他叫醒）和超时自动拒绝都不是用户的拒绝。
+				// This line is the reason the user reads on the card; it must
+				// not always say "user rejected the plan": cancellation (the
+				// host tearing down the gate to wake him) and timeout
+				// auto-rejection are not the user's rejection.
 				cause := "用户拒绝了执行计划"
 				switch {
 				case ctx.Err() != nil:
@@ -315,7 +360,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			preApproved = true
 		}
 
-		// ---------- Execute ----------
+		// Execute
 		executor := &Executor{
 			Reg: a.Reg, Gate: a.Gate, Notifier: a.Notifier,
 			MaxConcurrency: a.Cfg.Agent.MaxConcurrency,
@@ -325,16 +370,22 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			MaxOutputRunes: a.Cfg.Agent.MaxOutputRunes,
 			DataDir:        a.Cfg.DataDir,
 			OnUsage:        a.BumpUsage,
-			// 运行中落盘：进程若在这次运行里退出，tasks/ 里不会有任何东西，
-			// runs/<taskID>.jsonl 是唯一能回答"跑到哪一步"的凭据。
-			// 正常结束时会由 DiscardRunLog 删掉（终态快照更完整，留着是噪音）。
+			// Run-time persistence: if the process exits mid-run, tasks/
+			// holds nothing, and runs/<taskID>.jsonl is the only evidence
+			// answering "how far did it get". DiscardRunLog removes it on
+			// normal completion (the terminal snapshot is more complete;
+			// keeping it is noise).
 			Sink: NewRunLog(a.Cfg.DataDir),
 			Goal: goal,
-			// 审核模型只在真配了辅助模型时启用：用主模型做快筛等于多花一份钱
+			// The reviewer model is enabled only when an auxiliary model is
+			// really configured: screening with the main model just costs an
+			// extra copy.
 			Reviewer: a.reviewer(),
 		}
-		// 深度扫描：执行前把整段计划交给主模型审一遍。否决就交用户拍板——批了继续，不批就停在这。
-		// 卡在 Execute 之前是有意的：它审的正是"接下来要做什么"，一旦开跑就已经在动了。
+		// Deep review: hand the whole plan to the main model before execution.
+		// A veto goes to the user -- approved, continue; rejected, stop here.
+		// Stopping before Execute is deliberate: what it reviews is exactly
+		// "what happens next", and once running, things are already moving.
 		if a.Cfg.Safety.DeepReview {
 			if ok, reason := a.deepReviewPlan(ctx, taskID, goal, &plan); !ok && !a.confirmDeepReview(taskID, reason) {
 				res := &types.GoalResult{
@@ -352,32 +403,37 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			return res
 		}
 
-		// ---------- 预算熔断检查点（执行后、反思前） ----------
+		// Budget circuit-breaker checkpoint (after execute, before reflect)
 		if stop := a.budgetCheckpoint(ctx, taskID, goal, exec.Steps); stop != nil {
 			notify("budget", stop.Error, 92, "error")
 			a.finalize(taskID, stop, &plan, req.Role)
 			return stop
 		}
 
-		// ---------- 上下文窗口检查点（同一处：执行后、反思前） ----------
-		// 放在这里是因为**接下来马上就要再发一次请求**（反思），而这一轮的执行已经
-		// 把上下文撑到了最大。任务还没结束（下面还要反思、可能还要重规划），
-		// 所以只有越过 96% 才动手——压完不结束任务，接着把这一轮走完。
+		// Context window checkpoint (same spot: after execute, before reflect)
+		// Placed here because another request goes out immediately
+		// (reflection), and this round's execution has already pushed the
+		// context to its maximum. The task is not over (reflection below,
+		// possibly replanning), so it only acts past 96% -- compression does
+		// not end the task; the round continues.
 		if compressed, tightened := a.compressMidTask(ctx, taskID); compressed || tightened {
 			notify("context", a.contextActionText(compressed, tightened, true), 92, "info")
 		}
 
-		// ---------- Reflect ----------
+		// Reflect
 		notify("reflect", tell.ReflectStart(), 92, "info")
-		// 验收标准在规划时就定好了，这里交给反思器逐条判定（而不是让它凭感觉打分）
+		// Acceptance criteria were set at planning time; the reflector judges
+		// them one by one (instead of scoring by feel).
 		reflector.Acceptance = plan.Acceptance
 		reflection := reflector.Evaluate(ctx, goal, exec, attempt)
 		result := a.buildResult(goal, exec, reflection, plan.Acceptance, planner.LastBreakdown)
 		last = result
 
-		// 完成判定：分数达标或模型说 done，且验收标准全部通过、产物核对也通过。
-		// 抽成 completionReached 是为了让这三条守卫各自可测——它原先是一个长条件，
-		// 少写一句也看不出来（见 TestCompletionReached_*）。
+		// Completion check: score at threshold or the model says done, AND all
+		// acceptance criteria pass AND artifact verification passes. Extracted
+		// into completionReached so each of the three guards is individually
+		// testable -- it used to be one long condition where a missing clause
+		// was invisible (see TestCompletionReached_*).
 		if completionReached(reflection, plan.Acceptance, exec, a.Cfg.Agent.DoneThreshold) {
 			if prog != nil && attempt == 1 {
 				prog.firstRound = true
@@ -389,8 +445,10 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			a.finalize(taskID, result, &plan, req.Role)
 			return result
 		}
-		// ---------- 防打转：同一动作反复出现说明在原地打转，别再耗重规划次数 ----------
-		// 放在「最后一次重规划」判定之前，否则默认参数下永远不会触发（此时循环本来也要结束）。
+		// ---------- Anti-spin: the same action repeating means running in
+		// place; stop spending replan attempts ----------
+		// Placed before the "last replan" check, otherwise it never fires
+		// under default parameters (the loop is ending anyway).
 		if fp, rounds := a.noteSteps(taskID, exec.Steps); fp != "" {
 			stuckMsg := fmt.Sprintf("检测到原地打转：%s 已重复执行 %d 轮", describeFingerprint(fp), rounds)
 			notify("reflect", "⚠ "+stuckMsg+"，停止自动重规划", 90, "warn")
@@ -417,13 +475,17 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			return result
 		}
 
-		// 继续重规划。把上次每一步的结果一并带上——原先只给一个分数和一句话，
-		// 第二轮规划与第一轮几乎同样盲（文案写着"可参考"，实际没东西可参考），
-		// 这正是"原地打转"频繁触发的原因之一。
+		// Continue replanning. Carry the result of every step from last time --
+		// previously only a score and one sentence, so the second round of
+		// planning was nearly as blind as the first (the text said "for
+		// reference" with nothing to reference), which was one of the reasons
+		// "running in place" fired so often.
 		//
-		// 这里才是唯一算"返工"的地方：执行过了、被判定不达标、于是重做一遍。
-		// 上面那处"计划校验未通过→重规划"不算——那一步什么都没执行，谈不上重做，
-		// 把它计进返工会让这个指标随"计划写得好不好"漂移，而不是随交付质量漂移。
+		// This is the only place that counts as "rework": it executed, was
+		// judged below threshold, and is redone. The "plan validation failed ->
+		// replan" path above does not count -- nothing executed there, so it is
+		// not a redo, and counting it would make this metric drift with "how
+		// well the plan was written" instead of with delivery quality.
 		if prog != nil {
 			prog.reworks++
 		}
@@ -431,7 +493,8 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			reflection.Score, reflection.Reason, buildStepDigest(exec))
 		notify("reflect", tell.Replan(reflection.Score), 90, "warn")
 	}
-	// 规划从未产出有效计划（典型：纯聊天目标误入工作模式）→ 回落直聊，不再硬失败
+	// Planning never produced a valid plan (typically a pure chat goal straying
+	// into work mode) -> fall back to direct chat instead of hard-failing.
 	if !planned && (last == nil || last.Status == types.GoalFailed) {
 		notify("plan", "多次规划未成功，切换直接回答…", 20, "warn")
 		res := a.runChatPath(ctx, goal, taskID, req.Role)
@@ -439,16 +502,19 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			res.Score = 70
 			res.Suggestion = "这个问题更适合「对话」模式，切换后响应更快"
 		}
-		// 交付物是直聊给的，不是工作循环给的 → prog 保持"没走到完成判定"的原样，
-		// 于是这次交付落成 FirstPass=false。**不能把它从口径里摘出去**：
-		// 规划屡败正是最差的交付，把最差的从分母里拿掉，是在把比率改成好看的样子。
+		// The deliverable came from direct chat, not the work loop -> prog
+		// stays "never reached the completion check", so this delivery lands
+		// as FirstPass=false. It must NOT be excluded from the metric:
+		// repeated planning failure is the worst delivery, and removing the
+		// worst from the denominator dresses the ratio up.
 		return res
 	}
 	return a.cancelledResult(goal, last)
 }
 
-// runChatPath 对话模式管线：记忆 + 滚动摘要注入，直连 LLM 流式回答。
-// 不经规划/执行/反思；工作模式规划屡败时也回落到此路径兜底。
+// runChatPath is the chat-mode pipeline: memory + rolling summary injection,
+// straight to a streaming LLM answer. No plan/execute/reflect; work mode also
+// falls back here after repeated planning failures.
 func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *types.GoalResult {
 	notify := func(phase, msg string, pct int, kind string) {
 		a.Notifier.OnProgress(types.ProgressEvent{TaskID: taskID, Phase: phase, Message: msg, Progress: pct, Kind: kind})
@@ -463,8 +529,10 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	if strings.TrimSpace(name) == "" {
 		name = "Gleam"
 	}
-	// 稳定段在前、易变段在后（同规划器）：多轮对话里 system + 前面的消息是天然的长公共前缀，
-	// 把工作目录、摘要这类每轮都可能变的内容塞在前面，会把整段前缀废掉。
+	// Stable segment first, volatile last (same as the planner): across turns,
+	// system + earlier messages are a natural long common prefix, and putting
+	// per-turn variable content like the workspace or summary up front would
+	// waste the whole prefix.
 	sys := fmt.Sprintf("你是 %s（微光），运行在用户本机的桌面智能体，当前对话模式。"+
 		"用与用户一致的语言自然对话：回答简洁、具体、可执行；涉及本机文件或命令的操作，"+
 		"提示切换到「工作」或「编程」模式提交。%s", name, styleInstruction(a.Cfg.Persona.Style))
@@ -486,7 +554,8 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 			msgs = append(msgs, llm.Message{Role: role, Content: t.Content})
 		}
 	}
-	// 最近一轮就是本次用户消息（AddTurn 已入短期记忆），避免重复注入
+	// The latest turn is this user message (AddTurn already put it in
+	// short-term memory); avoid injecting it twice.
 	if n := len(msgs); n > 0 && strings.TrimSpace(msgs[n-1].Content) == strings.TrimSpace(goal) {
 		msgs = msgs[:n-1]
 	}
@@ -515,8 +584,10 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	if a.Mem != nil {
 		a.Mem.AddTurn("assistant", text)
 	}
-	// 回答已产出，交给辅助模型独立核对一次——对话模式没有规划阶段，
-	// 这是唯一能拦住"干活的自己报满分"的地方。核对不成一律不阻断对话。
+	// The answer is produced; hand it to the auxiliary model for one
+	// independent verification -- chat mode has no planning stage, so this is
+	// the only place that can stop "the doer grading itself full marks". A
+	// failed verification never blocks the chat.
 	if a.shouldChatCheck(goal, text) {
 		notify("chat", "核对回答是否达成目标…", 95, "info")
 	}
@@ -524,15 +595,20 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	criteria, checks, outcome := a.chatSelfCheck(ctx, goal, text, taskID)
 	if outcome == chatCheckDone {
 		applyChatCheck(res, criteria, checks)
-		// 通过就不必多嘴——清单会显示在任务卡上；没全过才值得提一句
+		// No need to say more when it passes -- the checklist shows on the
+		// task card; only partial failure is worth a note.
 		if res.Status != types.GoalSuccess {
 			notify("chat", "自检未全过："+res.Error, 100, "warn")
 		}
 	} else if outcome == chatCheckUnusable {
-		// 核对确实跑了，但调用失败或输出读不出来，没得出判定。
-		// 状态与分数保持原样——回答已经交付，分数若改成 0，前端会渲染成红色的
-		// "完成度 0/100"，那是在往反方向说谎（回答可能很好，只是没核对）。
-		// 但**不能让用户以为核对过了**：静默保留 100 分正是这个功能要消灭的东西。
+		// Verification did run, but the call failed or the output was
+		// unreadable, so no verdict was reached. Status and score stay as
+		// they were -- the answer was already delivered; zeroing the score
+		// would render a red "completeness 0/100" in the UI, which lies in
+		// the opposite direction (the answer may be fine, just unverified).
+		// But the user must not be left thinking verification happened:
+		// silently keeping 100 is exactly what this feature exists to
+		// eliminate.
 		notify("chat", "对话自检未能完成，本次回答未经核对", 100, "warn")
 	}
 	notify("chat", "已回复", 100, "info")
@@ -540,10 +616,12 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	return res
 }
 
-// finalize 收尾：写入记忆、发出主动提议与技能固化建议；随后异步压缩上下文
-// （不阻塞完成事件；溢出为空时是空操作）。
+// finalize wraps up: write memory, emit proactive suggestions and
+// skill-crystallization proposals; then compress context asynchronously
+// (without blocking the completion event; a no-op when there is no overflow).
 func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Plan, role string) {
-	// 先按验收结果校正状态，再走后面的留档/提议——否则"部分完成"会被当成成功记进成长统计。
+	// Correct the status by the acceptance verdict first, then archive and
+	// propose -- otherwise "partially done" is recorded as success in growth stats.
 	var acceptance []string
 	if plan != nil {
 		acceptance = plan.Acceptance
@@ -553,9 +631,12 @@ func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Pl
 		a.Mem.AddTurn("assistant", result.Summary)
 	}
 	if a.compressionOn() {
-		// 收尾路径上做，但**不阻塞交付**：摘要要花一次模型调用，任务的结论不该等它。
-		// 用独立的 ctx 与超时——任务自己的 ctx 这时可能已经取消（用户点了停止、
-		// 或者任务是失败收场的），而"把早期上下文汇总下来"不因为任务失败就不该做。
+		// Done on the wrap-up path but never blocking delivery: the summary
+		// costs a model call, and the task's conclusion should not wait for
+		// it. Uses an independent ctx and timeout -- the task's own ctx may
+		// already be cancelled (the user pressed stop, or the task ended in
+		// failure), while "summarize the early context" should happen
+		// regardless of task failure.
 		ctxC, cancelC := context.WithTimeout(context.Background(), 30*time.Second)
 		go func() {
 			defer cancelC()
@@ -564,7 +645,7 @@ func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Pl
 			}
 		}()
 	}
-	// 长期记忆沉淀任务记录（尽力而为）
+	// Persist the task record into long-term memory (best effort).
 	goal := result.Goal
 	if goal != "" && a.Mem != nil && a.Mem.Long != nil {
 		_, err := a.Mem.RememberScoped(fmt.Sprintf("任务记录[%s] 目标：%s 结果：%s（完成度 %d）",
@@ -576,11 +657,12 @@ func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Pl
 	if result.Suggestion != "" {
 		a.Notifier.OnSuggestion(taskID, result.Suggestion)
 	}
-	// GEO 优化建议：创作类产出成功后分析并留档（writer 角色或识别为创作意图的任务）
+	// GEO suggestions: analyze and archive after a successful creative
+	// deliverable (writer role or a task recognized as creative intent).
 	if a.shouldAnalyzeGEO(role, result) {
 		a.analyzeGEOAsync(taskID, result.Goal, result.Summary)
 	}
-	// 技能固化建议：成功且 ≥2 个非 reply 步骤
+	// Skill crystallization proposal: success with at least 2 non-reply steps.
 	if plan != nil && result.Status == types.GoalSuccess {
 		nonReply := 0
 		for _, st := range plan.Steps {
@@ -598,12 +680,14 @@ func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Pl
 	}
 }
 
-// minGEOContentRunes 触发 GEO 自动分析的最短产出长度：
-// 太短的回复（如"好的""已完成"）没有可优化的结构，不做分析以免刷屏。
+// minGEOContentRunes is the shortest deliverable that triggers GEO
+// auto-analysis: very short replies ("ok", "done") have no structure to
+// optimize; analyzing them only spams.
 const minGEOContentRunes = 80
 
-// shouldAnalyzeGEO 判断本次产出是否值得做 GEO 分析。
-// 条件：开关打开 + 任务成功 + 产出够长 + 属于创作（writer 角色或识别为创作意图）。
+// shouldAnalyzeGEO decides whether this deliverable is worth a GEO analysis.
+// Conditions: switch on + task succeeded + deliverable long enough + creative
+// (writer role or recognized creative intent).
 func (a *Agent) shouldAnalyzeGEO(role string, result *types.GoalResult) bool {
 	if a == nil || a.LLM == nil || result == nil || a.Cfg == nil {
 		return false
@@ -620,8 +704,10 @@ func (a *Agent) shouldAnalyzeGEO(role string, result *types.GoalResult) bool {
 	return geo.IsCreative(result.Goal, role)
 }
 
-// analyzeGEOAsync 异步分析创作产出：留档到 GEO 历史，并把建议推送给前端。
-// 分析失败只静默跳过——它是对成功任务的增强，不能反过来影响任务结果。
+// analyzeGEOAsync analyzes a creative deliverable asynchronously: archives it
+// to GEO history and pushes suggestions to the frontend. Analysis failures are
+// silently skipped -- it enhances successful tasks and must not affect the task
+// result.
 func (a *Agent) analyzeGEOAsync(taskID, goal, content string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	go func() {
@@ -646,7 +732,7 @@ func (a *Agent) analyzeGEOAsync(taskID, goal, content string) {
 	}()
 }
 
-// appendUnique 追加不重复的元素。
+// appendUnique appends an element if not already present.
 func appendUnique(list []string, v string) []string {
 	for _, s := range list {
 		if s == v {
@@ -656,7 +742,8 @@ func appendUnique(list []string, v string) []string {
 	return append(list, v)
 }
 
-// skillSlug 从目标生成技能名（避免与现有冲突）。
+// skillSlug derives a skill name from the goal (avoiding collisions with
+// existing ones).
 func skillSlug(goal string, store *skill.Store) string {
 	base := slugStrip.ReplaceAllString(strings.TrimSpace(goal), "-")
 	base = strings.Trim(base, "-")
@@ -671,7 +758,7 @@ func skillSlug(goal string, store *skill.Store) string {
 	for i := 2; ; i++ {
 		if store != nil {
 			if _, err := store.Get(name); err != nil {
-				break // 不存在，可用
+				break // does not exist, usable
 			}
 		}
 		name = fmt.Sprintf("%s-%d", base, i)
