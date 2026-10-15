@@ -2055,6 +2055,9 @@ async function resolveApproval(id, approved, box, task) {
       task.resolvedApprovals.add(id);
     }
     refreshWorkbench();
+    // 主区卡里批掉的审批，现场栏①区与折叠徽章要跟着撤——否则用户会在两个地方
+    // 看到同一个待办的不同状态（面板说还有，竖签说没了，或反过来）。
+    LiveRail.refresh();
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -5944,7 +5947,10 @@ const LiveRail = (() => {
   // 用户没点过收展 = 默认跟着视口走，**每次现读**：init 时快照一份宽度，遇到布局还没
   // 落定的场合（内嵌帧、刚创建就 maximise 的窗口）会把按钮文案和画面锁成反的——
   // 第一下点击因此"看起来没反应"。点过了就只认他点的。
-  const folded = () => (userChose ? choice : true);
+  // ≥1240 放得下三栏 → 默认展开（第一眼就知道出事看哪里）；≤1240 放不下 → 兜成竖签。
+  // 这正是 01-base.css:6094 注释声明的意图；此前恒为 true，宽屏用户第一次打开
+  // 根本看不到现场栏，"出了事看哪里"在首屏就没有答案。
+  const folded = () => (userChose ? choice : midMQ.matches);
   // 窄屏浮层是**临时**状态，不进偏好：没人希望"下次打开窗口默认挡住对话"。
   let overlayOpen = false;
   let rows = 0;
@@ -6226,6 +6232,7 @@ const LiveRail = (() => {
       'warn',
     );
     waiting++;
+    pushApproval(ap);
     if (cur) paintRead();
     else setRead(loopRead, '等你批准', 'warn');
     paintPulse('attention');
@@ -6310,6 +6317,75 @@ const LiveRail = (() => {
     if (typeof n === 'number') setRead(ro.memory, String(n));
   });
 
+  /* ---------- ① 待批准区 ----------
+     从"本机读数"里的一行数字提到面板顶部：这是整个面板唯一"挡住用户"的信息，
+     行内给允许/拒绝，用户不必先去主区翻任务卡。数据源与任务内审批卡共用
+     GET /api/approvals 与 POST /api/approvals/{id}，不发明新接口。
+     裁决后重拉一次列表——权威在服务端，本地删行只是乐观更新。 */
+  const apBox = $('#rail-approvals');
+  const apList = $('#rail-approvals-list');
+  const apCount = $('#rail-approvals-count');
+  // 折叠态徽章（竖签 + 顶栏按钮两处入口）：审批数是"出事了"的通报，
+  // 与面板展不展开无关——所以它挂在两个折叠入口上，而不是面板里。
+  const apBadges = document.querySelectorAll('.rail-badge');
+
+  function paintBadge(n) {
+    apBadges.forEach((b) => {
+      b.textContent = String(n);
+      b.hidden = !(n > 0);
+    });
+  }
+
+  function apRow(ap) {
+    const row = el('div', 'ap-row');
+    row.dataset.approvalId = ap.id;
+    const main = el('div', 'ap-main');
+    const text = (ap.plan || [])[0] || ap.reason || '有一个操作在等你决定';
+    main.appendChild(el('div', 'ap-label', clip(text, 42)));
+    const meta = el('div', 'ap-meta');
+    const high = ap.risk === 'high';
+    meta.appendChild(
+      el('span', 'ap-risk' + (high ? ' ap-risk--high' : ''), high ? '高风险' : '中风险'),
+    );
+    meta.appendChild(el('span', 'ap-time', clock(ap.created_at ? new Date(ap.created_at) : null)));
+    main.appendChild(meta);
+    const acts = el('div', 'ap-acts');
+    const ok = el('button', 'ap-btn ap-btn--ok', '允许');
+    const no = el('button', 'ap-btn ap-btn--no', '拒绝');
+    ok.type = 'button';
+    no.type = 'button';
+    ok.addEventListener('click', () => resolveApproval(ap.id, true, row, null).then(refreshApprovals));
+    no.addEventListener('click', () => resolveApproval(ap.id, false, row, null).then(refreshApprovals));
+    acts.append(ok, no);
+    row.append(main, acts);
+    return row;
+  }
+
+  function refreshApprovals() {
+    api('GET', '/api/approvals')
+      .then((r) => paintApprovals(r.approvals))
+      .catch(() => {});
+  }
+
+  function paintApprovals(list) {
+    if (!apBox || !apList) return;
+    const items = (list || []).filter((ap) => ap && ap.id);
+    apCount.textContent = String(items.length);
+    apBox.hidden = items.length === 0;
+    apList.replaceChildren(...items.map(apRow));
+    paintBadge(items.length);
+  }
+
+  // SSE 单条推送用：幂等，重连/重放不重复渲染同一个 id
+  function pushApproval(ap) {
+    if (!ap || !ap.id || !apList) return;
+    if (apList.querySelector(`[data-approval-id="${ap.id}"]`)) return;
+    if (apBox) apBox.hidden = false;
+    apList.prepend(apRow(ap));
+    apCount.textContent = String(apList.children.length);
+    paintBadge(apList.children.length);
+  }
+
   return {
     observe,
     approval,
@@ -6319,6 +6395,9 @@ const LiveRail = (() => {
     runtime,
     schedules,
     memory,
+    approvals: paintApprovals,
+    pushApproval,
+    refresh: refreshApprovals,
   };
 })();
 
@@ -8271,12 +8350,15 @@ const Updater = (() => {
   const desk = window.gleamDesktop;
   if (!desk?.update) return { init() {} };
 
+  const RELEASES_URL = 'https://github.com/gleam-ai/Gleam/releases/latest';
+
   const btn = document.getElementById('cp-update-btn');
   const btnText = document.getElementById('cp-update-text');
   const badge = document.getElementById('sb-update-badge');
   const badgeLabel = document.getElementById('sb-update-label');
   let state = 'idle'; // idle | available | downloading | downloaded
   let version = '';
+  let percent = 0;
 
   function showBtn() {
     if (btn) btn.hidden = false;
@@ -8285,16 +8367,20 @@ const Updater = (() => {
     if (btn) btn.hidden = true;
   }
 
-  function paintBadge(text, tone) {
+  // The sidebar badge is a compact indicator: icon + state dot + version.
+  // The download percent and the action word ("Restart") live only on the
+  // composer footer button -- showing the same fact in two places makes
+  // users think there are two separate updates.
+  function paintBadge(tone) {
     if (!badge) return;
     badge.hidden = false;
     badge.dataset.tone = tone;
-    if (badgeLabel) badgeLabel.textContent = text;
+    if (badgeLabel) badgeLabel.textContent = 'v' + version;
     badge.title =
       tone === 'ready'
         ? `点击安装 Gleam ${version}`
         : tone === 'downloading'
-          ? `正在下载 Gleam ${version}`
+          ? `正在下载 Gleam ${version}（${percent}%）`
           : `Gleam ${version} 可用`;
   }
   function hideBadge() {
@@ -8308,7 +8394,17 @@ const Updater = (() => {
     btn.title =
       tone === 'ready'
         ? `点击安装 Gleam ${version}`
-        : `正在下载 Gleam ${version}`;
+        : tone === 'downloading'
+          ? `正在下载 Gleam ${version}（${percent}%）`
+          : `Gleam ${version} 可用`;
+  }
+
+  function openReleases() {
+    if (desk && typeof desk.openExternal === 'function') {
+      desk.openExternal(RELEASES_URL).catch(() => {});
+      return;
+    }
+    window.open(RELEASES_URL, '_blank', 'noopener');
   }
 
   function openInstallDialog() {
@@ -8323,12 +8419,17 @@ const Updater = (() => {
     dlg.innerHTML = `
       <h3 id="upd-dlg-title">安装 Gleam ${esc(version)}</h3>
       <p>更新已经下载并验证。安装会退出并重新打开 Gleam。</p>
+      <p class="upd-error" id="upd-error" hidden></p>
       <div class="upd-actions">
         <button type="button" class="btn btn-ghost btn-sm" data-act="later">稍后更新</button>
         <button type="button" class="btn btn-primary btn-sm" data-act="restart">安装并重启应用</button>
       </div>`;
     overlay.appendChild(dlg);
     document.body.appendChild(overlay);
+
+    const restartBtn = dlg.querySelector('[data-act="restart"]');
+    const laterBtn = dlg.querySelector('[data-act="later"]');
+    const errLine = dlg.querySelector('#upd-error');
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
@@ -8337,9 +8438,45 @@ const Updater = (() => {
       }
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'later') close();
-      else if (act === 'restart') desk.update.restart();
+      else if (act === 'restart') void install();
+      else if (act === 'releases') openReleases();
     });
-    dlg.querySelector('[data-act="restart"]').focus();
+    restartBtn.focus();
+
+    async function install() {
+      restartBtn.disabled = true;
+      laterBtn.disabled = true;
+      restartBtn.textContent = '正在启动安装程序…';
+      errLine.hidden = true;
+      let ok = false;
+      try {
+        const res = await desk.update.restart();
+        ok = !!(res && res.ok);
+      } catch {
+        ok = false;
+      }
+      if (ok) {
+        // The installer is up; the app quits moments later, so the button
+        // just parks on "started".
+        restartBtn.textContent = '安装程序已启动';
+        return;
+      }
+      // A failed launch must be said out loud, with a manual path that does
+      // not go through the desktop shell. Failing silently makes users think
+      // the click did nothing, and then doubt the update itself.
+      restartBtn.disabled = false;
+      laterBtn.disabled = false;
+      restartBtn.textContent = '重试';
+      errLine.hidden = false;
+      errLine.textContent =
+        '没能启动安装程序。可以打开发布页手动下载 Gleam-Setup.exe，装完再打开 Gleam。';
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'btn btn-ghost btn-sm';
+      link.dataset.act = 'releases';
+      link.textContent = '打开发布页';
+      errLine.appendChild(link);
+    }
 
     function close() {
       overlay.remove();
@@ -8368,20 +8505,21 @@ const Updater = (() => {
           version = s.version;
           showBtn();
           paintBtn('更新', 'available');
-          paintBadge(`v${version}`, 'available');
+          paintBadge('available');
           break;
         case 'downloading':
           state = 'downloading';
+          percent = s.percent;
           showBtn();
           paintBtn(`更新 ${s.percent}%`, 'downloading');
-          paintBadge(`${s.percent}%`, 'downloading');
+          paintBadge('downloading');
           break;
         case 'downloaded':
           state = 'downloaded';
           version = s.version;
           showBtn();
           paintBtn('重启', 'ready');
-          paintBadge('重启', 'ready');
+          paintBadge('ready');
           break;
         case 'not-available':
           state = 'idle';
@@ -8811,6 +8949,7 @@ const Hardware = (function () {
     const { approvals } = await api('GET', '/api/approvals');
     pendingApprovals = (approvals || []).length;
     updateApprovalBadge(0);
+    LiveRail.approvals(approvals);
   } catch {
     /* 忽略 */
   }

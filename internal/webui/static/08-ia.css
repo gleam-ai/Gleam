@@ -1,0 +1,213 @@
+/* 第 8 层 · IA 重构层（2026-10-15）
+ * 只管两件事，旧层一概不碰：
+ *   A. 三栏层级——现场栏去卡片化：底色回落 --frame、只留左缘发丝线，
+ *      从"第四张面板"降为"一列仪表"。降 tone 不砍宽度：事件流水的文字
+ *      需要横向空间，砍窄了折行反而更吵。
+ *      同时修复 v5 对齐层把"收起留竖签"闷死的问题。
+ *   B. 现场栏分区与四态状态色（见本文件后半）。
+ * 冲突裁决：本文件在全部旧层之后加载，同选择器后来者赢，
+ * 所以不需要改 01-base / 02-shell / 03-align 的任何一行。
+ */
+
+/* ---------- A1：现场栏去卡片化 ----------
+   原来它有 border + radius + --panel 底，和主区面板长得像平级的第四张卡。
+   现在：应用底 --frame + 左缘 1px 发丝线，靠明度退场。 */
+.rail {
+  width: 272px;
+  border: none;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--frame);
+}
+
+/* ---------- A2：折叠态恢复竖签 ----------
+   01-base 早已写好整套竖签样式（含"中屏放不下三栏就兜成 folded"的注释，
+   见 01-base.css:6094），但 03-align 的
+   html[data-rail="folded"] .rail{display:none} 把 .rail 连竖签一起埋了。
+   这里只掀掉那一层 display，竖签样式 01-base 原样生效。 */
+html[data-rail="folded"] .rail {
+  display: flex;
+  width: 40px;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--frame);
+}
+
+/* ---------- B1：四态状态色 ----------
+   运行中改走青色 --state-run：此前三处 active 都挪用 --color-accent，
+   而 accent 是用户自选的装饰色——选 bee 皮肤时"运行中"变土黄、选
+   parchment 变陶土，状态语义被装饰色劫持。accent 回归 CTA / 激活 /
+   focus ring 的本职。
+   色相选青而非蓝：accent 取值集合里含蓝（#4c8dff / #2563eb）与
+   紫（#8b7cf6 / #6a55e0），蓝色会与蓝色 accent 撞色；青色（hue≈195）
+   是全部 8 套 accent（绿/青绿/黄绿/琥珀/锈/粉/蓝/紫）都不占的色相，
+   状态点与装饰色永不混淆。
+   与 success 绿拉开色相；动效维度上运行中保留呼吸、完成态静止，
+   272px 面板里 8-9px 的状态点靠"色相 + 动不动"双维度才分得清。 */
+:root {
+  --state-run: #0e7490;
+  --state-run-rgb: 14 116 144;
+}
+html[data-theme="dark"] {
+  --state-run: #06b6d4;
+  --state-run-rgb: 6 182 212;
+}
+/* success 提为正式状态色后合同变了：05-consistency 的浅色值 #2f8f5b
+   仅 3.7:1（AA-large），压到 #26734a（≈5.3:1，AA 正文级）。
+   深色 #4cc38a 实测 7.86:1，不动。 */
+html[data-theme="light"] {
+  --color-success: #26734a;
+}
+.rail-pulse[data-state="running"],
+.rail-strip-dot[data-state="running"] {
+  background: var(--state-run);
+}
+.loop-step[data-state="active"] .loop-node {
+  background: var(--state-run);
+  border-color: var(--state-run);
+  box-shadow: 0 0 0 3px rgba(var(--state-run-rgb) / 0.18);
+}
+.flow-dot[data-state="active"] {
+  background: var(--state-run);
+}
+/* 呼吸光环跟着走蓝：不留 accent 绿环套蓝点（后定义的 @keyframes 同名覆盖） */
+@keyframes rail-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(var(--state-run-rgb) / 0.34);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(0.86);
+    box-shadow: 0 0 0 5px rgba(var(--state-run-rgb) / 0);
+  }
+}
+/* 完成态走 success 且静止 */
+.loop-step[data-state="done"] .loop-node {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+.flow-dot[data-state="done"] {
+  background: var(--color-success);
+  opacity: 0.55;
+}
+
+/* ---------- B2：① 待批准区 ----------
+   行式不用卡片：这一列的信息密度高，卡片套卡片会把它变成一叠帖子。 */
+.gauge--approvals .ap-list {
+  display: flex;
+  flex-direction: column;
+}
+.ap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 8px 0;
+}
+.ap-row + .ap-row {
+  border-top: 1px dashed var(--glass-border);
+}
+.ap-label {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--color-fg);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ap-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.ap-risk {
+  font: 500 10px/1 var(--font-mono);
+  color: var(--color-warning);
+}
+.ap-risk--high {
+  color: var(--color-destructive);
+}
+.ap-time {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ap-acts {
+  display: flex;
+  gap: 6px;
+}
+.ap-btn {
+  font: 500 11px/1 var(--font-sans);
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+.ap-btn--ok:hover {
+  color: var(--color-success);
+  border-color: rgba(var(--success-rgb) / 0.5);
+}
+.ap-btn--no:hover {
+  color: var(--color-destructive);
+  border-color: rgba(var(--danger-rgb) / 0.5);
+}
+.ap-btn:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb) / 0.75);
+  outline-offset: 1px;
+}
+
+/* ---------- B3：③ 事件流水撑满剩余高度 ----------
+   原来 max-height:34vh 与④区抢高度；现在吃满剩余空间，
+   事件多时面板自己滚，④区读数不被推走。 */
+.gauge--flow {
+  flex: 1;
+  min-height: 0;
+}
+.gauge--flow .flow {
+  flex: 1;
+  min-height: 120px;
+  max-height: none;
+}
+
+/* ---------- B4：④ 本机读数 = 静态事实 ----------
+   这一区开机后就不动，且没有任何点击绑定（setRead 只写 textContent，
+   全文无 readout-row 事件监听）：去掉交互暗示不是砍功能，
+   是不许不能点的东西长得像能点。 */
+.gauge--facts .readout-row {
+  cursor: default;
+}
+
+/* ---------- B5：折叠态审批徽章 ----------
+   竖签不是"出事的地方"，但必须让人知道出事了：destructive 计数点，
+   count>0 才渲染，点竖签/顶栏按钮展开后即可操作。
+   尊重用户折叠偏好——不自动展开，只通报。 */
+.rail-strip,
+#rail-open {
+  position: relative;
+}
+.rail-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--color-destructive);
+  color: #ffffff;
+  font: 600 9.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}

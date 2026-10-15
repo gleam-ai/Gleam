@@ -21,6 +21,8 @@
     <link rel="stylesheet" href="/assets/chrome.css" />
     <link rel="stylesheet" href="/assets/settings2.css" />
     <link rel="stylesheet" href="/assets/hardware.css" />
+    <!-- IA 重构层：放在最后，同选择器后来者赢，不改旧层 -->
+    <link rel="stylesheet" href="/assets/08-ia.css" />
     <script>
       // 首帧主题引导：在渲染前应用本地保存的皮肤，避免闪烁。
       (function () {
@@ -886,6 +888,15 @@
                   >
                     <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
                   </svg>
+                  <!-- <900px 浮层抽屉的同一枚徽章：窄屏没有常驻栏，
+                       顶栏按钮是唯一入口，出事必须在这里就看得见 -->
+                  <span
+                    class="rail-badge"
+                    id="rail-badge-top"
+                    hidden
+                    aria-hidden="true"
+                    >0</span
+                  >
                 </button>
               </div>
             </div>
@@ -4310,9 +4321,28 @@
           ></span>
           <span class="rail-strip-label">现场</span>
           <span class="rail-strip-stage" id="rail-strip-stage">空闲</span>
+          <!-- 折叠态审批徽章：count>0 才亮，点竖签展开即可操作 -->
+          <span class="rail-badge" id="rail-badge" hidden aria-hidden="true"
+            >0</span
+          >
         </button>
 
         <div class="rail-body" id="rail-body">
+          <!-- ① 待批准：整个面板唯一"挡住用户"的信息，置顶 + 行内允许/拒绝。
+               count=0 时整区 hidden——不发明永不亮起的格子。
+               数据源与任务内审批卡同一个 GET /api/approvals / POST /api/approvals/{id}。 -->
+          <section
+            class="gauge gauge--approvals"
+            id="rail-approvals"
+            hidden
+            aria-labelledby="rail-approvals-title"
+          >
+            <h2 class="gauge-title" id="rail-approvals-title">
+              待批准<span class="gauge-count" id="rail-approvals-count">0</span>
+            </h2>
+            <div class="ap-list" id="rail-approvals-list"></div>
+          </section>
+
           <section class="gauge" aria-labelledby="rail-loop-title">
             <h2 class="gauge-title" id="rail-loop-title">微光循环</h2>
             <ol class="loop" id="rail-loop">
@@ -4355,7 +4385,10 @@
             </div>
           </section>
 
-          <section class="gauge" aria-labelledby="rail-local-title">
+          <section
+            class="gauge gauge--facts"
+            aria-labelledby="rail-local-title"
+          >
             <h2 class="gauge-title" id="rail-local-title">本机</h2>
             <dl class="readout">
               <div class="readout-row">
@@ -4369,10 +4402,6 @@
               <div class="readout-row">
                 <dt>工具</dt>
                 <dd id="ro-tools">—</dd>
-              </div>
-              <div class="readout-row">
-                <dt>待批准</dt>
-                <dd id="ro-approvals">0</dd>
               </div>
               <div class="readout-row">
                 <dt>定时任务</dt>
