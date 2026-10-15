@@ -65,6 +65,19 @@ html[data-theme="dark"] {
 html[data-theme="light"] {
   --color-success: #26734a;
 }
+/* warn / fail 浅色加深——对比度回归审计（2026-10-15）：
+   grep 全仓，--color-warning / --color-destructive 共 60+ 处用作 color:
+   （badge 文字、callout 标题、错误提示、geo 分数……），属文本用途，
+   门槛 4.5:1。原值 #a86a10 = 4.06:1、#d93b3b = 4.14:1，均只有 AA-large。
+   加深到 #8a5608 = 5.63:1、#c03232 = 5.13:1（WCAG 公式计算，底色 #F5F5F2）。
+   -rgb 变体同步加深，保持文字与同色底纹/描边不脱色。
+   深色侧 #eab264 = 9.16:1、#f05b5b = 5.26:1（对 #1A1A1A），不动。 */
+html[data-theme="light"] {
+  --color-warning: #8a5608;
+  --warning-rgb: 138 86 8;
+  --color-destructive: #c03232;
+  --danger-rgb: 192 50 50;
+}
 .rail-pulse[data-state="running"],
 .rail-strip-dot[data-state="running"] {
   background: var(--state-run);
