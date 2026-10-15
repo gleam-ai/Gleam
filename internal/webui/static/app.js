@@ -1378,6 +1378,90 @@ function taskGroup(task) {
   return 'done';
 }
 
+// 失败分流只做最粗一档：鉴权类 vs 其他。当前 100% 真实故障（HTTP 401）落在
+// 鉴权类；匹配不上走"其他"默认给重新提交。不做分类树——一档覆盖全部真实
+// 场景，复杂分类只会养活永远不会走到的分支。
+const FAIL_AUTH_RE = /401|403|Authentication|unauthorized|invalid.{0,20}key/i;
+function failKind(error) {
+  return FAIL_AUTH_RE.test(error || '') ? 'auth' : 'other';
+}
+function failSummary(error) {
+  if (failKind(error) === 'auth')
+    return '模型鉴权失败：API Key 无效、过期或未填写';
+  const line = (error || '').split('\n').find((l) => l.trim());
+  return line ? line.trim().slice(0, 60) : '任务失败';
+}
+
+// 失败横幅：动作只有一个声音。N 张失败卡时统一入口在这里，卡片只留记录。
+// 两个按钮常驻、主次按错误类型排，不随"配置是否已完成"切换——
+// 没有可靠的"配完了"信号，切换逻辑会骗人（用户要求的保底选项）。
+function paintFailBanner() {
+  const banner = $('#goal-fail-banner');
+  if (!banner) return;
+  const failed = [...tasks.values()].filter(
+    (t) => t.info.status === 'failed' || t.info.status === 'partial',
+  );
+  if (!failed.length) {
+    banner.hidden = true;
+    return;
+  }
+  const at = (t) =>
+    Date.parse(
+      (t.info.result && t.info.result.finished_at) || t.info.started_at || '',
+    ) || 0;
+  const latest = failed.sort((a, b) => at(b) - at(a))[0];
+  const error = (latest.info.result && latest.info.result.error) || '';
+  const auth = failKind(error) === 'auth';
+  banner.hidden = false;
+  $('#gfb-title').textContent =
+    failed.length > 1 ? `${failed.length} 个任务失败` : '任务失败';
+  $('#gfb-sub').textContent = failSummary(error);
+
+  const note = el('span', 'gfb-note', '将创建一条新任务');
+  const resubmit = el('button', 'btn btn-primary btn-sm', '重新提交');
+  resubmit.type = 'button';
+  // 语义说在明处：同一目标文本走一遍提交，产生一条新任务，不是原任务续跑。
+  resubmit.addEventListener('click', async () => {
+    goalInput.value = latest.info.goal || '';
+    autoResize();
+    await submitGoal();
+  });
+  const config = el('button', 'btn btn-primary btn-sm', '去配置 API Key');
+  config.type = 'button';
+  // 与提交时无 key 的引导同一条落点（本文件既有模式）：设置页 → llm 页签 → 密钥框
+  config.addEventListener('click', () => {
+    showView('settings');
+    setTimeout(() => {
+      switchSettingsTab?.('llm');
+      $('#set-api-key')?.focus();
+    }, 300);
+  });
+
+  const acts = $('#gfb-actions');
+  acts.replaceChildren();
+  if (auth) {
+    // 鉴权失败重提交必然再失败：主入口给配置，重提交降为 ghost
+    const retryGhost = el('button', 'btn btn-ghost btn-sm', '重新提交');
+    retryGhost.type = 'button';
+    retryGhost.addEventListener('click', async () => {
+      goalInput.value = latest.info.goal || '';
+      autoResize();
+      await submitGoal();
+    });
+    acts.append(config, retryGhost, note);
+  } else {
+    const view = el('button', 'btn btn-ghost btn-sm', '查看失败卡');
+    view.type = 'button';
+    view.addEventListener('click', () => {
+      latest.card.scrollIntoView({ block: 'center' });
+      // 复用既有的卡片高亮类（01-base .goal-card--flash），不新造动效
+      latest.card.classList.add('goal-card--flash');
+      setTimeout(() => latest.card.classList.remove('goal-card--flash'), 1600);
+    });
+    acts.append(resubmit, note, view);
+  }
+}
+
 function refreshWorkbench() {
   const all = [...tasks.values()];
   const counts = { all: all.length, active: 0, done: 0, attention: 0 };
@@ -1453,6 +1537,7 @@ function refreshWorkbench() {
     return Number.isFinite(at) && at >= weekAgo;
   }).length;
   LiveRail.summary(counts, attention, weekDone);
+  paintFailBanner();
 }
 
 $('#goal-filters').addEventListener('click', (event) => {
@@ -2129,18 +2214,21 @@ function applyResult(taskID, result) {
   ) {
     ringSlot.innerHTML = scoreRing(result.score);
   }
-  // 失败原因必须可见（此前 error 只存在于数据里，用户看不到）
+  // 失败原因必须可见（此前 error 只存在于数据里，用户看不到）。
+  // 分级：一行白话摘要 + 可展开的原文技术详情。原文一字不删——
+  // HTTP 401 那段完整收在 <pre> 里，展开就能照着排查。
   const errSlot = t.card.querySelector('[data-role="error"]');
   if (errSlot) {
     if (result.error) {
       // 标题跟着状态走：部分完成时叫"失败原因"会把人吓一跳，其实只是有几条验收没达标
       const title = result.status === 'partial' ? '未达标说明' : '失败原因';
-      errSlot.innerHTML = `<div class="callout callout--error">${ICONS.alert}<div class="callout-body"><div class="callout-title">${title}</div>${esc(result.error)}</div></div>`;
+      errSlot.innerHTML = `<div class="callout callout--error">${ICONS.alert}<div class="callout-body"><div class="callout-title">${title}</div><div class="fail-summary">${esc(failSummary(result.error))}</div><details class="fail-detail"><summary>技术详情</summary><pre class="fail-raw">${esc(result.error)}</pre></details></div></div>`;
       errSlot.hidden = false;
     } else {
       errSlot.hidden = true;
     }
   }
+  paintFailBanner();
   // 用时统计（开始/结束时间齐全且已结束时显示）
   if (result.started_at && result.finished_at) {
     const dur =
@@ -5561,11 +5649,53 @@ function effectiveDark() {
   const mode = UIPrefs.get().themeMode;
   return mode === 'dark' || (mode === 'system' && darkMedia.matches);
 }
+// 状态色防撞：运行中青点是状态语义，不能和用户选的装饰 accent 同色。
+// 现存 26 个 accent 取值的 hue 全部落在 170-200 之外（最近的浅色 mint
+// 167.9，相距 25°，依据表见 08-ia.css 注释），所以这个守卫当前不会触发——
+// 它是给将来新增青色 accent 的保险：相差 <15° 才回退中性灰蓝。
+// 参考 hue 取常量 195（青），不读计算后的 --state-run：
+// 读计算值会在"已回退过"的状态里自锁，清不回去。
+const STATE_RUN_HUE = 195;
+function hexHue(hex) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((hex || '').trim());
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3) h = [...h].map((c) => c + c).join('');
+  const n = parseInt(h, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (!d) return null;
+  let hue;
+  if (max === r) hue = ((g - b) / d) % 6;
+  else if (max === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  return (hue * 60 + 360) % 360;
+}
+function guardStateRunHue() {
+  const root = document.documentElement;
+  const ha = hexHue(getComputedStyle(root).getPropertyValue('--color-accent'));
+  if (ha == null) {
+    root.style.removeProperty('--state-run');
+    return;
+  }
+  const gap = Math.abs(((ha - STATE_RUN_HUE + 540) % 360) - 180);
+  if (gap < 15)
+    root.style.setProperty(
+      '--state-run',
+      root.dataset.theme === 'dark' ? '#94a3b8' : '#475569',
+    );
+  else root.style.removeProperty('--state-run');
+}
 function applyTheme() {
   const { themeMode, accent } = UIPrefs.get();
   const dark = effectiveDark();
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   document.documentElement.setAttribute('data-accent', accent || 'gleam');
+  guardStateRunHue();
   const mc = document.querySelector('meta[name="theme-color"]');
   if (mc) {
     // 取当前主题的窗框色：每个主题各自定义 --frame，这里不再写死两种
@@ -5605,6 +5735,10 @@ function applyTheme() {
   });
   applyLang(prefs.lang || 'zh');
 }
+
+// 首帧守卫：index.html 的内联引导在 <head> 里就设好了 data-theme/data-accent，
+// app.js 跑在 body 末尾，此时直接补一次，不等第一次 applyTheme。
+guardStateRunHue();
 
 /* ---------- 界面语言 ---------- */
 // 词表与翻译器在 i18n.js（在 app.js 之前加载）。这里只负责把当前语言应用上去。

@@ -1044,6 +1044,18 @@
           </div>
 
           <div class="chat-scroll" id="chat-scroll">
+            <!-- 失败横幅：区块级统一入口。N 张失败卡时动作只在这里给一次，
+                 卡片本身只留"摘要 + 可展开原文"作为记录，不每卡各喊各的。
+                 主次按错误类型排（鉴权类主推去配置，其他主推重新提交），
+                 由 app.js 的 paintFailBanner() 渲染，无失败时整块 hidden。 -->
+            <div class="goal-fail-banner" id="goal-fail-banner" hidden>
+              <span class="gfb-dot" aria-hidden="true"></span>
+              <div class="gfb-main">
+                <div class="gfb-title" id="gfb-title">任务失败</div>
+                <div class="gfb-sub" id="gfb-sub"></div>
+              </div>
+              <div class="gfb-actions" id="gfb-actions"></div>
+            </div>
             <div class="row-list" id="goal-feed" aria-live="polite">
               <div class="empty home-hero" id="goals-empty">
                 <div class="hero-art" aria-hidden="true">

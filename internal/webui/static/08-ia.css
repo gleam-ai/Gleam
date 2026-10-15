@@ -34,16 +34,23 @@ html[data-rail="folded"] .rail {
 }
 
 /* ---------- B1：四态状态色 ----------
-   运行中改走青色 --state-run：此前三处 active 都挪用 --color-accent，
+   运行中走青色 --state-run：此前三处 active 都挪用 --color-accent，
    而 accent 是用户自选的装饰色——选 bee 皮肤时"运行中"变土黄、选
    parchment 变陶土，状态语义被装饰色劫持。accent 回归 CTA / 激活 /
    focus ring 的本职。
-   色相选青而非蓝：accent 取值集合里含蓝（#4c8dff / #2563eb）与
-   紫（#8b7cf6 / #6a55e0），蓝色会与蓝色 accent 撞色；青色（hue≈195）
-   是全部 8 套 accent（绿/青绿/黄绿/琥珀/锈/粉/蓝/紫）都不占的色相，
-   状态点与装饰色永不混淆。
-   与 success 绿拉开色相；动效维度上运行中保留呼吸、完成态静止，
-   272px 面板里 8-9px 的状态点靠"色相 + 动不动"双维度才分得清。 */
+   色相选青不选蓝：accent 集合含蓝（#4c8dff / #2563eb）与紫
+   （#8b7cf6 / #6a55e0），蓝色必撞。
+   青色的依据是全量 hue 实测（grep 全部 --color-accent 字面量，26 个取值）：
+     hue 170-200 区间：无任何 accent。带青色的 mint 实际取值为
+     #5fd3a6(156.7) / #62c9a8(160.8) / #13806a(167.9) / #4fa98f(162.7)，
+     距青 192.9 有 25°+；参考系里没有 Tailwind teal-500/600。
+   但色相只是第二维度，第一维度是动效：会呼吸的小点 = 运行中，
+   完成/等待/失败全部静止（01-base 的 timeline-item--active::before 也脉冲，
+   但它在主区时间线、用 accent，与现场栏状态点不同场景不同色，靠"动不动"统一语义）。
+   prefers-reduced-motion 用户失去动效维度后只剩色相，所以：
+   app.js 的 guardStateRunHue() 运行时读当前 accent 的 hue，
+   与青色相差 <15° 才回退中性灰蓝（#475569 / #94a3b8）——
+   现存皮肤永远不会触发，它是给将来新增青色 accent 的保险。 */
 :root {
   --state-run: #0e7490;
   --state-run-rgb: 14 116 144;
@@ -210,4 +217,86 @@ html[data-theme="light"] {
   font: 600 9.5px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+}
+
+/* ---------- C1：失败横幅（区块级统一入口） ----------
+   动作只有一个声音：N 张失败卡时入口在这里，卡片只留记录。
+   红色仅出现于左侧 3px 记号线与圆点——失败态专属，不蔓延到按钮。 */
+.goal-fail-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--color-destructive);
+  border-radius: var(--row-r);
+}
+.gfb-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--color-destructive);
+}
+.gfb-main {
+  flex: 1;
+  min-width: 0;
+}
+.gfb-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.gfb-sub {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--color-fg-muted);
+}
+.gfb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+}
+.gfb-note {
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
+}
+
+/* ---------- C2：失败卡分级 = 白话摘要 + 可展开原文 ---------- */
+.fail-summary {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--color-fg);
+}
+.fail-detail {
+  margin-top: 8px;
+}
+.fail-detail summary {
+  width: fit-content;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.fail-detail summary:hover {
+  color: var(--color-fg);
+}
+.fail-raw {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--color-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 400 11.5px/1.6 var(--font-mono);
+  color: var(--color-fg-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
