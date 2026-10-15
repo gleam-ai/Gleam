@@ -1405,50 +1405,81 @@ function paintFailBanner() {
     banner.hidden = true;
     return;
   }
+  // 横幅是 feed 的摘要，跟着筛选走：切到"已完成"时 feed 里一张失败卡都没有，
+  // 横幅继续说"3 张失败"就是摘要与列表双态不一致——正是上轮修过的那类 bug。
+  // "全部"与"需处理"两个视图下失败卡可见，横幅才在。
+  if (currentGoalFilter !== 'all' && currentGoalFilter !== 'attention') {
+    banner.hidden = true;
+    return;
+  }
   const at = (t) =>
     Date.parse(
       (t.info.result && t.info.result.finished_at) || t.info.started_at || '',
     ) || 0;
-  const latest = failed.sort((a, b) => at(b) - at(a))[0];
-  const error = (latest.info.result && latest.info.result.error) || '';
-  const auth = failKind(error) === 'auth';
+  const sorted = failed.sort((a, b) => at(b) - at(a));
+  const latest = sorted[0];
+  // 根因优先规则：鉴权失败会让后续全部失败，混合时主入口给它——
+  // 不论最新一张是不是它。修根因比按时间顺序摆按钮更接近"下一步该干什么"。
+  const authOnes = failed.filter(
+    (t) =>
+      failKind((t.info.result && t.info.result.error) || '') === 'auth',
+  );
+  const auth = authOnes.length > 0;
+  const authLatest = auth ? authOnes.sort((a, b) => at(b) - at(a))[0] : null;
   banner.hidden = false;
   $('#gfb-title').textContent =
     failed.length > 1 ? `${failed.length} 个任务失败` : '任务失败';
-  $('#gfb-sub').textContent = failSummary(error);
-
-  const note = el('span', 'gfb-note', '将创建一条新任务');
-  const resubmit = el('button', 'btn btn-primary btn-sm', '重新提交');
-  resubmit.type = 'button';
-  // 语义说在明处：同一目标文本走一遍提交，产生一条新任务，不是原任务续跑。
-  resubmit.addEventListener('click', async () => {
-    goalInput.value = latest.info.goal || '';
-    autoResize();
-    await submitGoal();
-  });
-  const config = el('button', 'btn btn-primary btn-sm', '去配置 API Key');
-  config.type = 'button';
-  // 与提交时无 key 的引导同一条落点（本文件既有模式）：设置页 → llm 页签 → 密钥框
-  config.addEventListener('click', () => {
-    showView('settings');
-    setTimeout(() => {
-      switchSettingsTab?.('llm');
-      $('#set-api-key')?.focus();
-    }, 300);
-  });
+  $('#gfb-sub').textContent =
+    failed.length > 1 && auth
+      ? authOnes.length === failed.length
+        ? `${failed.length} 张失败，全部为鉴权问题`
+        : `${failed.length} 张失败，其中 ${authOnes.length} 张为鉴权问题`
+      : failSummary((latest.info.result && latest.info.result.error) || '');
 
   const acts = $('#gfb-actions');
   acts.replaceChildren();
-  if (auth) {
-    // 鉴权失败重提交必然再失败：主入口给配置，重提交降为 ghost
-    const retryGhost = el('button', 'btn btn-ghost btn-sm', '重新提交');
-    retryGhost.type = 'button';
-    retryGhost.addEventListener('click', async () => {
-      goalInput.value = latest.info.goal || '';
+  const note = el('span', 'gfb-note', '将创建一条新任务');
+  // 语义说在明处：同一目标文本走一遍提交，产生一条新任务，不是原任务续跑。
+  const makeResubmit = (cls, task) => {
+    const b = el('button', cls, '重新提交');
+    b.type = 'button';
+    b.addEventListener('click', async () => {
+      goalInput.value = (task && task.info.goal) || '';
       autoResize();
       await submitGoal();
     });
-    acts.append(config, retryGhost, note);
+    return b;
+  };
+  const makeConfig = (cls, task) => {
+    const b = el('button', cls, '去配置 API Key');
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      showView('settings');
+      setTimeout(() => {
+        // 落到出问题那一家：任务结果自带 ConfigSnapshot.provider，与设置页
+        // #set-provider 的 option value 同源（都来自 /api/providers 的 id）。
+        // 对得上才切，对不上保持当前选中态——不猜。
+        const snap = task && task.info.result && task.info.result.config_snapshot;
+        const pid = snap && snap.provider;
+        const sel = $('#set-provider');
+        if (pid && sel && [...sel.options].some((o) => o.value === pid)) {
+          sel.value = pid;
+          sel.dispatchEvent(new Event('change'));
+        }
+        switchSettingsTab?.('llm');
+        $('#set-api-key')?.focus();
+      }, 300);
+    });
+    return b;
+  };
+  if (auth) {
+    // 鉴权失败重提交必然再失败：主入口给配置（且指向根因那张的厂商），
+    // 重提交降为 ghost。
+    acts.append(
+      makeConfig('btn btn-primary btn-sm', authLatest),
+      makeResubmit('btn btn-ghost btn-sm', latest),
+      note,
+    );
   } else {
     const view = el('button', 'btn btn-ghost btn-sm', '查看失败卡');
     view.type = 'button';
@@ -1458,7 +1489,7 @@ function paintFailBanner() {
       latest.card.classList.add('goal-card--flash');
       setTimeout(() => latest.card.classList.remove('goal-card--flash'), 1600);
     });
-    acts.append(resubmit, note, view);
+    acts.append(makeResubmit('btn btn-primary btn-sm', latest), note, view);
   }
 }
 
@@ -1552,6 +1583,37 @@ $('#goal-filters').addEventListener('click', (event) => {
   refreshWorkbench();
 });
 
+// 运行中卡片的耗时读数：与 LiveRail 同源（都从 started_at 算），回答"还要等多久"
+// 这一眼。没有运行中的任务就停表——后台常驻 interval 是白烧 CPU。
+// 定型后由 applyResult 摘掉槽位，交棒给"用时"统计。
+let elapsedTimer = null;
+function paintElapsed() {
+  for (const t of tasks.values()) {
+    if (t.info.status !== 'running') continue;
+    const span = t.card.querySelector('[data-role="elapsed"]');
+    if (!span) continue;
+    const from = Date.parse(t.info.started_at || '') || Date.now();
+    const s = Math.max(0, Math.round((Date.now() - from) / 1000));
+    span.textContent =
+      s >= 60 ? `已运行 ${Math.floor(s / 60)} 分 ${s % 60} 秒` : `已运行 ${s} 秒`;
+  }
+}
+function ensureElapsedTicker() {
+  if (elapsedTimer) return;
+  paintElapsed();
+  elapsedTimer = setInterval(() => {
+    const running = [...tasks.values()].some(
+      (t) => t.info.status === 'running',
+    );
+    if (!running) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+      return;
+    }
+    paintElapsed();
+  }, 1000);
+}
+
 function statusBadge(status) {
   const s = STATUS_LABEL[status] || status;
   return `<span class="badge badge--${esc(status)}">${esc(s)}</span>`;
@@ -1629,7 +1691,7 @@ function renderTaskCard(info, prepend) {
   const modeLabel = PERM_FRIENDLY[info.mode] || '';
   const taskLabel = TASK_LABEL[info.task_mode] || '';
   const runLabel = [modeLabel, taskLabel].filter(Boolean).join(' · ');
-  meta.innerHTML = `${statusBadge(info.status)}${runLabel ? `<span class="badge badge--mode">${esc(runLabel)}</span>` : ''}<span class="stat">${esc((info.task_id || '').slice(0, 8))}</span>`;
+  meta.innerHTML = `${statusBadge(info.status)}${runLabel ? `<span class="badge badge--mode">${esc(runLabel)}</span>` : ''}<span class="stat">${esc((info.task_id || '').slice(0, 8))}</span><span class="stat" data-role="elapsed"></span>`;
   main.appendChild(meta);
   head.appendChild(main);
   const ringSlot = el('div');
@@ -1676,6 +1738,7 @@ function renderTaskCard(info, prepend) {
 
   tasks.set(info.task_id, { info, card, slots });
   mountStopButton(card.querySelector('.goal-meta'), info.task_id, info.status);
+  ensureElapsedTicker();
   // 先回放历史事件（会重建工具执行折叠块），再定格结果——
   // 否则 applyResult 里的 settleRunSection 会在折叠块尚不存在时空跑，回放又把汇总刷成"进行中"
   (info.events || []).forEach((ev) =>
@@ -2213,6 +2276,31 @@ function applyResult(taskID, result) {
       result.status === 'failed')
   ) {
     ringSlot.innerHTML = scoreRing(result.score);
+    // "刚完成"的瞬时反馈：成功环绿 6 秒后退回中性。success 绿只在这一刻
+    // 和 LiveRail 步骤里出现，不做列表常驻——已完成是背景，不是新闻。
+    if (result.status === 'success') {
+      const ring = ringSlot.firstElementChild;
+      if (ring) {
+        ring.classList.add('score-ring--just');
+        setTimeout(() => ring.classList.remove('score-ring--just'), 6000);
+      }
+    }
+  }
+  // 定型后运行读数交棒给用时统计：两个都在等于同一个信息说两遍
+  const elapsed = t.card.querySelector('[data-role="elapsed"]');
+  if (elapsed) elapsed.remove();
+  // 模型来源（tier 4，最弱一级）：来自任务自带的 ConfigSnapshot，不是猜的。
+  // 运行中的任务没有快照，只有定格后才有——没有就不渲染，不留空格。
+  const snap = result.config_snapshot;
+  if (snap && snap.model) {
+    const meta = t.card.querySelector('.goal-meta');
+    let modelStat = meta && meta.querySelector('[data-role="model"]');
+    if (meta && !modelStat) {
+      modelStat = el('span', 'stat');
+      modelStat.dataset.role = 'model';
+      meta.appendChild(modelStat);
+    }
+    if (modelStat) modelStat.textContent = snap.model;
   }
   // 失败原因必须可见（此前 error 只存在于数据里，用户看不到）。
   // 分级：一行白话摘要 + 可展开的原文技术详情。原文一字不删——
