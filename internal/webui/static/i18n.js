@@ -1833,6 +1833,11 @@ const I18N_EN = {
   稍后更新: 'Update later',
   安装并重启应用: 'Install and restart',
   重启: 'Restart',
+  '正在启动安装程序…': 'Starting the installer…',
+  安装程序已启动: 'Installer started',
+  '没能启动安装程序。可以打开发布页手动下载 Gleam-Setup.exe，装完再打开 Gleam。':
+    'Could not start the installer. You can open the Releases page, download Gleam-Setup.exe manually, and reopen Gleam once it finishes.',
+  打开发布页: 'Open Releases page',
   '为一款本地优先的笔记应用做产品落地页：首屏标语与两个行动按钮、三项特性介绍、价格区与常见问题。':
     'Build a product landing page for a local-first notes app: a hero headline with two call-to-action buttons, three feature blurbs, a pricing section, and an FAQ.',
   '为一场城市夜骑活动做报名落地页：活动主视觉、时间地点、路线说明、报名表单（姓名、手机、车型），以及注意事项。':

@@ -30,6 +30,9 @@ desktop/dist2/
 .cursor/
 .claude/
 .agents/
+# 技能包由 IDE 工具写入/更新（1.7MB 第三方研究资产），非项目内容；
+# .codebuddy/rules/ 是给人/AI 读的项目约束，已在库（见 1048787）
+.codebuddy/skills/
 
 # 内部文档（只在本机保留；AGENTS.md 不在此列，它是给所有人的 agent 入口）
 *对照与升级清单.md

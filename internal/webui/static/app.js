@@ -1378,6 +1378,121 @@ function taskGroup(task) {
   return 'done';
 }
 
+// 失败分流只做最粗一档：鉴权类 vs 其他。当前 100% 真实故障（HTTP 401）落在
+// 鉴权类；匹配不上走"其他"默认给重新提交。不做分类树——一档覆盖全部真实
+// 场景，复杂分类只会养活永远不会走到的分支。
+const FAIL_AUTH_RE = /401|403|Authentication|unauthorized|invalid.{0,20}key/i;
+function failKind(error) {
+  return FAIL_AUTH_RE.test(error || '') ? 'auth' : 'other';
+}
+function failSummary(error) {
+  if (failKind(error) === 'auth')
+    return '模型鉴权失败：API Key 无效、过期或未填写';
+  const line = (error || '').split('\n').find((l) => l.trim());
+  return line ? line.trim().slice(0, 60) : '任务失败';
+}
+
+// 失败横幅：动作只有一个声音。N 张失败卡时统一入口在这里，卡片只留记录。
+// 两个按钮常驻、主次按错误类型排，不随"配置是否已完成"切换——
+// 没有可靠的"配完了"信号，切换逻辑会骗人（用户要求的保底选项）。
+function paintFailBanner() {
+  const banner = $('#goal-fail-banner');
+  if (!banner) return;
+  const failed = [...tasks.values()].filter(
+    (t) => t.info.status === 'failed' || t.info.status === 'partial',
+  );
+  if (!failed.length) {
+    banner.hidden = true;
+    return;
+  }
+  // 横幅是 feed 的摘要，跟着筛选走：切到"已完成"时 feed 里一张失败卡都没有，
+  // 横幅继续说"3 张失败"就是摘要与列表双态不一致——正是上轮修过的那类 bug。
+  // "全部"与"需处理"两个视图下失败卡可见，横幅才在。
+  if (currentGoalFilter !== 'all' && currentGoalFilter !== 'attention') {
+    banner.hidden = true;
+    return;
+  }
+  const at = (t) =>
+    Date.parse(
+      (t.info.result && t.info.result.finished_at) || t.info.started_at || '',
+    ) || 0;
+  const sorted = failed.sort((a, b) => at(b) - at(a));
+  const latest = sorted[0];
+  // 根因优先规则：鉴权失败会让后续全部失败，混合时主入口给它——
+  // 不论最新一张是不是它。修根因比按时间顺序摆按钮更接近"下一步该干什么"。
+  const authOnes = failed.filter(
+    (t) =>
+      failKind((t.info.result && t.info.result.error) || '') === 'auth',
+  );
+  const auth = authOnes.length > 0;
+  const authLatest = auth ? authOnes.sort((a, b) => at(b) - at(a))[0] : null;
+  banner.hidden = false;
+  $('#gfb-title').textContent =
+    failed.length > 1 ? `${failed.length} 个任务失败` : '任务失败';
+  $('#gfb-sub').textContent =
+    failed.length > 1 && auth
+      ? authOnes.length === failed.length
+        ? `${failed.length} 张失败，全部为鉴权问题`
+        : `${failed.length} 张失败，其中 ${authOnes.length} 张为鉴权问题`
+      : failSummary((latest.info.result && latest.info.result.error) || '');
+
+  const acts = $('#gfb-actions');
+  acts.replaceChildren();
+  const note = el('span', 'gfb-note', '将创建一条新任务');
+  // 语义说在明处：同一目标文本走一遍提交，产生一条新任务，不是原任务续跑。
+  const makeResubmit = (cls, task) => {
+    const b = el('button', cls, '重新提交');
+    b.type = 'button';
+    b.addEventListener('click', async () => {
+      goalInput.value = (task && task.info.goal) || '';
+      autoResize();
+      await submitGoal();
+    });
+    return b;
+  };
+  const makeConfig = (cls, task) => {
+    const b = el('button', cls, '去配置 API Key');
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      showView('settings');
+      setTimeout(() => {
+        // 落到出问题那一家：任务结果自带 ConfigSnapshot.provider，与设置页
+        // #set-provider 的 option value 同源（都来自 /api/providers 的 id）。
+        // 对得上才切，对不上保持当前选中态——不猜。
+        const snap = task && task.info.result && task.info.result.config_snapshot;
+        const pid = snap && snap.provider;
+        const sel = $('#set-provider');
+        if (pid && sel && [...sel.options].some((o) => o.value === pid)) {
+          sel.value = pid;
+          sel.dispatchEvent(new Event('change'));
+        }
+        switchSettingsTab?.('llm');
+        $('#set-api-key')?.focus();
+      }, 300);
+    });
+    return b;
+  };
+  if (auth) {
+    // 鉴权失败重提交必然再失败：主入口给配置（且指向根因那张的厂商），
+    // 重提交降为 ghost。
+    acts.append(
+      makeConfig('btn btn-primary btn-sm', authLatest),
+      makeResubmit('btn btn-ghost btn-sm', latest),
+      note,
+    );
+  } else {
+    const view = el('button', 'btn btn-ghost btn-sm', '查看失败卡');
+    view.type = 'button';
+    view.addEventListener('click', () => {
+      latest.card.scrollIntoView({ block: 'center' });
+      // 复用既有的卡片高亮类（01-base .goal-card--flash），不新造动效
+      latest.card.classList.add('goal-card--flash');
+      setTimeout(() => latest.card.classList.remove('goal-card--flash'), 1600);
+    });
+    acts.append(makeResubmit('btn btn-primary btn-sm', latest), note, view);
+  }
+}
+
 function refreshWorkbench() {
   const all = [...tasks.values()];
   const counts = { all: all.length, active: 0, done: 0, attention: 0 };
@@ -1453,6 +1568,7 @@ function refreshWorkbench() {
     return Number.isFinite(at) && at >= weekAgo;
   }).length;
   LiveRail.summary(counts, attention, weekDone);
+  paintFailBanner();
 }
 
 $('#goal-filters').addEventListener('click', (event) => {
@@ -1467,15 +1583,51 @@ $('#goal-filters').addEventListener('click', (event) => {
   refreshWorkbench();
 });
 
+// 运行中卡片的耗时读数：与 LiveRail 同源（都从 started_at 算），回答"还要等多久"
+// 这一眼。没有运行中的任务就停表——后台常驻 interval 是白烧 CPU。
+// 定型后由 applyResult 摘掉槽位，交棒给"用时"统计。
+let elapsedTimer = null;
+function paintElapsed() {
+  for (const t of tasks.values()) {
+    if (t.info.status !== 'running') continue;
+    const span = t.card.querySelector('[data-role="elapsed"]');
+    if (!span) continue;
+    const from = Date.parse(t.info.started_at || '') || Date.now();
+    const s = Math.max(0, Math.round((Date.now() - from) / 1000));
+    span.textContent =
+      s >= 60 ? `已运行 ${Math.floor(s / 60)} 分 ${s % 60} 秒` : `已运行 ${s} 秒`;
+  }
+}
+function ensureElapsedTicker() {
+  if (elapsedTimer) return;
+  paintElapsed();
+  elapsedTimer = setInterval(() => {
+    const running = [...tasks.values()].some(
+      (t) => t.info.status === 'running',
+    );
+    if (!running) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+      return;
+    }
+    paintElapsed();
+  }, 1000);
+}
+
 function statusBadge(status) {
   const s = STATUS_LABEL[status] || status;
   return `<span class="badge badge--${esc(status)}">${esc(s)}</span>`;
 }
 
+// 完成态"安静"的例外线：低于这条线的自评分要在环上留信号。
+// Reflect 机制的存在意义就是让用户知道哪次结果不该直接信——
+// 把 52/100 和 96/100 渲染得一样，等于把自评系统藏起来。
+// 70 是产品判断（"明显低于默认期望"的一档），不是统计值；
+// 信号只给数字色 + warn 描边，底色/对勾/标题全静。
+const SCORE_LOW = 70;
 function scoreRing(score) {
   const clamped = Math.max(0, Math.min(100, score));
-  const cls =
-    clamped >= 80 ? '' : clamped >= 40 ? 'score-ring--warn' : 'score-ring--bad';
+  const cls = clamped >= SCORE_LOW ? '' : 'score-ring--warn';
   const offset = 100 - clamped;
   return `<svg class="score-ring ${cls}" viewBox="0 0 36 36" role="img" aria-label="完成度 ${clamped} / 100">
     <circle class="ring-bg" cx="18" cy="18" r="15.9"/>
@@ -1544,7 +1696,7 @@ function renderTaskCard(info, prepend) {
   const modeLabel = PERM_FRIENDLY[info.mode] || '';
   const taskLabel = TASK_LABEL[info.task_mode] || '';
   const runLabel = [modeLabel, taskLabel].filter(Boolean).join(' · ');
-  meta.innerHTML = `${statusBadge(info.status)}${runLabel ? `<span class="badge badge--mode">${esc(runLabel)}</span>` : ''}<span class="stat">${esc((info.task_id || '').slice(0, 8))}</span>`;
+  meta.innerHTML = `${statusBadge(info.status)}${runLabel ? `<span class="badge badge--mode">${esc(runLabel)}</span>` : ''}<span class="stat">${esc((info.task_id || '').slice(0, 8))}</span><span class="stat" data-role="elapsed"></span>`;
   main.appendChild(meta);
   head.appendChild(main);
   const ringSlot = el('div');
@@ -1591,6 +1743,7 @@ function renderTaskCard(info, prepend) {
 
   tasks.set(info.task_id, { info, card, slots });
   mountStopButton(card.querySelector('.goal-meta'), info.task_id, info.status);
+  ensureElapsedTicker();
   // 先回放历史事件（会重建工具执行折叠块），再定格结果——
   // 否则 applyResult 里的 settleRunSection 会在折叠块尚不存在时空跑，回放又把汇总刷成"进行中"
   (info.events || []).forEach((ev) =>
@@ -2055,6 +2208,9 @@ async function resolveApproval(id, approved, box, task) {
       task.resolvedApprovals.add(id);
     }
     refreshWorkbench();
+    // 主区卡里批掉的审批，现场栏①区与折叠徽章要跟着撤——否则用户会在两个地方
+    // 看到同一个待办的不同状态（面板说还有，竖签说没了，或反过来）。
+    LiveRail.refresh();
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -2125,19 +2281,47 @@ function applyResult(taskID, result) {
       result.status === 'failed')
   ) {
     ringSlot.innerHTML = scoreRing(result.score);
+    // "刚完成"的瞬时反馈：成功环绿 6 秒后退回中性。success 绿只在这一刻
+    // 和 LiveRail 步骤里出现，不做列表常驻——已完成是背景，不是新闻。
+    if (result.status === 'success') {
+      const ring = ringSlot.firstElementChild;
+      if (ring) {
+        ring.classList.add('score-ring--just');
+        setTimeout(() => ring.classList.remove('score-ring--just'), 6000);
+      }
+    }
   }
-  // 失败原因必须可见（此前 error 只存在于数据里，用户看不到）
+  // 定型后运行读数交棒给用时统计：两个都在等于同一个信息说两遍
+  const elapsed = t.card.querySelector('[data-role="elapsed"]');
+  if (elapsed) elapsed.remove();
+  // 模型来源（tier 4，最弱一级）：来自任务自带的 ConfigSnapshot，不是猜的。
+  // 运行中的任务没有快照，只有定格后才有——没有就不渲染，不留空格。
+  const snap = result.config_snapshot;
+  if (snap && snap.model) {
+    const meta = t.card.querySelector('.goal-meta');
+    let modelStat = meta && meta.querySelector('[data-role="model"]');
+    if (meta && !modelStat) {
+      modelStat = el('span', 'stat');
+      modelStat.dataset.role = 'model';
+      meta.appendChild(modelStat);
+    }
+    if (modelStat) modelStat.textContent = snap.model;
+  }
+  // 失败原因必须可见（此前 error 只存在于数据里，用户看不到）。
+  // 分级：一行白话摘要 + 可展开的原文技术详情。原文一字不删——
+  // HTTP 401 那段完整收在 <pre> 里，展开就能照着排查。
   const errSlot = t.card.querySelector('[data-role="error"]');
   if (errSlot) {
     if (result.error) {
       // 标题跟着状态走：部分完成时叫"失败原因"会把人吓一跳，其实只是有几条验收没达标
       const title = result.status === 'partial' ? '未达标说明' : '失败原因';
-      errSlot.innerHTML = `<div class="callout callout--error">${ICONS.alert}<div class="callout-body"><div class="callout-title">${title}</div>${esc(result.error)}</div></div>`;
+      errSlot.innerHTML = `<div class="callout callout--error">${ICONS.alert}<div class="callout-body"><div class="callout-title">${title}</div><div class="fail-summary">${esc(failSummary(result.error))}</div><details class="fail-detail"><summary>技术详情</summary><pre class="fail-raw">${esc(result.error)}</pre></details></div></div>`;
       errSlot.hidden = false;
     } else {
       errSlot.hidden = true;
     }
   }
+  paintFailBanner();
   // 用时统计（开始/结束时间齐全且已结束时显示）
   if (result.started_at && result.finished_at) {
     const dur =
@@ -5558,11 +5742,53 @@ function effectiveDark() {
   const mode = UIPrefs.get().themeMode;
   return mode === 'dark' || (mode === 'system' && darkMedia.matches);
 }
+// 状态色防撞：运行中青点是状态语义，不能和用户选的装饰 accent 同色。
+// 现存 26 个 accent 取值的 hue 全部落在 170-200 之外（最近的浅色 mint
+// 167.9，相距 25°，依据表见 08-ia.css 注释），所以这个守卫当前不会触发——
+// 它是给将来新增青色 accent 的保险：相差 <15° 才回退中性灰蓝。
+// 参考 hue 取常量 195（青），不读计算后的 --state-run：
+// 读计算值会在"已回退过"的状态里自锁，清不回去。
+const STATE_RUN_HUE = 195;
+function hexHue(hex) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((hex || '').trim());
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3) h = [...h].map((c) => c + c).join('');
+  const n = parseInt(h, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (!d) return null;
+  let hue;
+  if (max === r) hue = ((g - b) / d) % 6;
+  else if (max === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  return (hue * 60 + 360) % 360;
+}
+function guardStateRunHue() {
+  const root = document.documentElement;
+  const ha = hexHue(getComputedStyle(root).getPropertyValue('--color-accent'));
+  if (ha == null) {
+    root.style.removeProperty('--state-run');
+    return;
+  }
+  const gap = Math.abs(((ha - STATE_RUN_HUE + 540) % 360) - 180);
+  if (gap < 15)
+    root.style.setProperty(
+      '--state-run',
+      root.dataset.theme === 'dark' ? '#94a3b8' : '#475569',
+    );
+  else root.style.removeProperty('--state-run');
+}
 function applyTheme() {
   const { themeMode, accent } = UIPrefs.get();
   const dark = effectiveDark();
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   document.documentElement.setAttribute('data-accent', accent || 'gleam');
+  guardStateRunHue();
   const mc = document.querySelector('meta[name="theme-color"]');
   if (mc) {
     // 取当前主题的窗框色：每个主题各自定义 --frame，这里不再写死两种
@@ -5602,6 +5828,10 @@ function applyTheme() {
   });
   applyLang(prefs.lang || 'zh');
 }
+
+// 首帧守卫：index.html 的内联引导在 <head> 里就设好了 data-theme/data-accent，
+// app.js 跑在 body 末尾，此时直接补一次，不等第一次 applyTheme。
+guardStateRunHue();
 
 /* ---------- 界面语言 ---------- */
 // 词表与翻译器在 i18n.js（在 app.js 之前加载）。这里只负责把当前语言应用上去。
@@ -5944,7 +6174,10 @@ const LiveRail = (() => {
   // 用户没点过收展 = 默认跟着视口走，**每次现读**：init 时快照一份宽度，遇到布局还没
   // 落定的场合（内嵌帧、刚创建就 maximise 的窗口）会把按钮文案和画面锁成反的——
   // 第一下点击因此"看起来没反应"。点过了就只认他点的。
-  const folded = () => (userChose ? choice : true);
+  // ≥1240 放得下三栏 → 默认展开（第一眼就知道出事看哪里）；≤1240 放不下 → 兜成竖签。
+  // 这正是 01-base.css:6094 注释声明的意图；此前恒为 true，宽屏用户第一次打开
+  // 根本看不到现场栏，"出了事看哪里"在首屏就没有答案。
+  const folded = () => (userChose ? choice : midMQ.matches);
   // 窄屏浮层是**临时**状态，不进偏好：没人希望"下次打开窗口默认挡住对话"。
   let overlayOpen = false;
   let rows = 0;
@@ -6226,6 +6459,7 @@ const LiveRail = (() => {
       'warn',
     );
     waiting++;
+    pushApproval(ap);
     if (cur) paintRead();
     else setRead(loopRead, '等你批准', 'warn');
     paintPulse('attention');
@@ -6310,6 +6544,75 @@ const LiveRail = (() => {
     if (typeof n === 'number') setRead(ro.memory, String(n));
   });
 
+  /* ---------- ① 待批准区 ----------
+     从"本机读数"里的一行数字提到面板顶部：这是整个面板唯一"挡住用户"的信息，
+     行内给允许/拒绝，用户不必先去主区翻任务卡。数据源与任务内审批卡共用
+     GET /api/approvals 与 POST /api/approvals/{id}，不发明新接口。
+     裁决后重拉一次列表——权威在服务端，本地删行只是乐观更新。 */
+  const apBox = $('#rail-approvals');
+  const apList = $('#rail-approvals-list');
+  const apCount = $('#rail-approvals-count');
+  // 折叠态徽章（竖签 + 顶栏按钮两处入口）：审批数是"出事了"的通报，
+  // 与面板展不展开无关——所以它挂在两个折叠入口上，而不是面板里。
+  const apBadges = document.querySelectorAll('.rail-badge');
+
+  function paintBadge(n) {
+    apBadges.forEach((b) => {
+      b.textContent = String(n);
+      b.hidden = !(n > 0);
+    });
+  }
+
+  function apRow(ap) {
+    const row = el('div', 'ap-row');
+    row.dataset.approvalId = ap.id;
+    const main = el('div', 'ap-main');
+    const text = (ap.plan || [])[0] || ap.reason || '有一个操作在等你决定';
+    main.appendChild(el('div', 'ap-label', clip(text, 42)));
+    const meta = el('div', 'ap-meta');
+    const high = ap.risk === 'high';
+    meta.appendChild(
+      el('span', 'ap-risk' + (high ? ' ap-risk--high' : ''), high ? '高风险' : '中风险'),
+    );
+    meta.appendChild(el('span', 'ap-time', clock(ap.created_at ? new Date(ap.created_at) : null)));
+    main.appendChild(meta);
+    const acts = el('div', 'ap-acts');
+    const ok = el('button', 'ap-btn ap-btn--ok', '允许');
+    const no = el('button', 'ap-btn ap-btn--no', '拒绝');
+    ok.type = 'button';
+    no.type = 'button';
+    ok.addEventListener('click', () => resolveApproval(ap.id, true, row, null).then(refreshApprovals));
+    no.addEventListener('click', () => resolveApproval(ap.id, false, row, null).then(refreshApprovals));
+    acts.append(ok, no);
+    row.append(main, acts);
+    return row;
+  }
+
+  function refreshApprovals() {
+    api('GET', '/api/approvals')
+      .then((r) => paintApprovals(r.approvals))
+      .catch(() => {});
+  }
+
+  function paintApprovals(list) {
+    if (!apBox || !apList) return;
+    const items = (list || []).filter((ap) => ap && ap.id);
+    apCount.textContent = String(items.length);
+    apBox.hidden = items.length === 0;
+    apList.replaceChildren(...items.map(apRow));
+    paintBadge(items.length);
+  }
+
+  // SSE 单条推送用：幂等，重连/重放不重复渲染同一个 id
+  function pushApproval(ap) {
+    if (!ap || !ap.id || !apList) return;
+    if (apList.querySelector(`[data-approval-id="${ap.id}"]`)) return;
+    if (apBox) apBox.hidden = false;
+    apList.prepend(apRow(ap));
+    apCount.textContent = String(apList.children.length);
+    paintBadge(apList.children.length);
+  }
+
   return {
     observe,
     approval,
@@ -6319,6 +6622,9 @@ const LiveRail = (() => {
     runtime,
     schedules,
     memory,
+    approvals: paintApprovals,
+    pushApproval,
+    refresh: refreshApprovals,
   };
 })();
 
@@ -8271,12 +8577,15 @@ const Updater = (() => {
   const desk = window.gleamDesktop;
   if (!desk?.update) return { init() {} };
 
+  const RELEASES_URL = 'https://github.com/gleam-ai/Gleam/releases/latest';
+
   const btn = document.getElementById('cp-update-btn');
   const btnText = document.getElementById('cp-update-text');
   const badge = document.getElementById('sb-update-badge');
   const badgeLabel = document.getElementById('sb-update-label');
   let state = 'idle'; // idle | available | downloading | downloaded
   let version = '';
+  let percent = 0;
 
   function showBtn() {
     if (btn) btn.hidden = false;
@@ -8285,16 +8594,20 @@ const Updater = (() => {
     if (btn) btn.hidden = true;
   }
 
-  function paintBadge(text, tone) {
+  // The sidebar badge is a compact indicator: icon + state dot + version.
+  // The download percent and the action word ("Restart") live only on the
+  // composer footer button -- showing the same fact in two places makes
+  // users think there are two separate updates.
+  function paintBadge(tone) {
     if (!badge) return;
     badge.hidden = false;
     badge.dataset.tone = tone;
-    if (badgeLabel) badgeLabel.textContent = text;
+    if (badgeLabel) badgeLabel.textContent = 'v' + version;
     badge.title =
       tone === 'ready'
         ? `点击安装 Gleam ${version}`
         : tone === 'downloading'
-          ? `正在下载 Gleam ${version}`
+          ? `正在下载 Gleam ${version}（${percent}%）`
           : `Gleam ${version} 可用`;
   }
   function hideBadge() {
@@ -8308,7 +8621,17 @@ const Updater = (() => {
     btn.title =
       tone === 'ready'
         ? `点击安装 Gleam ${version}`
-        : `正在下载 Gleam ${version}`;
+        : tone === 'downloading'
+          ? `正在下载 Gleam ${version}（${percent}%）`
+          : `Gleam ${version} 可用`;
+  }
+
+  function openReleases() {
+    if (desk && typeof desk.openExternal === 'function') {
+      desk.openExternal(RELEASES_URL).catch(() => {});
+      return;
+    }
+    window.open(RELEASES_URL, '_blank', 'noopener');
   }
 
   function openInstallDialog() {
@@ -8323,12 +8646,17 @@ const Updater = (() => {
     dlg.innerHTML = `
       <h3 id="upd-dlg-title">安装 Gleam ${esc(version)}</h3>
       <p>更新已经下载并验证。安装会退出并重新打开 Gleam。</p>
+      <p class="upd-error" id="upd-error" hidden></p>
       <div class="upd-actions">
         <button type="button" class="btn btn-ghost btn-sm" data-act="later">稍后更新</button>
         <button type="button" class="btn btn-primary btn-sm" data-act="restart">安装并重启应用</button>
       </div>`;
     overlay.appendChild(dlg);
     document.body.appendChild(overlay);
+
+    const restartBtn = dlg.querySelector('[data-act="restart"]');
+    const laterBtn = dlg.querySelector('[data-act="later"]');
+    const errLine = dlg.querySelector('#upd-error');
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
@@ -8337,9 +8665,45 @@ const Updater = (() => {
       }
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'later') close();
-      else if (act === 'restart') desk.update.restart();
+      else if (act === 'restart') void install();
+      else if (act === 'releases') openReleases();
     });
-    dlg.querySelector('[data-act="restart"]').focus();
+    restartBtn.focus();
+
+    async function install() {
+      restartBtn.disabled = true;
+      laterBtn.disabled = true;
+      restartBtn.textContent = '正在启动安装程序…';
+      errLine.hidden = true;
+      let ok = false;
+      try {
+        const res = await desk.update.restart();
+        ok = !!(res && res.ok);
+      } catch {
+        ok = false;
+      }
+      if (ok) {
+        // The installer is up; the app quits moments later, so the button
+        // just parks on "started".
+        restartBtn.textContent = '安装程序已启动';
+        return;
+      }
+      // A failed launch must be said out loud, with a manual path that does
+      // not go through the desktop shell. Failing silently makes users think
+      // the click did nothing, and then doubt the update itself.
+      restartBtn.disabled = false;
+      laterBtn.disabled = false;
+      restartBtn.textContent = '重试';
+      errLine.hidden = false;
+      errLine.textContent =
+        '没能启动安装程序。可以打开发布页手动下载 Gleam-Setup.exe，装完再打开 Gleam。';
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'btn btn-ghost btn-sm';
+      link.dataset.act = 'releases';
+      link.textContent = '打开发布页';
+      errLine.appendChild(link);
+    }
 
     function close() {
       overlay.remove();
@@ -8368,20 +8732,21 @@ const Updater = (() => {
           version = s.version;
           showBtn();
           paintBtn('更新', 'available');
-          paintBadge(`v${version}`, 'available');
+          paintBadge('available');
           break;
         case 'downloading':
           state = 'downloading';
+          percent = s.percent;
           showBtn();
           paintBtn(`更新 ${s.percent}%`, 'downloading');
-          paintBadge(`${s.percent}%`, 'downloading');
+          paintBadge('downloading');
           break;
         case 'downloaded':
           state = 'downloaded';
           version = s.version;
           showBtn();
           paintBtn('重启', 'ready');
-          paintBadge('重启', 'ready');
+          paintBadge('ready');
           break;
         case 'not-available':
           state = 'idle';
@@ -8811,6 +9176,7 @@ const Hardware = (function () {
     const { approvals } = await api('GET', '/api/approvals');
     pendingApprovals = (approvals || []).length;
     updateApprovalBadge(0);
+    LiveRail.approvals(approvals);
   } catch {
     /* 忽略 */
   }

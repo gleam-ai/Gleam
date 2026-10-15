@@ -1,0 +1,443 @@
+/* 第 8 层 · IA 重构层（2026-10-15）
+ * 只管两件事，旧层一概不碰：
+ *   A. 三栏层级——现场栏去卡片化：底色回落 --frame、只留左缘发丝线，
+ *      从"第四张面板"降为"一列仪表"。降 tone 不砍宽度：事件流水的文字
+ *      需要横向空间，砍窄了折行反而更吵。
+ *      同时修复 v5 对齐层把"收起留竖签"闷死的问题。
+ *   B. 现场栏分区与四态状态色（见本文件后半）。
+ * 冲突裁决：本文件在全部旧层之后加载，同选择器后来者赢，
+ * 所以不需要改 01-base / 02-shell / 03-align 的任何一行。
+ */
+
+/* ---------- A1：现场栏去卡片化 ----------
+   原来它有 border + radius + --panel 底，和主区面板长得像平级的第四张卡。
+   现在：应用底 --frame + 左缘 1px 发丝线，靠明度退场。 */
+.rail {
+  width: 272px;
+  border: none;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--frame);
+}
+
+/* ---------- A2：折叠态恢复竖签 ----------
+   01-base 早已写好整套竖签样式（含"中屏放不下三栏就兜成 folded"的注释，
+   见 01-base.css:6094），但 03-align 的
+   html[data-rail="folded"] .rail{display:none} 把 .rail 连竖签一起埋了。
+   这里只掀掉那一层 display，竖签样式 01-base 原样生效。 */
+html[data-rail="folded"] .rail {
+  display: flex;
+  width: 40px;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--frame);
+}
+
+/* ---------- B1：四态状态色 ----------
+   运行中走青色 --state-run：此前三处 active 都挪用 --color-accent，
+   而 accent 是用户自选的装饰色——选 bee 皮肤时"运行中"变土黄、选
+   parchment 变陶土，状态语义被装饰色劫持。accent 回归 CTA / 激活 /
+   focus ring 的本职。
+   色相选青不选蓝：accent 集合含蓝（#4c8dff / #2563eb）与紫
+   （#8b7cf6 / #6a55e0），蓝色必撞。
+   青色的依据是全量 hue 实测（grep 全部 --color-accent 字面量，26 个取值）：
+     hue 170-200 区间：无任何 accent。带青色的 mint 实际取值为
+     #5fd3a6(156.7) / #62c9a8(160.8) / #13806a(167.9) / #4fa98f(162.7)，
+     距青 192.9 有 25°+；参考系里没有 Tailwind teal-500/600。
+   但色相只是第二维度，第一维度是动效：会呼吸的小点 = 运行中，
+   完成/等待/失败全部静止（01-base 的 timeline-item--active::before 也脉冲，
+   但它在主区时间线、用 accent，与现场栏状态点不同场景不同色，靠"动不动"统一语义）。
+   prefers-reduced-motion 用户失去动效维度后只剩色相，所以：
+   app.js 的 guardStateRunHue() 运行时读当前 accent 的 hue，
+   与青色相差 <15° 才回退中性灰蓝（#475569 / #94a3b8）——
+   现存皮肤永远不会触发，它是给将来新增青色 accent 的保险。 */
+:root {
+  --state-run: #0e7490;
+  --state-run-rgb: 14 116 144;
+}
+html[data-theme="dark"] {
+  --state-run: #06b6d4;
+  --state-run-rgb: 6 182 212;
+}
+/* success 提为正式状态色后合同变了：05-consistency 的浅色值 #2f8f5b
+   仅 3.7:1（AA-large），压到 #26734a（≈5.3:1，AA 正文级）。
+   深色 #4cc38a 实测 7.86:1，不动。 */
+html[data-theme="light"] {
+  --color-success: #26734a;
+}
+/* warn / fail 浅色加深——对比度回归审计（2026-10-15）：
+   grep 全仓，--color-warning / --color-destructive 共 60+ 处用作 color:
+   （badge 文字、callout 标题、错误提示、geo 分数……），属文本用途，
+   门槛 4.5:1。原值 #a86a10 = 4.06:1、#d93b3b = 4.14:1，均只有 AA-large。
+   加深到 #8a5608 = 5.63:1、#c03232 = 5.13:1（WCAG 公式计算，底色 #F5F5F2）。
+   -rgb 变体同步加深，保持文字与同色底纹/描边不脱色。
+   深色侧 #eab264 = 9.16:1、#f05b5b = 5.26:1（对 #1A1A1A），不动。 */
+html[data-theme="light"] {
+  --color-warning: #8a5608;
+  --warning-rgb: 138 86 8;
+  --color-destructive: #c03232;
+  --danger-rgb: 192 50 50;
+}
+.rail-pulse[data-state="running"],
+.rail-strip-dot[data-state="running"] {
+  background: var(--state-run);
+}
+.loop-step[data-state="active"] .loop-node {
+  background: var(--state-run);
+  border-color: var(--state-run);
+  box-shadow: 0 0 0 3px rgba(var(--state-run-rgb) / 0.18);
+}
+.flow-dot[data-state="active"] {
+  background: var(--state-run);
+}
+/* 完成态走 success 且静止 */
+.loop-step[data-state="done"] .loop-node {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+.flow-dot[data-state="done"] {
+  background: var(--color-success);
+  opacity: 0.55;
+}
+
+/* ---------- B2：① 待批准区 ----------
+   行式不用卡片：这一列的信息密度高，卡片套卡片会把它变成一叠帖子。 */
+.gauge--approvals .ap-list {
+  display: flex;
+  flex-direction: column;
+}
+.ap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 8px 0;
+}
+.ap-row + .ap-row {
+  border-top: 1px dashed var(--glass-border);
+}
+.ap-label {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--color-fg);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ap-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.ap-risk {
+  font: 500 10px/1 var(--font-mono);
+  color: var(--color-warning);
+}
+.ap-risk--high {
+  color: var(--color-destructive);
+}
+.ap-time {
+  font: 400 10px/1 var(--font-mono);
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ap-acts {
+  display: flex;
+  gap: 6px;
+}
+.ap-btn {
+  font: 500 11px/1 var(--font-sans);
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+.ap-btn--ok:hover {
+  color: var(--color-success);
+  border-color: rgba(var(--success-rgb) / 0.5);
+}
+.ap-btn--no:hover {
+  color: var(--color-destructive);
+  border-color: rgba(var(--danger-rgb) / 0.5);
+}
+.ap-btn:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb) / 0.75);
+  outline-offset: 1px;
+}
+
+/* ---------- B3：③ 事件流水撑满剩余高度 ----------
+   原来 max-height:34vh 与④区抢高度；现在吃满剩余空间，
+   事件多时面板自己滚，④区读数不被推走。 */
+.gauge--flow {
+  flex: 1;
+  min-height: 0;
+}
+.gauge--flow .flow {
+  flex: 1;
+  min-height: 120px;
+  max-height: none;
+}
+
+/* ---------- B4：④ 本机读数 = 静态事实 ----------
+   这一区开机后就不动，且没有任何点击绑定（setRead 只写 textContent，
+   全文无 readout-row 事件监听）：去掉交互暗示不是砍功能，
+   是不许不能点的东西长得像能点。 */
+.gauge--facts .readout-row {
+  cursor: default;
+}
+
+/* ---------- B5：折叠态审批徽章 ----------
+   竖签不是"出事的地方"，但必须让人知道出事了：destructive 计数点，
+   count>0 才渲染，点竖签/顶栏按钮展开后即可操作。
+   尊重用户折叠偏好——不自动展开，只通报。 */
+.rail-strip,
+#rail-open {
+  position: relative;
+}
+.rail-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--color-destructive);
+  color: #ffffff;
+  font: 600 9.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* ---------- C1：失败横幅（区块级统一入口） ----------
+   动作只有一个声音：N 张失败卡时入口在这里，卡片只留记录。
+   红色仅出现于左侧 3px 记号线与圆点——失败态专属，不蔓延到按钮。 */
+.goal-fail-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--color-destructive);
+  border-radius: var(--row-r);
+}
+.gfb-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--color-destructive);
+}
+.gfb-main {
+  flex: 1;
+  min-width: 0;
+}
+.gfb-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.gfb-sub {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--color-fg-muted);
+}
+.gfb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+}
+.gfb-note {
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
+}
+
+/* ---------- C2：失败卡分级 = 白话摘要 + 可展开原文 ---------- */
+.fail-summary {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--color-fg);
+}
+.fail-detail {
+  margin-top: 8px;
+}
+.fail-detail summary {
+  width: fit-content;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.fail-detail summary:hover {
+  color: var(--color-fg);
+}
+.fail-raw {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--color-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 400 11.5px/1.6 var(--font-mono);
+  color: var(--color-fg-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---------- D：筛选标签栏选中态 ----------
+   计数不新写：refreshWorkbench 的 [data-count] 与工作台、审批徽标同源
+   （taskGroup 一套口径，"需处理"= 有待审批 + failed + partial，
+   失败卡计入需处理，横幅的失败数永远是它的子集，不会双态不一致）。
+   这里只做选中态：实底 + 主文字 + 内描边；0 计数不禁用——禁用像坏了。 */
+#goal-filters button {
+  color: var(--color-fg-muted);
+}
+#goal-filters button [data-count] {
+  color: var(--color-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+#goal-filters button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--color-fg);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+#goal-filters button[aria-pressed="true"] [data-count] {
+  color: var(--color-fg);
+}
+
+/* ---------- E：卡片响度三档 ----------
+   第 1 级不按信息分四级，按"响度"分三档——feed 里绝大多数是已完成，
+   状态层级拉越高，完成态噪声越大，需要介入的那张反而被淹没。
+     响：失败 / 需批准 → destructive / warn，完整 badge（审批卡本就危险色）
+     中：进行中       → state-run 青 + 呼吸点
+     静：已完成       → 中性 faint 对勾，不给 success 绿、不给 accent
+   accent 回归装饰本职（01-base 里 badge--running/success 都用它是误用）；
+   success 绿只留给"刚完成"的瞬时反馈（.score-ring--just）与 LiveRail 步骤。 */
+.badge--running {
+  background: rgba(var(--state-run-rgb) / 0.12);
+  color: var(--state-run);
+}
+.badge--success {
+  background: var(--color-muted);
+  color: var(--color-fg-faint);
+}
+.badge--success::before {
+  content: "✓";
+  font-weight: 600;
+}
+/* 已取消是用户自己的决定，不是故障：从 destructive 降到中性 */
+.badge--cancelled {
+  background: var(--color-muted);
+  color: var(--color-fg-faint);
+}
+
+/* 完成态圆环退场：默认（成功）中性，警告/失败保留 warn/bad。
+   ring-fg 补一条 stroke 过渡，"刚完成"的绿淡出时才丝滑。 */
+.score-ring .ring-fg {
+  stroke: var(--color-fg-faint);
+  transition:
+    stroke-dashoffset var(--dur-slow) var(--ease-out),
+    stroke var(--dur-slow) var(--ease-out);
+}
+.score-ring text {
+  fill: var(--color-fg-muted);
+}
+/* 低分保留信号：<SCORE_LOW 的自评分不该被"安静"吞掉——Reflect 机制存在的
+   意义就是让用户知道哪次结果不该直接信。只动数字色和环描边，
+   背景/对勾/标题全静，整体响度不变。 */
+.score-ring--warn .ring-fg {
+  stroke: var(--color-warning);
+}
+.score-ring--warn text {
+  fill: var(--color-fg);
+}
+.score-ring--just .ring-fg {
+  stroke: var(--color-success);
+}
+.score-ring--just text {
+  fill: var(--color-success);
+}
+
+/* ---------- 形态维度：等待 = 空心环，失败 = 实心点 ----------
+   琥珀与红在正常视力下 ΔE=31.9 可分辨，但 L* 仅差 1.1——红绿色觉障碍
+   （约 8% 男性）眼里两者向同一黄灰坍缩，明度给不了第二线索。
+   色相不动（没空间了），加形状：等待态全部空心环，失败态保持实心点。 */
+.rail-pulse[data-state="attention"],
+.rail-strip-dot[data-state="attention"],
+.flow-dot[data-state="warn"] {
+  background: transparent;
+  border: 1.5px solid var(--color-warning);
+}
+/* 审批卡是"在等你决定"，不是"失败了"：从 danger 色改 warn 色，
+   与失败态在颜色和形状两个维度都分开。 */
+.approval-card {
+  background: rgba(var(--warning-rgb) / 0.05);
+  border-color: rgba(var(--warning-rgb) / 0.28);
+}
+
+/* ---------- reduced-motion 兜底 ----------
+   01-base:6193 的 animation:none 是列举式（只列旧 rail-breathe/dot-pulse
+   的两个使用者）。五个指示器统一走 status-breathe 后，不补这条通配式
+   兜底，reduced-motion 用户会拿到持续扩散的环——本轮新引入的无障碍问题。 */
+@media (prefers-reduced-motion: reduce) {
+  .rail-pulse[data-state="running"],
+  .rail-strip-dot[data-state="running"],
+  .loop-step[data-state="active"] .loop-node,
+  .badge--running::before,
+  .timeline-item--active::before {
+    animation: none;
+  }
+}
+
+/* 标题两行截断：长目标不把 meta 和正文挤到首屏外 */
+.goal-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- 统一"运行中"呼吸（唯一来源） ----------
+   此前存在两套动效语言讲同一件事：01-base 的 dot-pulse（主区时间线，1.8s，
+   accent 环）和 rail-breathe（现场栏，1.9s，opacity+scale+环）。5px 的点上
+   opacity/scale 的变化几乎看不见，真正看得见的是 box-shadow 扩散环——
+   所以统一为它，时长取 1.8s（dot-pulse 的值，rail 的 1.9 退役）。
+   旧 keyframes 不删（不动 01-base），但此后再无规则引用它们。
+   语义升格："脉冲 = 活跃/运行中"跨区域一个来源、一个时长、一种颜色。 */
+@keyframes status-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--state-run-rgb) / 0.34);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(var(--state-run-rgb) / 0);
+  }
+}
+.rail-pulse[data-state="running"],
+.rail-strip-dot[data-state="running"],
+.loop-step[data-state="active"] .loop-node,
+.badge--running::before,
+.timeline-item--active::before {
+  animation: status-breathe 1.8s var(--ease-out) infinite;
+}
+/* 主区时间线活跃点从 accent 改走 state-run：它是状态不是装饰，
+   与 badge--running 在第一批的误用同类，一并纠正。 */
+.timeline-item--active::before {
+  border-color: var(--state-run);
+}

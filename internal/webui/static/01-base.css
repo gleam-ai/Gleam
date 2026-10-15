@@ -6270,6 +6270,13 @@ html[data-theme="light"] .flow::-webkit-scrollbar-thumb {
   line-height: 1.55;
   color: var(--color-fg-muted);
 }
+.upd-dialog .upd-error {
+  margin: -8px 0 18px;
+  color: var(--color-danger, #d33);
+}
+.upd-dialog .upd-error button {
+  margin-left: 6px;
+}
 .upd-actions {
   display: flex;
   justify-content: flex-end;
