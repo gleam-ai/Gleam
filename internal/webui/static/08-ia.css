@@ -345,11 +345,51 @@ html[data-theme="light"] {
 .score-ring text {
   fill: var(--color-fg-muted);
 }
+/* 低分保留信号：<SCORE_LOW 的自评分不该被"安静"吞掉——Reflect 机制存在的
+   意义就是让用户知道哪次结果不该直接信。只动数字色和环描边，
+   背景/对勾/标题全静，整体响度不变。 */
+.score-ring--warn .ring-fg {
+  stroke: var(--color-warning);
+}
+.score-ring--warn text {
+  fill: var(--color-fg);
+}
 .score-ring--just .ring-fg {
   stroke: var(--color-success);
 }
 .score-ring--just text {
   fill: var(--color-success);
+}
+
+/* ---------- 形态维度：等待 = 空心环，失败 = 实心点 ----------
+   琥珀与红在正常视力下 ΔE=31.9 可分辨，但 L* 仅差 1.1——红绿色觉障碍
+   （约 8% 男性）眼里两者向同一黄灰坍缩，明度给不了第二线索。
+   色相不动（没空间了），加形状：等待态全部空心环，失败态保持实心点。 */
+.rail-pulse[data-state="attention"],
+.rail-strip-dot[data-state="attention"],
+.flow-dot[data-state="warn"] {
+  background: transparent;
+  border: 1.5px solid var(--color-warning);
+}
+/* 审批卡是"在等你决定"，不是"失败了"：从 danger 色改 warn 色，
+   与失败态在颜色和形状两个维度都分开。 */
+.approval-card {
+  background: rgba(var(--warning-rgb) / 0.05);
+  border-color: rgba(var(--warning-rgb) / 0.28);
+}
+
+/* ---------- reduced-motion 兜底 ----------
+   01-base:6193 的 animation:none 是列举式（只列旧 rail-breathe/dot-pulse
+   的两个使用者）。五个指示器统一走 status-breathe 后，不补这条通配式
+   兜底，reduced-motion 用户会拿到持续扩散的环——本轮新引入的无障碍问题。 */
+@media (prefers-reduced-motion: reduce) {
+  .rail-pulse[data-state="running"],
+  .rail-strip-dot[data-state="running"],
+  .loop-step[data-state="active"] .loop-node,
+  .badge--running::before,
+  .timeline-item--active::before {
+    animation: none;
+  }
 }
 
 /* 标题两行截断：长目标不把 meta 和正文挤到首屏外 */

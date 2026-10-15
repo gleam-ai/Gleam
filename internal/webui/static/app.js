@@ -1619,10 +1619,15 @@ function statusBadge(status) {
   return `<span class="badge badge--${esc(status)}">${esc(s)}</span>`;
 }
 
+// 完成态"安静"的例外线：低于这条线的自评分要在环上留信号。
+// Reflect 机制的存在意义就是让用户知道哪次结果不该直接信——
+// 把 52/100 和 96/100 渲染得一样，等于把自评系统藏起来。
+// 70 是产品判断（"明显低于默认期望"的一档），不是统计值；
+// 信号只给数字色 + warn 描边，底色/对勾/标题全静。
+const SCORE_LOW = 70;
 function scoreRing(score) {
   const clamped = Math.max(0, Math.min(100, score));
-  const cls =
-    clamped >= 80 ? '' : clamped >= 40 ? 'score-ring--warn' : 'score-ring--bad';
+  const cls = clamped >= SCORE_LOW ? '' : 'score-ring--warn';
   const offset = 100 - clamped;
   return `<svg class="score-ring ${cls}" viewBox="0 0 36 36" role="img" aria-label="完成度 ${clamped} / 100">
     <circle class="ring-bg" cx="18" cy="18" r="15.9"/>
