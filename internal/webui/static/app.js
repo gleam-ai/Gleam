@@ -5113,9 +5113,10 @@ function setThreadMode(on) {
   sec.classList.toggle('thread-mode', on);
   goalInput.placeholder = composerPlaceholder();
   $('#goal-filters').parentElement.style.display = on ? 'none' : '';
-  document.querySelector('.command-deck').style.display = on ? 'none' : '';
-  document.querySelector('.quick-launch').style.display = on ? 'none' : '';
-  document.querySelector('.cue-deck').style.display = on ? 'none' : '';
+  // command-deck / quick-launch 已随 WorkBuddy 形态退休删除（DOM 不在了），
+  // 这里只兜 cue-deck；querySelector 可能返回 null，直接 .style 会抛错。
+  const cue = document.querySelector('.cue-deck');
+  if (cue) cue.style.display = on ? 'none' : '';
 }
 
 const HERO_ART = `<div class="hero-art" aria-hidden="true"><svg class="brand-mark" viewBox="0 0 96 96" width="96" height="96" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="18" width="60" height="60" rx="18" stroke-width="1.6" opacity=".35"/><g stroke-width="3"><circle cx="48" cy="48" r="7"/><path d="M48 30v6M48 60v6M30 48h6M60 48h6M35.3 35.3l4.2 4.2M56.5 56.5l4.2 4.2M35.3 60.7l4.2-4.2M56.5 39.5l4.2-4.2"/></g></svg></div>`;

@@ -29,13 +29,6 @@ const I18N_EN = {
   进行中: 'Active',
   已完成: 'Done',
   需处理: 'Needs you',
-  本地工作台: 'Local workbench',
-  '不止于对话，': 'Beyond chat, ',
-  '把事做完。': 'get it done.',
-  '描述一个目标，或从下方快捷入口开始。上下文留在本机，持续推进。':
-    'Describe a goal or start from a shortcut below. Context stays on this machine.',
-  本周完成: 'Done this week',
-  条记忆: 'memories',
   整理工作区: 'Tidy workspace',
   项目复盘: 'Project review',
   快速研究: 'Quick research',
