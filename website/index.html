@@ -14,8 +14,6 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <canvas id="glow-canvas"></canvas>
-
     <!-- Navigation -->
     <nav class="nav" id="nav">
       <div class="nav-inner">
@@ -43,85 +41,87 @@
     <!-- Hero -->
     <section class="hero">
       <div class="container">
-        <div class="hero-badge reveal">
-          <span class="badge-dot"></span>
-          <span data-i18n="hero.badge">v0.0.15 · Open Source · MIT License</span>
-        </div>
-        <h1 class="hero-title reveal reveal-delay-1" data-i18n="hero.title">
-          Your tasks,<br />
-          <span class="glow-text">handled.</span>
+        <p class="hero-eyebrow reveal">
+          Local-first · 10 MB · Zero cloud dependency
+        </p>
+        <h1 class="hero-title reveal reveal-delay-1">
+          <span class="line give"
+            >Give your ideas to <span class="brand">Gleam</span>,</span
+          >
+          <span class="line keep">keep your time for what matters.</span>
         </h1>
-        <p
-          class="hero-subtitle reveal reveal-delay-2"
-          data-i18n="hero.subtitle"
-        >
+        <p class="hero-subtitle reveal reveal-delay-2">
           Gleam is a local-first AI agent that plans, executes, and reflects on
           your work. One 10 MB binary. Zero cloud dependency. Your data stays on
           your machine.
         </p>
         <div class="hero-actions reveal reveal-delay-3">
-          <a href="#download" class="btn btn-primary" data-i18n="hero.download">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M8 1v10m0 0l-3-3m3 3l3-3M2 13h12"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-            Download for Windows
-          </a>
+          <a href="#download" class="btn btn-primary">Download for Windows</a>
           <a
             href="https://github.com/gleam-ai/Gleam"
             target="_blank"
-            class="btn btn-ghost"
-            data-i18n="hero.github"
+            class="btn-ghost"
+            >Star on GitHub</a
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
-              />
-            </svg>
-            Star on GitHub
-          </a>
         </div>
+        <p class="hero-meta reveal reveal-delay-3">
+          Open Source · MIT License
+        </p>
 
-        <!-- Terminal preview -->
-        <div class="hero-terminal reveal reveal-delay-4">
-          <div class="terminal-bar">
-            <span class="terminal-dot terminal-dot--red"></span>
-            <span class="terminal-dot terminal-dot--yellow"></span>
-            <span class="terminal-dot terminal-dot--green"></span>
-            <span class="terminal-title">gleam</span>
+        <!-- 推进轨：命令 → 步骤 → 完成卡片 -->
+        <div class="flow reveal reveal-delay-4">
+          <div class="flow-cmd">
+            <span class="prompt">$</span>gleam goal
+            <span class="arg">"organize my markdown files"</span>
           </div>
-          <div class="terminal-body">
-            <div class="terminal-line">
-              <span class="terminal-prompt">$</span>
-              <span class="terminal-cmd" id="typed-cmd"></span>
-              <span class="terminal-cursor">|</span>
+          <ul class="steps">
+            <li>
+              <span class="ok">✓</span><span class="num">01</span>Scanned 23
+              files
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">02</span>Grouped by
+              topic (5 categories)
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">03</span>Moved 18
+              files, updated 3 links
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">04</span>Summary
+              written to INDEX.md
+            </li>
+          </ul>
+          <div class="finish">
+            <div class="finish-head">
+              <span class="label">Done</span>
+              <span class="score">Self-check <b>94 / 100</b></span>
             </div>
-            <div class="terminal-output" id="typed-output"></div>
+            <p>It finished the whole job while you weren't watching.</p>
           </div>
         </div>
 
-        <!-- Stats -->
-        <div class="hero-stats reveal">
-          <div class="stat">
-            <div class="stat-value" data-target="10" data-suffix=" MB">0</div>
-            <div class="stat-label" data-i18n="stats.size">Binary size</div>
+        <!-- 事实条 -->
+        <div class="facts reveal">
+          <div class="fact">
+            <div class="n">
+              <span class="fact-num" data-target="10">0</span><small> MB</small>
+            </div>
+            <div class="k">Binary size</div>
           </div>
-          <div class="stat">
-            <div class="stat-value" data-target="27" data-suffix="">0</div>
-            <div class="stat-label" data-i18n="stats.tools">Built-in tools</div>
+          <div class="fact">
+            <div class="n"><span class="fact-num" data-target="27">0</span></div>
+            <div class="k">Built-in tools</div>
           </div>
-          <div class="stat">
-            <div class="stat-value" data-target="55" data-suffix="%">0</div>
-            <div class="stat-label" data-i18n="stats.tokens">Token savings</div>
+          <div class="fact">
+            <div class="n">
+              <span class="fact-num" data-target="55">0</span><small>%</small>
+            </div>
+            <div class="k">Token savings</div>
           </div>
-          <div class="stat">
-            <div class="stat-value" data-target="0" data-suffix="">0</div>
-            <div class="stat-label" data-i18n="stats.deps">External deps</div>
+          <div class="fact">
+            <div class="n"><span class="fact-num" data-target="0">0</span></div>
+            <div class="k">External deps</div>
           </div>
         </div>
       </div>
@@ -379,7 +379,7 @@
           </h2>
           <p class="section-sub" data-i18n="download.sub">
             <span id="dl-version">v0.0.15</span> · Released
-            <time id="dl-date" datetime="2026-10-14">2026-10-14</time> · MIT
+            <time id="dl-date" datetime="2026-10-13">2026-10-13</time> · MIT
             License
           </p>
         </div>

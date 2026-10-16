@@ -14,8 +14,6 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <canvas id="glow-canvas"></canvas>
-
     <!-- Navigation -->
     <nav class="nav" id="nav">
       <div class="nav-inner">
@@ -41,60 +39,80 @@
     <!-- Hero -->
     <section class="hero">
       <div class="container">
-        <div class="hero-badge">
-          <span class="badge-dot"></span>
-          v0.0.15 · 自动更新修复 · 开源 MIT
-        </div>
+        <p class="hero-eyebrow">
+          Local-first · 10 MB · Zero cloud dependency
+        </p>
         <h1 class="hero-title">
-          把想法交给微光，<br />
-          <span class="gradient">把时间留给重要的事。</span>
+          <span class="line give"
+            >把想法交给<span class="brand">微光</span>，</span
+          >
+          <span class="line keep">把时间留给重要的事。</span>
         </h1>
         <p class="hero-subtitle">
-          Gleam（微光）—— 10MB
+          Gleam（微光）—— 10 MB
           单文件，规划-执行-反思闭环。数据留在本机，模型随你切换。
         </p>
         <div class="hero-actions">
-          <a href="#download" class="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M8 1v10m0 0l-3-3m3 3l3-3M2 13h12"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-            立即下载
-          </a>
+          <a href="#download" class="btn btn-primary">立即下载</a>
           <a
             href="https://github.com/gleam-ai/Gleam"
             target="_blank"
-            class="btn btn-secondary"
+            class="btn-ghost"
+            >GitHub</a
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
-              />
-            </svg>
-            GitHub
-          </a>
         </div>
-        <div class="hero-stats">
-          <div class="stat">
-            <div class="stat-value">~10 MB</div>
-            <div class="stat-label">单文件大小</div>
+        <p class="hero-meta">开源 MIT · 自动更新修复</p>
+
+        <!-- 推进轨：命令 → 步骤 → 完成卡片 -->
+        <div class="flow">
+          <div class="flow-cmd">
+            <span class="prompt">$</span>gleam goal
+            <span class="arg">"整理我的 markdown 文件"</span>
           </div>
-          <div class="stat">
-            <div class="stat-value">&lt; 20 ms</div>
-            <div class="stat-label">启动时间</div>
+          <ul class="steps">
+            <li>
+              <span class="ok">✓</span><span class="num">01</span>扫描了 23
+              个文件
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">02</span>按主题归为 5
+              类
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">03</span>移动 18
+              个文件，更新 3 处链接
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">04</span>摘要写入
+              INDEX.md
+            </li>
+          </ul>
+          <div class="finish">
+            <div class="finish-head">
+              <span class="label">完成了</span>
+              <span class="score">自检得分 <b>94 / 100</b></span>
+            </div>
+            <p>它在你没看着的时候做完了整件事。</p>
           </div>
-          <div class="stat">
-            <div class="stat-value">55%</div>
-            <div class="stat-label">Token 节省</div>
+        </div>
+
+        <!-- 事实条 -->
+        <div class="facts">
+          <div class="fact">
+            <div class="n">~10 <small>MB</small></div>
+            <div class="k">单文件大小</div>
           </div>
-          <div class="stat">
-            <div class="stat-value">0</div>
-            <div class="stat-label">外部依赖</div>
+          <div class="fact">
+            <div class="n">&lt;20 <small>ms</small></div>
+            <div class="k">启动时间</div>
+          </div>
+          <div class="fact">
+            <div class="n">55<small>%</small></div>
+            <div class="k">Token 节省</div>
+          </div>
+          <div class="fact">
+            <div class="n">0</div>
+            <div class="k">外部依赖</div>
           </div>
         </div>
       </div>
@@ -311,7 +329,8 @@
         <div class="section-header">
           <h2>立即下载</h2>
           <p>
-            发布于 <time id="dl-date" datetime="2026-10-14">2026-10-14</time> ·
+            发布于 <span id="dl-version">v0.0.15</span> ·
+            <time id="dl-date" datetime="2026-10-13">2026-10-13</time> ·
             MIT 许可
           </p>
         </div>
