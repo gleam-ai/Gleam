@@ -127,194 +127,101 @@
       </div>
     </section>
 
-    <!-- Features (Bento Grid) -->
+    <!-- D · Capabilities：闭环主叙事 + 错落栏 -->
     <section id="features" class="features">
       <div class="container">
         <div class="section-header reveal">
-          <p class="section-eyebrow" data-i18n="features.eyebrow">
-            Capabilities
-          </p>
-          <h2 data-i18n="features.title">
-            Not a chatbot.<br /><span class="glow-text"
-              >A reliable colleague.</span
-            >
+          <p class="section-eyebrow">Capabilities</p>
+          <h2>
+            <span class="line give">Hand it a goal,</span>
+            <span class="line keep">get back a result.</span>
           </h2>
         </div>
 
-        <div class="bento-grid">
-          <div class="bento-card bento-card--wide reveal" data-delay="0">
-            <div class="bento-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 6v6l4 2" />
-              </svg>
-            </div>
-            <h3 data-i18n="features.plan.title">Plan → Execute → Reflect</h3>
-            <p data-i18n="features.plan.desc">
-              Every task runs through a closed loop: decompose into steps,
-              execute with DAG concurrency, then self-score 0–100. Low scores
-              trigger automatic replanning. No more forgotten follow-ups.
-            </p>
-            <div class="bento-visual">
-              <div class="flow-steps">
-                <div
-                  class="flow-step flow-step--active"
-                  data-i18n="features.plan.step1"
-                >
-                  Plan
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-step" data-i18n="features.plan.step2">
-                  Execute
-                </div>
-                <div class="flow-arrow">→</div>
-                <div class="flow-step" data-i18n="features.plan.step3">
-                  Reflect
-                </div>
-                <div class="flow-arrow flow-arrow--loop">↻</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bento-card reveal" data-delay="100">
-            <div class="bento-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0110 0v4" />
-              </svg>
-            </div>
-            <h3 data-i18n="features.local.title">Local-first</h3>
-            <p data-i18n="features.local.desc">
-              Conversations, memory, tasks, and audit logs default to your
-              machine. Only real LLM calls leave your network — and you pick the
-              provider.
+        <!-- 主叙事：核心闭环单独成带，不与其余五个能力平级 -->
+        <div class="loop-band reveal">
+          <div class="loop-stage">
+            <div class="loop-num">01</div>
+            <div class="loop-name">Plan</div>
+            <p class="loop-note">
+              Decompose the goal into ordered steps before touching anything.
             </p>
           </div>
+          <div class="loop-stage">
+            <div class="loop-num">02</div>
+            <div class="loop-name">Execute</div>
+            <p class="loop-note">
+              Run steps with DAG concurrency — every tool call passes the
+              safety gate.
+            </p>
+          </div>
+          <div class="loop-stage">
+            <div class="loop-num">03</div>
+            <div class="loop-name">Reflect</div>
+            <p class="loop-note">
+              Self-score 0–100. Low scores trigger automatic replanning.
+            </p>
+          </div>
+          <p class="loop-read">
+            Every task runs the closed loop — you never chase the follow-up.
+          </p>
+        </div>
 
-          <div class="bento-card reveal" data-delay="200">
-            <div class="bento-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
+        <!-- 签名四：错落栏 1.4 : 1 : 1.1。无图标，mono 编号 + 标签 pill -->
+        <div class="ev-grid">
+          <div class="ev-card reveal">
+            <div class="ev-head">
+              <span class="ev-num">01</span><span class="ev-pill">LOCAL</span>
             </div>
-            <h3 data-i18n="features.llm.title">9 LLM providers</h3>
-            <p data-i18n="features.llm.desc">
+            <h3>Local-first</h3>
+            <p>
+              Conversations, memory, tasks, and audit logs stay on your
+              machine. Only real LLM calls leave — and you pick the provider.
+            </p>
+          </div>
+          <div class="ev-card reveal" data-delay="100">
+            <div class="ev-head">
+              <span class="ev-num">02</span><span class="ev-pill">MODELS</span>
+            </div>
+            <h3>9 LLM providers</h3>
+            <p>
               GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and
-              more. Multi-model tier routing — use a strong model for planning,
-              a fast one for summaries.
+              more. Tier routing: a strong model plans, a fast one summarizes.
             </p>
           </div>
-
-          <div class="bento-card reveal" data-delay="100">
-            <div class="bento-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path
-                  d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"
-                />
-              </svg>
+          <div class="ev-card reveal" data-delay="200">
+            <div class="ev-head">
+              <span class="ev-num">03</span><span class="ev-pill">TOOLS</span>
             </div>
-            <h3 data-i18n="features.tools.title">27 built-in tools</h3>
-            <p data-i18n="features.tools.desc">
-              File, shell, web, git, clipboard, screenshots, memory, scheduling
-              — plus MCP for unlimited extensions. Install from the marketplace
-              in one click.
+            <h3>27 built-in tools</h3>
+            <p>
+              File, shell, web, git, clipboard, screenshots, memory,
+              scheduling — plus MCP for extensions.
             </p>
           </div>
-
-          <div class="bento-card reveal" data-delay="200">
-            <div class="bento-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 00-3-3.87" />
-                <path d="M16 3.13a4 4 0 010 7.75" />
-              </svg>
+          <div class="ev-card reveal" data-delay="100">
+            <div class="ev-head">
+              <span class="ev-num">04</span><span class="ev-pill">ROLES</span>
             </div>
-            <h3 data-i18n="features.roles.title">7 expert roles</h3>
-            <p data-i18n="features.roles.desc">
-              Analyst, engineer, PM, researcher, ops, creator — or define your
-              own. Each role brings its own system prompt, tool set, and model
+            <h3>7 expert roles</h3>
+            <p>
+              Analyst, engineer, PM, researcher, ops, creator — or your own.
+              Each role carries its own system prompt, tool set, and model
               tier.
             </p>
           </div>
-
-          <div class="bento-card bento-card--wide reveal" data-delay="0">
-            <div class="bento-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              >
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-              </svg>
+          <div class="ev-card reveal" data-delay="200">
+            <div class="ev-head">
+              <span class="ev-num">05</span><span class="ev-pill">SKILLS</span>
             </div>
-            <h3 data-i18n="features.skills.title">Skill crystallization</h3>
-            <p data-i18n="features.skills.desc">
-              Successful executions become reusable, versioned skills with
-              success-rate tracking. Failed runs auto-optimize parameters via
-              LLM revision. Your workflows get better every time.
+            <h3>Skill crystallization</h3>
+            <p>
+              Successful runs become versioned, reusable skills with
+              success-rate tracking.
             </p>
-            <div class="bento-visual">
-              <div class="skill-bars">
-                <div class="skill-bar">
-                  <span class="skill-label" data-i18n="features.skills.s1"
-                    >Code review</span
-                  ><span class="skill-fill" style="--fill: 92%"></span
-                  ><span class="skill-pct">92%</span>
-                </div>
-                <div class="skill-bar">
-                  <span class="skill-label" data-i18n="features.skills.s2"
-                    >File organize</span
-                  ><span class="skill-fill" style="--fill: 87%"></span
-                  ><span class="skill-pct">87%</span>
-                </div>
-                <div class="skill-bar">
-                  <span class="skill-label" data-i18n="features.skills.s3"
-                    >Git workflow</span
-                  ><span class="skill-fill" style="--fill: 95%"></span
-                  ><span class="skill-pct">95%</span>
-                </div>
-              </div>
+            <div class="ev-facts">
+              Code review <b>92%</b> · File organize <b>87%</b> · Git workflow
+              <b>95%</b>
             </div>
           </div>
         </div>
@@ -325,11 +232,10 @@
     <section id="how-it-works" class="showcase">
       <div class="container">
         <div class="section-header reveal">
-          <p class="section-eyebrow" data-i18n="showcase.eyebrow">Interface</p>
-          <h2 data-i18n="showcase.title">
-            Designed to stay<br /><span class="glow-text"
-              >out of your way.</span
-            >
+          <p class="section-eyebrow">Interface</p>
+          <h2>
+            <span class="line give">It steps back,</span>
+            <span class="line keep">you get on with it.</span>
           </h2>
         </div>
         <div class="showcase-grid">
@@ -371,135 +277,67 @@
     <section id="download" class="download">
       <div class="container">
         <div class="section-header reveal">
-          <p class="section-eyebrow" data-i18n="download.eyebrow">
-            Get started
-          </p>
-          <h2 data-i18n="download.title">
-            One binary.<br /><span class="glow-text">Zero setup.</span>
+          <p class="section-eyebrow">Get started</p>
+          <h2>
+            <span class="line give">One binary.</span>
+            <span class="line keep">Zero setup.</span>
           </h2>
-          <p class="section-sub" data-i18n="download.sub">
+          <p class="section-sub">
             <span id="dl-version">v0.0.15</span> · Released
             <time id="dl-date" datetime="2026-10-13">2026-10-13</time> · MIT
             License
           </p>
         </div>
 
-        <div class="download-grid">
+        <!-- F：Windows 主推卡片占大份，其余三个紧凑列表 -->
+        <div class="download-layout">
           <a
             href="https://github.com/gleam-ai/Gleam/releases/latest/download/Gleam-Setup.exe"
-            class="download-card download-card--featured reveal"
+            class="download-main reveal"
           >
-            <div class="download-card-icon">
-              <svg
-                width="28"
-                height="28"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
+            <div class="dm-platform">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path
                   d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"
                 />
               </svg>
+              Windows <span class="dm-badge">RECOMMENDED</span>
             </div>
-            <div class="download-card-body">
-              <div class="download-card-title">
-                Windows
-                <span class="download-badge" data-i18n="download.badge"
-                  >Recommended</span
-                >
-              </div>
-              <div class="download-card-desc" data-i18n="download.winDesc">
-                One-click installer · Tray icon · Auto-update · Bundled runtimes
-              </div>
-            </div>
-            <div class="download-card-meta">~127 MB · NSIS</div>
+            <p class="dm-desc">
+              One-click installer · tray icon · auto-update · bundled runtimes
+            </p>
+            <div class="dm-meta">~127 MB · NSIS</div>
           </a>
 
-          <a
-            href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-windows-amd64.exe"
-            class="download-card reveal"
-            data-delay="100"
-          >
-            <div class="download-card-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path
-                  d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"
-                />
-              </svg>
-            </div>
-            <div class="download-card-body">
-              <div class="download-card-title" data-i18n="download.winCli">
-                Windows CLI
-              </div>
-              <div class="download-card-desc" data-i18n="download.winCliDesc">
-                Single-file binary
-              </div>
-            </div>
-            <div class="download-card-meta">~12 MB</div>
-          </a>
-
-          <a
-            href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-darwin-arm64"
-            class="download-card reveal"
-            data-delay="150"
-          >
-            <div class="download-card-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path
-                  d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
-                />
-              </svg>
-            </div>
-            <div class="download-card-body">
-              <div class="download-card-title" data-i18n="download.mac">
-                macOS
-              </div>
-              <div class="download-card-desc" data-i18n="download.macDesc">
-                Apple Silicon
-              </div>
-            </div>
-            <div class="download-card-meta">~15 MB</div>
-          </a>
-
-          <a
-            href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-linux-amd64"
-            class="download-card reveal"
-            data-delay="200"
-          >
-            <div class="download-card-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-            </div>
-            <div class="download-card-body">
-              <div class="download-card-title" data-i18n="download.linux">
-                Linux
-              </div>
-              <div class="download-card-desc" data-i18n="download.linuxDesc">
-                x86_64 binary
-              </div>
-            </div>
-            <div class="download-card-meta">~15 MB</div>
-          </a>
+          <div class="download-list">
+            <a
+              class="dl-row reveal"
+              data-delay="100"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-windows-amd64.exe"
+            >
+              <span class="dl-name">Windows CLI</span>
+              <span class="dl-desc">Single-file binary</span>
+              <span class="dl-size">~12 MB</span>
+            </a>
+            <a
+              class="dl-row reveal"
+              data-delay="150"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-darwin-arm64"
+            >
+              <span class="dl-name">macOS</span>
+              <span class="dl-desc">Apple Silicon</span>
+              <span class="dl-size">~15 MB</span>
+            </a>
+            <a
+              class="dl-row reveal"
+              data-delay="200"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-linux-amd64"
+            >
+              <span class="dl-name">Linux</span>
+              <span class="dl-desc">x86_64 binary</span>
+              <span class="dl-size">~15 MB</span>
+            </a>
+          </div>
         </div>
 
         <p class="download-alt" data-i18n="download.alt">

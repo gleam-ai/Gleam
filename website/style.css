@@ -32,7 +32,6 @@
   --text-secondary: var(--tb);
   --text-muted: var(--td);
   --glow-border: rgba(245, 200, 119, 0.25);
-  --glow-text: var(--glow);
 
   --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun",
     serif;
@@ -137,7 +136,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 17px;
   letter-spacing: -0.02em;
 }
@@ -251,10 +250,6 @@ body::before {
 
 .hero-title .keep {
   color: var(--tp);
-}
-
-.glow-text {
-  color: var(--glow);
 }
 
 .hero-subtitle {
@@ -484,19 +479,21 @@ body::before {
 }
 
 .section-eyebrow {
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--glow);
+  letter-spacing: 0.15em;
+  color: var(--td);
   margin-bottom: 16px;
 }
 
 .section-header h2 {
-  font-size: clamp(32px, 4vw, 48px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
+  font-family: var(--serif);
+  font-size: clamp(28px, 3.6vw, 40px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.32;
 }
 
 .section-sub {
@@ -505,207 +502,171 @@ body::before {
   margin-top: 16px;
 }
 
-/* ── Bento Grid ── */
+/* ── D · Capabilities：闭环主叙事 + 错落栏 ── */
 .features {
   position: relative;
   z-index: 1;
   padding: 120px 0;
 }
 
-.bento-grid {
+/* 签名一在区块标题上的复用：前半句压暗、后半句提亮 */
+.section-header h2 .line {
+  display: block;
+}
+.section-header h2 .give {
+  color: var(--tb);
+}
+.section-header h2 .keep {
+  color: var(--tp);
+}
+
+/* 主叙事：Plan → Execute → Reflect 横向流程带。
+   不是卡片——流程靠发丝线分格 + mono 编号，读起来像一道工序，不像一叠帖子。 */
+.loop-band {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 36px 0 32px;
+  margin-bottom: 56px;
 }
-
-.bento-card {
-  position: relative;
-  padding: 32px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  transition: all 0.3s var(--ease);
-  overflow: hidden;
+.loop-stage {
+  padding: 0 36px;
+  border-left: 1px solid var(--line);
 }
-
-.bento-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-    var(--glow-soft),
-    transparent 40%
-  );
-  opacity: 0;
-  transition: opacity 0.3s;
-  pointer-events: none;
+.loop-stage:first-child {
+  padding-left: 0;
+  border-left: none;
 }
-
-.bento-card:hover::before {
-  opacity: 1;
+.loop-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--td);
 }
-
-.bento-card:hover {
-  border-color: var(--border-hover);
-  transform: translateY(-2px);
+.loop-name {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--tp);
+  margin: 10px 0 8px;
 }
-
-.bento-card--wide {
+.loop-note {
+  font-size: 13.5px;
+  color: var(--tb);
+  line-height: 1.75;
+  margin: 0;
+}
+.loop-read {
   grid-column: 1 / -1;
-}
-
-.bento-icon {
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--glow-soft);
-  border: 1px solid var(--glow-border);
-  border-radius: 10px;
-  color: var(--glow);
-  margin-bottom: 20px;
-}
-
-.bento-card h3 {
-  font-size: 18px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  letter-spacing: -0.01em;
-}
-
-.bento-card p {
+  margin: 28px 0 0;
+  padding-top: 24px;
+  border-top: 1px dashed var(--line);
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--tb);
   line-height: 1.7;
 }
 
-/* Bento visuals */
-.bento-visual {
-  margin-top: 24px;
+/* 签名四：错落栏。1.4 : 1 : 1.1，禁止 repeat(3,1fr)——对称本身就在喊"我是模板"。 */
+.ev-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1.1fr;
+  gap: 20px;
 }
-
-.flow-steps {
+.ev-card {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px 26px 30px;
+  transition:
+    border-color 0.3s var(--ease),
+    transform 0.3s var(--ease);
+}
+.ev-card:hover {
+  border-color: rgba(245, 200, 119, 0.22);
+  transform: translateY(-2px);
+}
+.ev-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  margin-bottom: 18px;
 }
-
-.flow-step {
-  padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all 0.3s;
-}
-
-.flow-step--active {
-  background: var(--glow-soft);
-  border-color: var(--glow-border);
-  color: var(--glow);
-  animation: flowPulse 2s ease-in-out infinite;
-}
-
-@keyframes flowPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(245, 166, 35, 0.2);
-  }
-  50% {
-    box-shadow: 0 0 0 8px rgba(245, 166, 35, 0);
-  }
-}
-
-.flow-arrow {
-  color: var(--text-muted);
-  font-size: 16px;
-}
-
-.flow-arrow--loop {
-  color: var(--glow);
-  font-size: 20px;
-}
-
-.skill-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.skill-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 13px;
-}
-
-.skill-label {
-  width: 100px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.skill-fill {
-  flex: 1;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 3px;
-  overflow: hidden;
-  position: relative;
-}
-
-.skill-fill::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: var(--fill, 0%);
-  background: var(--glow);
-  border-radius: 3px;
-  transition: width 1s var(--ease);
-}
-
-.skill-pct {
-  width: 36px;
-  text-align: right;
+.ev-num {
   font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--td);
+}
+.ev-pill {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--td);
+  border: 1px solid var(--line);
+  padding: 4px 11px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.ev-card h3 {
+  font-family: var(--serif);
+  font-size: 18px;
   font-weight: 600;
-  color: var(--glow);
+  letter-spacing: 0.02em;
+  color: var(--tp);
+  margin: 0 0 10px;
+}
+.ev-card p {
+  font-size: 14px;
+  color: var(--tb);
+  line-height: 1.78;
+  margin: 0;
+}
+/* 卡内数字事实（如技能成功率）：mono 小字，不用发光进度条 */
+.ev-facts {
+  margin: 16px 0 0;
+  font-family: var(--mono);
   font-size: 12px;
+  line-height: 2;
+  color: var(--td);
+}
+.ev-facts b {
+  color: var(--tp);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ── Showcase ── */
+/* ── E · Interface：主图 + 辅图错落 ── */
 .showcase {
   position: relative;
   z-index: 1;
   padding: 120px 0;
 }
 
+/* 主图占 1.4fr 并纵跨全部辅图行，辅图在右列堆叠——不是等宽三列 */
 .showcase-grid {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   grid-template-rows: auto auto;
-  gap: 16px;
+  gap: 20px;
 }
 
 .showcase-card {
   position: relative;
-  border-radius: var(--radius-lg);
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  transition: all 0.3s var(--ease);
+  border: 1px solid var(--line);
+  background: var(--raised);
+  transition:
+    border-color 0.3s var(--ease),
+    transform 0.3s var(--ease);
 }
 
 .showcase-card:hover {
   border-color: var(--border-hover);
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
 }
 
 .showcase-card--large {
@@ -716,6 +677,7 @@ body::before {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .showcase-label {
@@ -727,97 +689,117 @@ body::before {
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
   font-size: 14px;
   font-weight: 500;
+  color: var(--tp);
 }
 
-/* ── Download ── */
+/* ── F · Download：主推卡片 + 紧凑列表 ── */
 .download {
   position: relative;
   z-index: 1;
   padding: 120px 0;
 }
 
-.download-grid {
+.download-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 24px;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 20px;
+  align-items: start;
 }
 
-.download-card {
+/* 主推卡即本屏唯一主按钮：微光底（全站 5 处微光之一），深色字 */
+.download-main {
+  display: block;
+  background: var(--glow);
+  color: #14171d;
+  border-radius: 14px;
+  padding: 32px 30px 30px;
+  transition:
+    transform 0.3s var(--ease),
+    box-shadow 0.3s var(--ease);
+}
+.download-main:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px -8px rgba(245, 200, 119, 0.4);
+}
+.dm-platform {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  transition: all 0.2s var(--ease);
+  gap: 12px;
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
-
-.download-card:hover {
-  border-color: var(--border-hover);
-  background: var(--bg-hover);
-  transform: translateY(-2px);
+.dm-platform svg {
+  flex: none;
+  opacity: 0.82;
 }
-
-.download-card--featured {
-  grid-column: 1 / -1;
-  border-color: var(--glow-border);
-  background: linear-gradient(
-    135deg,
-    rgba(245, 166, 35, 0.06),
-    rgba(245, 166, 35, 0.02)
-  );
-}
-
-.download-card--featured:hover {
-  border-color: var(--glow);
-  box-shadow: 0 0 30px rgba(245, 166, 35, 0.1);
-}
-
-.download-card-icon {
-  flex-shrink: 0;
-  color: var(--text-muted);
-}
-
-.download-card--featured .download-card-icon {
-  color: var(--glow);
-}
-
-.download-card-body {
-  flex: 1;
-}
-
-.download-card-title {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 2px;
-}
-
-.download-card-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.download-card-meta {
-  font-size: 12px;
+.dm-badge {
   font-family: var(--mono);
-  color: var(--text-muted);
-  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgba(20, 23, 29, 0.12);
+  color: #14171d;
+  white-space: nowrap;
+}
+.dm-desc {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(20, 23, 29, 0.72);
+}
+.dm-meta {
+  margin-top: 22px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: rgba(20, 23, 29, 0.85);
+  font-variant-numeric: tabular-nums;
 }
 
-.download-badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--glow);
-  color: #0a0a0f;
-  vertical-align: middle;
-  margin-left: 8px;
+/* 其余平台：紧凑列表，细线分隔，不是卡片 */
+.download-list {
+  display: flex;
+  flex-direction: column;
+}
+.dl-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 15px 4px;
+  border-bottom: 1px solid var(--line);
+  transition: color 0.2s var(--ease);
+}
+.dl-row:first-child {
+  border-top: 1px solid var(--line);
+}
+.dl-row:hover .dl-name {
+  color: var(--tp);
+}
+.dl-name {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--tb);
+  white-space: nowrap;
+  transition: color 0.2s var(--ease);
+}
+.dl-desc {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--td);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-size {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--td);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .download-alt {
@@ -855,7 +837,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
 }
 
@@ -969,23 +951,33 @@ body::before {
     padding: 0;
     border-left: none;
   }
-  .bento-grid {
+  /* D：闭环带转竖排、错落栏转单列 */
+  .loop-band {
+    grid-template-columns: 1fr;
+    padding: 28px 0 24px;
+  }
+  .loop-stage {
+    padding: 20px 0;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  .loop-stage:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+  .ev-grid {
     grid-template-columns: 1fr;
   }
-  .bento-card--wide {
-    grid-column: auto;
-  }
+  /* E：主图+辅图转单列 */
   .showcase-grid {
     grid-template-columns: 1fr;
   }
   .showcase-card--large {
     grid-row: auto;
   }
-  .download-grid {
+  /* F：主推卡 + 列表转单列 */
+  .download-layout {
     grid-template-columns: 1fr;
-  }
-  .download-card--featured {
-    grid-column: auto;
   }
   .footer-content {
     flex-direction: column;
