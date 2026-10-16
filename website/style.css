@@ -859,32 +859,48 @@ body::before {
 .footer-qr {
   display: flex;
   justify-content: center;
-  gap: 48px;
-  padding: 32px 0;
+  align-items: center;
+  padding: 24px 0;
   margin-bottom: 24px;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
+/* 三张码是并列的联络方式（无先后、无主次），但不应排成三张同构卡——
+   改成签名三同族的行内条：细线分隔、码与标签同行。
+   88px 是刻意保守的下限：赞赏码模块最密（约 37-45 模块），
+   88px 时模块仍 ≥2px、屏上物理尺寸约 23mm，手机 30cm 内扫描余量充足；
+   再压就赌扫码成功率——收款码扫不出来等于白改。
+   img 的白底是二维码静区（扫描必需），不是 §3.2 禁的纯白文字，保留。 */
 .qr-item {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
+  padding: 0 32px;
+  border-left: 1px solid var(--border);
+}
+
+.qr-item:first-child {
+  border-left: none;
 }
 
 .qr-item img {
-  width: 100px;
-  height: 100px;
+  width: 88px;
+  height: 88px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
-  padding: 6px;
+  padding: 5px;
+  flex: none;
 }
 
 .qr-item div {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  color: var(--td);
+  max-width: 9em;
+  line-height: 1.6;
 }
 
 .footer-bottom {
@@ -985,8 +1001,11 @@ body::before {
   }
   .footer-qr {
     flex-direction: column;
-    align-items: center;
-    gap: 24px;
+    gap: 16px;
+  }
+  .qr-item {
+    border-left: none;
+    padding: 0;
   }
 }
 
