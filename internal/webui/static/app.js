@@ -398,17 +398,19 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#nav-more-body').hidden) setMoreOpen(false);
 });
 
-document.querySelectorAll('.quick-card').forEach((card) => {
-  card.addEventListener('click', () => {
-    goalInput.value = card.dataset.prompt || '';
-    const task = card.dataset.task;
-    const taskBtn = document.querySelector(
-      `#task-seg button[data-task="${task}"]`,
-    );
-    if (taskBtn) taskBtn.click();
-    autoResize();
-    goalInput.focus();
-  });
+// 快捷入口是空态（#goals-empty）的一部分，feed 会被 resetFeedToEmpty 整块
+// 重建，逐节点绑定会随重建丢失——改成事件委托，绑一次。
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.quick-card');
+  if (!card) return;
+  goalInput.value = card.dataset.prompt || '';
+  const task = card.dataset.task;
+  const taskBtn = document.querySelector(
+    `#task-seg button[data-task="${task}"]`,
+  );
+  if (taskBtn) taskBtn.click();
+  autoResize();
+  goalInput.focus();
 });
 
 let connIsUp = true;
@@ -2686,11 +2688,9 @@ async function loadGoals() {
       .reverse()
       .forEach((info) => renderTaskCard(info, false));
     if (!goals || !goals.length) {
-      resetFeedToEmpty(
-        '不止于对话，把事做完',
-        '上下文留在本机，Gleam 帮你一步步推进',
-        { home: true },
-      );
+      resetFeedToEmpty('暂无任务', '描述一个目标，或从下面选一件事开始。', {
+        home: true,
+      });
     }
   } catch {}
 }
@@ -5119,7 +5119,10 @@ function setThreadMode(on) {
   if (cue) cue.style.display = on ? 'none' : '';
 }
 
-const HERO_ART = `<div class="hero-art" aria-hidden="true"><svg class="brand-mark" viewBox="0 0 96 96" width="96" height="96" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="18" width="60" height="60" rx="18" stroke-width="1.6" opacity=".35"/><g stroke-width="3"><circle cx="48" cy="48" r="7"/><path d="M48 30v6M48 60v6M30 48h6M60 48h6M35.3 35.3l4.2 4.2M56.5 56.5l4.2 4.2M35.3 60.7l4.2-4.2M56.5 39.5l4.2-4.2"/></g></svg></div>`;
+// 空态快捷入口：与 index.html #goals-empty 里的静态块保持同构（文案与
+// data-prompt 一字不差，改一处必须同步另一处）。品牌主视觉已从空态退场：
+// 标识在侧栏与顶栏各有一处，空态需要的是"下一步能做什么"，不是主视觉。
+const EMPTY_ENTRIES = `<div class="empty-entries" aria-label="快捷开始"><button class="quick-card" type="button" data-prompt="整理当前工作区的文件，按类型归档并生成一份索引" data-task="work"><strong>整理工作区</strong><small>文件归档 · 生成索引</small></button><button class="quick-card" type="button" data-prompt="分析最近的项目进度，提炼风险并给出下一步行动" data-task="work"><strong>项目复盘</strong><small>进度分析 · 风险提醒</small></button><button class="quick-card" type="button" data-prompt="阅读当前目录的文档，提炼关键结论并整理成简报" data-task="code"><strong>快速研究</strong><small>阅读文档 · 输出简报</small></button></div>`;
 
 function resetFeedToEmpty(title, desc, opts = {}) {
   const feed = $('#goal-feed');
@@ -5130,9 +5133,10 @@ function resetFeedToEmpty(title, desc, opts = {}) {
   );
   empty.id = 'goals-empty';
   empty.innerHTML =
-    `${HERO_ART}<div class="empty-title">${esc(title)}</div><p class="empty-desc">${esc(desc)}</p>` +
+    `<div class="empty-title">${esc(title)}</div><p class="empty-desc">${esc(desc)}</p>` +
     (opts.home
-      ? '<section class="activity-card" aria-label="本机活动"></section>'
+      ? EMPTY_ENTRIES +
+        '<section class="activity-card" aria-label="本机活动"></section>'
       : '') +
     '<section class="site-tpl" aria-label="站点模板" hidden></section>';
   feed.appendChild(empty);

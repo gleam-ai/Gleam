@@ -939,7 +939,6 @@
             >
               <div class="cue-head">
                 <div class="cue-heading">
-                  <span class="eyebrow">SUGGESTED NEXT</span>
                   <h2 class="cue-title" id="cu-title">候补目标</h2>
                 </div>
                 <button
@@ -999,36 +998,37 @@
             </div>
             <div class="row-list" id="goal-feed" aria-live="polite">
               <div class="empty home-hero" id="goals-empty">
-                <div class="hero-art" aria-hidden="true">
-                  <svg
-                    class="brand-mark"
-                    viewBox="0 0 96 96"
-                    width="96"
-                    height="96"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+                <div class="empty-title">暂无任务</div>
+                <p class="empty-desc">描述一个目标，或从下面选一件事开始。</p>
+                <div class="empty-entries" aria-label="快捷开始">
+                  <button
+                    class="quick-card"
+                    type="button"
+                    data-prompt="整理当前工作区的文件，按类型归档并生成一份索引"
+                    data-task="work"
                   >
-                    <rect
-                      x="18"
-                      y="18"
-                      width="60"
-                      height="60"
-                      rx="18"
-                      stroke-width="1.6"
-                      opacity=".35"
-                    />
-                    <g stroke-width="3">
-                      <circle cx="48" cy="48" r="7" />
-                      <path
-                        d="M48 30v6M48 60v6M30 48h6M60 48h6M35.3 35.3l4.2 4.2M56.5 56.5l4.2 4.2M35.3 60.7l4.2-4.2M56.5 39.5l4.2-4.2"
-                      />
-                    </g>
-                  </svg>
+                    <strong>整理工作区</strong
+                    ><small>文件归档 · 生成索引</small>
+                  </button>
+                  <button
+                    class="quick-card"
+                    type="button"
+                    data-prompt="分析最近的项目进度，提炼风险并给出下一步行动"
+                    data-task="work"
+                  >
+                    <strong>项目复盘</strong
+                    ><small>进度分析 · 风险提醒</small>
+                  </button>
+                  <button
+                    class="quick-card"
+                    type="button"
+                    data-prompt="阅读当前目录的文档，提炼关键结论并整理成简报"
+                    data-task="code"
+                  >
+                    <strong>快速研究</strong
+                    ><small>阅读文档 · 输出简报</small>
+                  </button>
                 </div>
-                <div class="empty-title">不止于对话，把事做完</div>
-                <p class="empty-desc">上下文留在本机，Gleam 帮你一步步推进</p>
                 <section class="activity-card" aria-label="本机活动"></section>
                 <section
                   class="site-tpl"

@@ -10,9 +10,9 @@ const I18N_EN = {
   设置: 'Settings',
   我的: 'Me',
   新任务: 'New task',
-  '不止于对话，把事做完': 'Beyond chat, get it done',
-  '上下文留在本机，Gleam 帮你一步步推进':
-    'Context stays on this machine while Gleam moves the work forward',
+  暂无任务: 'No tasks yet',
+  '描述一个目标，或从下面选一件事开始。':
+    'Describe a goal, or pick one below to start.',
   会话: 'Chats',
   任务: 'Tasks',
   收起侧栏: 'Collapse sidebar',
