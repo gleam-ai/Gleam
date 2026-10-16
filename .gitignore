@@ -24,6 +24,10 @@ desktop/build/
 desktop/build-*/
 desktop/dist2/
 
+# 发布校验和的手动副本（构建流程只认 dist/SHA256SUMS-<date>.txt，见 scripts/package.sh；
+# 仓库根目录这几个是人工核对产物时的散落副本，重新生成即可，不入库）
+SHA256SUMS*.txt
+
 # AI Agent 工具目录（本机专用，不入库）
 .workbuddy-ai/
 .qoder-cn/
