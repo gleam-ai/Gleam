@@ -80,7 +80,7 @@ export function installUpdater(host: UpdaterHost): void {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     return latest;
   });
-  ipcMain.handle('desktop:update:restart', (e) => {
+  ipcMain.handle('desktop:update:restart', async (e) => {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     if (!supported || latest.kind !== 'downloaded') return { ok: false };
 
@@ -95,15 +95,16 @@ export function installUpdater(host: UpdaterHost): void {
 
     log(`running installer: ${installerPath}`);
     const { shell } = require('electron');
-    shell.openPath(installerPath).then((err: string) => {
-      if (err) {
-        log(`failed to open installer: ${err}`);
-      } else {
-        log('installer launched, quitting app');
-        app.quit();
-      }
-    });
-
+    // Await the launch before answering: openPath resolves with the error
+    // message (empty on success), so the renderer can tell "installer is
+    // starting" from "nothing happened" instead of showing a dead button.
+    const err = await shell.openPath(installerPath);
+    if (err) {
+      log(`failed to open installer: ${err}`);
+      return { ok: false, error: String(err) };
+    }
+    log('installer launched, quitting app');
+    app.quit();
     return { ok: true };
   });
 
