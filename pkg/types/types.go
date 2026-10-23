@@ -6,13 +6,19 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+var fallbackSeq atomic.Uint64
 
 func NewID() string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("t%d", time.Now().UnixNano())
+		// Fall back to time plus an in-process counter when the entropy source
+		// is unavailable: a random failure must not produce collisions. This ID
+		// is not a secret and does not need to be unpredictable.
+		return fmt.Sprintf("t%x-%x", time.Now().UnixNano(), fallbackSeq.Add(1))
 	}
 	return hex.EncodeToString(b)
 }
@@ -381,6 +387,7 @@ type ConfigSnapshot struct {
 type GoalResult struct {
 	TaskID           string            `json:"task_id"`
 	Goal             string            `json:"goal"`
+	ConversationID   string            `json:"conversation_id,omitempty"`
 	Status           GoalStatus        `json:"status"`
 	Mode             string            `json:"mode,omitempty"`
 	TaskMode         TaskMode          `json:"task_mode,omitempty"`
@@ -508,6 +515,18 @@ func Shorten(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// ShortenTail keeps the last n characters and reports how much was omitted
+// before them: summaries are appended in time order, so newer content is at
+// the end and only cutting the head discards the oldest text.
+func ShortenTail(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	cut := len(r) - n
+	return fmt.Sprintf("（更早的 %d 字已省略）…", cut) + string(r[cut:])
 }
 
 func EstimateTokens(s string) int {

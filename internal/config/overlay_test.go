@@ -121,6 +121,40 @@ func TestApply_ModelTiersIgnoresBlank(t *testing.T) {
 	}
 }
 
+func TestSaveLoadOverlay_MCPRemoteAndSecretsRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Default()
+	cfg.MCP = []MCPServerConfig{
+		{
+			Name: "remote", URL: "https://mcp.example.test/sse",
+			Headers: map[string]string{"Authorization": "Bearer token-1"},
+			Trust:   "readonly", Enabled: true,
+		},
+		{
+			Name: "local", Command: "npx", Args: []string{"-y", "server"},
+			Env: map[string]string{"API_KEY": "env-secret"}, Trust: "user_approved", Enabled: false,
+		},
+	}
+	path := filepath.Join(dir, OverlayFile)
+	if err := cfg.SaveOverlay(path); err != nil {
+		t.Fatal(err)
+	}
+	fresh := Default()
+	if err := LoadOverlay(fresh, path); err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh.MCP) != 2 {
+		t.Fatalf("MCP 服务器应读回 2 个（远端不能因为 command 为空被丢掉），实际 %+v", fresh.MCP)
+	}
+	remote, local := fresh.MCP[0], fresh.MCP[1]
+	if remote.URL != "https://mcp.example.test/sse" || remote.Headers["Authorization"] != "Bearer token-1" {
+		t.Errorf("远端 MCP 的 URL/Headers 丢了: %+v", remote)
+	}
+	if local.Env["API_KEY"] != "env-secret" || local.Enabled {
+		t.Errorf("stdio MCP 的 Env/Enabled 丢了: %+v", local)
+	}
+}
+
 func TestLoadOverlay_MissingFileOK(t *testing.T) {
 	cfg := Default()
 	if err := LoadOverlay(cfg, filepath.Join(t.TempDir(), "absent.yaml")); err != nil {

@@ -5,6 +5,7 @@ import {
   type UpdateDownloadedEvent,
   type UpdateInfo,
 } from 'electron-updater';
+import { spawn } from 'node:child_process';
 import { APP_HOST, APP_SCHEME } from './protocol';
 
 export type UpdateStatus =
@@ -36,6 +37,8 @@ function fromAppFrame(e: IpcMainInvokeEvent): boolean {
 
 export interface UpdaterHost {
   allowClose: () => void;
+  // Stops the sidecar before the installer overwrites files on disk.
+  quitForUpdate: () => Promise<void>;
 }
 
 export function installUpdater(host: UpdaterHost): void {
@@ -80,31 +83,51 @@ export function installUpdater(host: UpdaterHost): void {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     return latest;
   });
+  ipcMain.handle('desktop:update:download', async (e) => {
+    if (!fromAppFrame(e)) throw new Error('forbidden');
+    if (!supported || latest.kind !== 'available') return { ok: false };
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (err) {
+      log(`download failed: ${String(err)}`);
+      return { ok: false, error: String(err) };
+    }
+  });
   ipcMain.handle('desktop:update:restart', async (e) => {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     if (!supported || latest.kind !== 'downloaded') return { ok: false };
 
-    // Use shell.openPath() to run the downloaded installer directly.
-    // This avoids autoUpdater.quitAndInstall() which uses elevate.exe and
-    // can corrupt resources/bin/gleam.exe on Windows NSIS builds.
     const installerPath = (autoUpdater as any).installerPath;
     if (!installerPath) {
       log('update downloaded but installer path not available');
       return { ok: false };
     }
 
-    log(`running installer: ${installerPath}`);
-    const { shell } = require('electron');
-    // Await the launch before answering: openPath resolves with the error
-    // message (empty on success), so the renderer can tell "installer is
-    // starting" from "nothing happened" instead of showing a dead button.
-    const err = await shell.openPath(installerPath);
-    if (err) {
-      log(`failed to open installer: ${err}`);
-      return { ok: false, error: String(err) };
+    // Stop the sidecar before launching: the installer overwrites
+    // resources/bin/gleam.exe, and an open handle leaves a corrupted file.
+    await host.quitForUpdate();
+    if (process.platform === 'win32') {
+      // Keep our own spawn instead of quitAndInstall() (its elevate.exe path
+      // corrupted the sidecar on NSIS builds), but pass --updated so NSIS
+      // treats this as an in-place update rather than a fresh install.
+      const child = spawn(installerPath, ['--updated'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      child.on('error', (err) => log(`installer spawn failed: ${String(err)}`));
+      if (!child.pid) {
+        log('failed to start installer');
+        return { ok: false, error: 'failed to start installer' };
+      }
+      child.unref();
+      log(`installer launched: ${installerPath}`);
+      app.quit();
+      return { ok: true };
     }
-    log('installer launched, quitting app');
-    app.quit();
+    host.allowClose();
+    autoUpdater.quitAndInstall(false, true);
     return { ok: true };
   });
 
@@ -118,7 +141,9 @@ export function installUpdater(host: UpdaterHost): void {
   if (!supported) return;
 
   autoUpdater.logger = { info: log, warn: log, error: log };
-  autoUpdater.autoDownload = true;
+  // Only download after the user clicks update: silently pulling 265 MB at
+  // startup wastes bandwidth and disk.
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false; // User must explicitly click restart
 
   autoUpdater.on('checking-for-update', () => push({ kind: 'checking' }));

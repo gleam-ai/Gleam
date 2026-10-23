@@ -37,10 +37,37 @@ type Store struct {
 }
 
 type file struct {
+	// LLMAPIKeys is keyed by endpoint host (llm.KeyScope): one key per vendor.
+	LLMAPIKeys map[string]string `json:"llm_api_keys,omitempty"`
+	// The single-key fields are the legacy format: read only for migration,
+	// never written again.
 	LLMAPIKey     string        `json:"llm_api_key,omitempty"`
 	LLMAPIKeyHost string        `json:"llm_api_key_host,omitempty"`
 	Cloud         *CloudSession `json:"cloud,omitempty"`
 	CloudCfg      *CloudConfig  `json:"cloud_config,omitempty"`
+}
+
+// migrateKeys moves the legacy single-key pair into the per-host map. It
+// reports whether anything changed in memory; callers decide when to persist.
+func (f *file) migrateKeys() bool {
+	if f.LLMAPIKey == "" {
+		return false
+	}
+	if f.LLMAPIKeys == nil {
+		f.LLMAPIKeys = map[string]string{}
+	}
+	if _, ok := f.LLMAPIKeys[f.LLMAPIKeyHost]; !ok {
+		f.LLMAPIKeys[f.LLMAPIKeyHost] = f.LLMAPIKey
+	}
+	f.LLMAPIKey = ""
+	return true
+}
+
+func (f *file) lastHost() string {
+	if f.LLMAPIKeys[f.LLMAPIKeyHost] != "" {
+		return f.LLMAPIKeyHost
+	}
+	return ""
 }
 
 func Open(dataDir string) (*Store, error) {
@@ -87,20 +114,31 @@ func (s *Store) ResolveLLMAPIKey(host string) (key, storedHost string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f, err := s.read()
-	if err != nil || f.LLMAPIKey == "" {
+	if err != nil {
 		return "", ""
 	}
-	if f.LLMAPIKeyHost == "" && host != "" {
-		f.LLMAPIKeyHost = host
-		if err := s.write(f); err != nil {
-			return f.LLMAPIKey, host
+	if f.migrateKeys() {
+		// Encrypt the legacy plaintext key on this read instead of leaving it
+		// on disk.
+		_ = s.write(f)
+	}
+	if k := f.LLMAPIKeys[host]; k != "" {
+		return k, host
+	}
+	// Keys in old files carry no host: bind them to the current host on first
+	// use, then stop lending them out.
+	if host != "" {
+		if k := f.LLMAPIKeys[""]; k != "" {
+			delete(f.LLMAPIKeys, "")
+			f.LLMAPIKeys[host] = k
+			f.LLMAPIKeyHost = host
+			if err := s.write(f); err != nil {
+				return k, host
+			}
+			return k, host
 		}
-		return f.LLMAPIKey, host
 	}
-	if host != "" && f.LLMAPIKeyHost != host {
-		return "", f.LLMAPIKeyHost
-	}
-	return f.LLMAPIKey, f.LLMAPIKeyHost
+	return "", f.lastHost()
 }
 
 func (s *Store) SetLLMAPIKey(key, host string) error {
@@ -113,7 +151,25 @@ func (s *Store) SetLLMAPIKey(key, host string) error {
 	if f == nil {
 		f = &file{}
 	}
-	f.LLMAPIKey, f.LLMAPIKeyHost = key, host
+	f.migrateKeys()
+	if key == "" {
+		if host == "" {
+			// Empty key + empty host = clear everything (legacy callers).
+			f.LLMAPIKeys = nil
+			f.LLMAPIKeyHost = ""
+		} else {
+			delete(f.LLMAPIKeys, host)
+			if f.LLMAPIKeyHost == host {
+				f.LLMAPIKeyHost = ""
+			}
+		}
+	} else {
+		if f.LLMAPIKeys == nil {
+			f.LLMAPIKeys = map[string]string{}
+		}
+		f.LLMAPIKeys[host] = key
+		f.LLMAPIKeyHost = host
+	}
 	return s.write(f)
 }
 

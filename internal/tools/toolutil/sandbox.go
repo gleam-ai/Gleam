@@ -30,13 +30,17 @@ func ResolveInRoots(p string, roots []string) (string, error) {
 		abs = filepath.Clean(filepath.Join(roots[0], p))
 	}
 	for _, root := range roots {
+		checkRoot := root
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			checkRoot = real
+		}
 		checkPath := abs
 		if real, err := filepath.EvalSymlinks(abs); err == nil {
 			checkPath = real
 		} else if parent, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
 			checkPath = filepath.Join(parent, filepath.Base(abs))
 		}
-		if Within(root, checkPath) {
+		if Within(checkRoot, checkPath) {
 			return abs, nil
 		}
 	}

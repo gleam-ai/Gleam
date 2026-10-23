@@ -212,6 +212,14 @@ func TestInstallGoToolchainRejectsBadChecksum(t *testing.T) {
 	defer func() { goChecksumEndpoints = old }()
 
 	dest := filepath.Join(t.TempDir(), "tools", "go")
+	if err := os.MkdirAll(filepath.Join(dest, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dest, "bin", "go.exe")
+	if err := os.WriteFile(marker, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	res := f.srv.installGoToolchain(context.Background(), name, dest, []string{ts.URL + "/" + name})
 
 	if ok, _ := res["found"].(bool); ok {
@@ -221,8 +229,107 @@ func TestInstallGoToolchainRejectsBadChecksum(t *testing.T) {
 	if !strings.Contains(msg, "sha256") {
 		t.Errorf("失败原因该点明校验和对不上：%q", msg)
 	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Error("校验失败不该毁掉已装好的旧工具链")
+	}
+}
+
+func TestInstallGoToolchainRejectsOversizeArchive(t *testing.T) {
+	f := newFixture(t, nil)
+	dir := t.TempDir()
+	name := goArchiveName(runtime.GOOS, goArch(), goToolchainVersion)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/"+name):
+			_, _ = w.Write([]byte(strings.Repeat("x", 64)))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	old := goArchiveMaxBytes
+	goArchiveMaxBytes = 16
+	defer func() { goArchiveMaxBytes = old }()
+	oldEndpoints := goChecksumEndpoints
+	goChecksumEndpoints = []string{ts.URL + "/dl"}
+	defer func() { goChecksumEndpoints = oldEndpoints }()
+
+	dest := filepath.Join(dir, "tools", "go")
+	res := f.srv.installGoToolchain(context.Background(), name, dest, []string{ts.URL + "/" + name})
+	if ok, _ := res["found"].(bool); ok {
+		t.Fatalf("超限归档不该被接受：%v", res)
+	}
+	if msg, _ := res["message"].(string); !strings.Contains(msg, "上限") {
+		t.Errorf("失败原因应说明超限：%q", msg)
+	}
 	if _, err := os.Stat(dest); err == nil {
-		t.Error("校验失败时不该留下目标目录")
+		t.Error("下载被拒后不该留下目标目录")
+	}
+}
+
+func TestInstallGoToolchainKeepsOldVersionWhenArchiveIncomplete(t *testing.T) {
+	f := newFixture(t, nil)
+	dir := t.TempDir()
+	name := goArchiveName(runtime.GOOS, goArch(), goToolchainVersion)
+
+	zpath := filepath.Join(dir, "partial.zip")
+	zf, err := os.Create(zpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(zf)
+	w, err := zw.Create("go/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("no binaries here")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zf.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(zpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/"+name):
+			_, _ = w.Write(body)
+		case r.URL.Path == "/dl":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"version": "go" + goToolchainVersion,
+				"files":   []map[string]string{{"filename": name, "sha256": sha256Hex(body)}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	oldEndpoints := goChecksumEndpoints
+	goChecksumEndpoints = []string{ts.URL + "/dl"}
+	defer func() { goChecksumEndpoints = oldEndpoints }()
+
+	dest := filepath.Join(dir, "tools", "go")
+	if err := os.MkdirAll(filepath.Join(dest, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dest, "bin", "go.exe")
+	if err := os.WriteFile(marker, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := f.srv.installGoToolchain(context.Background(), name, dest, []string{ts.URL + "/" + name})
+	if ok, _ := res["found"].(bool); ok {
+		t.Fatalf("不完整的包不该被装上：%v", res)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Error("解压结果不完整时，旧工具链应原样保留")
 	}
 }
 

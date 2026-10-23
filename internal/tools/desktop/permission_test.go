@@ -12,8 +12,8 @@ import (
 
 func TestClipboardSplitBySideEffect(t *testing.T) {
 	read := NewClipboardRead()
-	if read.Permission() != types.PermissionReadOnly {
-		t.Errorf("剪贴板读取应为只读，实际 %v", read.Permission())
+	if read.Permission() != types.PermissionUserApproved {
+		t.Errorf("剪贴板读取含隐私数据，应为需批准，实际 %v", read.Permission())
 	}
 	write := NewClipboardWrite()
 	if write.Permission() != types.PermissionUserApproved {
@@ -44,8 +44,14 @@ func TestGateCatchesClipboardWrite(t *testing.T) {
 	dir := t.TempDir()
 	g := safety.New("auto", nil, []string{dir}, []string{dir}, time.Second)
 
+	if d := g.EvaluateStep(NewClipboardRead(), map[string]any{}, false); !d.NeedApproval {
+		t.Error("剪贴板读取可能带出密码，首次必须审批")
+	}
+	if !g.TrustForSession(NewClipboardRead().Name()) {
+		t.Fatal("剪贴板读取应在会话信任白名单内")
+	}
 	if d := g.EvaluateStep(NewClipboardRead(), map[string]any{}, false); d.NeedApproval {
-		t.Error("剪贴板读取是只读，不该需要审批")
+		t.Error("本会话批准过之后不该重复弹窗")
 	}
 	if d := g.EvaluateStep(NewClipboardWrite(), map[string]any{"text": "x"}, false); !d.NeedApproval {
 		t.Error("剪贴板写入在 auto 模式下必须需要审批")

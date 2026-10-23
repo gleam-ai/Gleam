@@ -2003,10 +2003,12 @@ const I18N_WEEKDAYS = {
   五: 'Fri',
   六: 'Sat',
 };
+const I18N_PLURAL = (n, one, many) => `${n} ${Number(n) === 1 ? one : many}`;
 const I18N_PATTERNS = [
   [
     /^拉到 (\d+) 个模型（已缓存，下次打开仍可见）$/,
-    (m, n) => `Fetched ${n} models (cached; still visible next time)`,
+    (m, n) =>
+      `Fetched ${I18N_PLURAL(n, 'model', 'models')} (cached; still visible next time)`,
   ],
   [
     /^内置兜底 \+ 上次拉取（(.+)）$/,
@@ -2023,7 +2025,10 @@ const I18N_PATTERNS = [
   ],
   [
     /^(\d+) 个(任务|会话)$/,
-    (m, n, noun) => `${n} ${noun === '任务' ? 'tasks' : 'chats'}`,
+    (m, n, noun) =>
+      noun === '任务'
+        ? I18N_PLURAL(n, 'task', 'tasks')
+        : I18N_PLURAL(n, 'chat', 'chats'),
   ],
   [
     /^单日活跃(任务|会话)$/,
@@ -2053,20 +2058,28 @@ const I18N_PATTERNS = [
   ],
   [
     /^共 (\d+) 个快捷键，(\d+) 个已自定义。$/,
-    (m, total, custom) => `${total} shortcuts, ${custom} customized.`,
+    (m, total, custom) =>
+      `${I18N_PLURAL(total, 'shortcut', 'shortcuts')}, ${custom} customized.`,
   ],
   [
     /^过去一年的本机活动，共 (\d+) 次$/,
-    (m, n) => `Local activity over the past year, ${n} events`,
+    (m, n) =>
+      `Local activity over the past year, ${I18N_PLURAL(n, 'event', 'events')}`,
   ],
   [/^来源: 系统 PATH · (.*)$/, (m, p) => `Source: system PATH · ${p}`],
   [/^预算闸 · (.+)$/, (m, rest) => `Budget · ${rest}`],
   [/^最近一次 (.+)$/, (m, when) => `Last seen ${when}`],
-  [/^(\d+) 项需要处理$/, (m, n) => `${n} items need attention`],
-  [/^(\d+) 个目标正在推进$/, (m, n) => `${n} goals in progress`],
-  [/^(\d+) 个工具$/, (m, n) => `${n} tools`],
-  [/^(\d+) 项$/, (m, n) => `${n} items`],
-  [/^(\d+) 条$/, (m, n) => `${n} entries`],
+  [
+    /^(\d+) 项需要处理$/,
+    (m, n) => `${I18N_PLURAL(n, 'item', 'items')} need attention`,
+  ],
+  [
+    /^(\d+) 个目标正在推进$/,
+    (m, n) => `${I18N_PLURAL(n, 'goal', 'goals')} in progress`,
+  ],
+  [/^(\d+) 个工具$/, (m, n) => I18N_PLURAL(n, 'tool', 'tools')],
+  [/^(\d+) 项$/, (m, n) => I18N_PLURAL(n, 'item', 'items')],
+  [/^(\d+) 条$/, (m, n) => I18N_PLURAL(n, 'entry', 'entries')],
   [/^完成度 (\d+) \/ 100$/, (m, n) => `score ${n} / 100`],
   [
     /^(.+) · 完成度 (.+)\/100$/,
@@ -2074,14 +2087,18 @@ const I18N_PATTERNS = [
   ],
   [/^用时 (\d+) 分钟$/, (m, n) => `Took ${n} min`],
   [/^用时 (\d+(?:\.\d+)?) 秒$/, (m, n) => `Took ${n} s`],
-  [/^待压缩 (\d+) 轮$/, (m, n) => `${n} turns to compress`],
+  [
+    /^待压缩 (\d+) 轮$/,
+    (m, n) => `${I18N_PLURAL(n, 'turn', 'turns')} to compress`,
+  ],
   [
     /^(已连接|已停用|未连接) · (\d+) 个工具$/,
-    (m, st, n) => `${I18N_EN[st] || st} · ${n} tools`,
+    (m, st, n) => `${I18N_EN[st] || st} · ${I18N_PLURAL(n, 'tool', 'tools')}`,
   ],
   [
     /^信任 (需我批准|只读放行|完全访问)(?: · (\d+) 个工具)?$/,
-    (m, p, n) => `Trust ${I18N_EN[p] || p}${n ? ` · ${n} tools` : ''}`,
+    (m, p, n) =>
+      `Trust ${I18N_EN[p] || p}${n ? ` · ${I18N_PLURAL(n, 'tool', 'tools')}` : ''}`,
   ],
   [
     /^(停用|启用)工具服务 (.+)$/,
@@ -2090,13 +2107,20 @@ const I18N_PATTERNS = [
   [/^卸载 (.+)$/, (m, name) => `Uninstall ${name}`],
   [
     /^已卸载（移除 (\d+) 个工具）$/,
-    (m, n) => `Uninstalled (${n} tools removed)`,
+    (m, n) => `Uninstalled (${I18N_PLURAL(n, 'tool', 'tools')} removed)`,
   ],
-  [/^已启用（(\d+) 个工具）$/, (m, n) => `Enabled (${n} tools)`],
-  [/^已连接（(\d+) 个工具）$/, (m, n) => `Connected (${n} tools)`],
+  [
+    /^已启用（(\d+) 个工具）$/,
+    (m, n) => `Enabled (${I18N_PLURAL(n, 'tool', 'tools')})`,
+  ],
+  [
+    /^已连接（(\d+) 个工具）$/,
+    (m, n) => `Connected (${I18N_PLURAL(n, 'tool', 'tools')})`,
+  ],
   [
     /^(.+) 已连接（(\d+) 个工具已注册）$/,
-    (m, name, n) => `${name} connected (${n} tools registered)`,
+    (m, name, n) =>
+      `${name} connected (${I18N_PLURAL(n, 'tool', 'tools')} registered)`,
   ],
   [/^(重装|安装) (.+)$/, (m, v, name) => `${I18N_EN[v] || v} ${name}`],
   [
@@ -2487,6 +2511,17 @@ const I18N_PATTERNS = [
 ];
 
 const I18N_ATTRS = ['placeholder', 'title', 'aria-label'];
+
+// User messages, model replies, code and raw output are content, not UI
+// copy: whole-sentence replacement would rewrite text the user copies out,
+// so they must be excluded.
+const I18N_SKIP =
+  'pre, code, textarea, .msg-content, .tl-raw, [contenteditable="true"]';
+
+function i18nSkipped(n) {
+  const el = n.nodeType === Node.ELEMENT_NODE ? n : n.parentElement;
+  return !!el && !!el.closest(I18N_SKIP);
+}
 const i18nOrig = new WeakMap();
 let i18nLang = 'zh';
 let i18nApplying = false;
@@ -2552,6 +2587,7 @@ function i18nNode(n) {
 }
 
 function i18nAttrs(el) {
+  if (i18nSkipped(el)) return;
   for (const a of I18N_ATTRS) {
     const cur = el.getAttribute(a);
     if (cur == null) continue;
@@ -2577,11 +2613,13 @@ function i18nOneNode(n, restore) {
     if (raw != null && n.nodeValue !== raw) n.nodeValue = raw;
     return;
   }
+  if (i18nSkipped(n)) return;
   i18nNode(n);
 }
 
 function i18nWalk(root, restore) {
   if (!root) return;
+  if (!restore && i18nSkipped(root)) return;
   if (root.nodeType === Node.TEXT_NODE) {
     i18nOneNode(root, restore);
     return;

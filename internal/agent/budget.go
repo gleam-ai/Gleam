@@ -102,11 +102,11 @@ func (a *Agent) overBudget(taskID string) string {
 
 // checkBudget asks the user for confirmation when over budget: approved, add
 // one more round of quota and continue; rejected, stop.
-func (a *Agent) checkBudget(taskID, reason string) bool {
+func (a *Agent) checkBudget(ctx context.Context, taskID, reason string) bool {
 	if a == nil || a.Notifier == nil {
 		return false
 	}
-	resp := a.Notifier.OnApproval(types.ApprovalRequest{
+	resp := askApproval(ctx, a.Notifier, types.ApprovalRequest{
 		TaskID: taskID,
 		Plan:   []string{"继续执行（再追加一倍预算）"},
 		Risk:   "medium",
@@ -124,11 +124,11 @@ func (a *Agent) checkBudget(taskID, reason string) bool {
 // can be asked it lets the task through: deep review is "one extra human
 // confirmation", not a new hard gate -- stalling the task on a reason the user
 // cannot see is worse than one extra run.
-func (a *Agent) confirmDeepReview(taskID, reason string) bool {
+func (a *Agent) confirmDeepReview(ctx context.Context, taskID, reason string) bool {
 	if a == nil || a.Notifier == nil {
 		return true
 	}
-	return a.Notifier.OnApproval(types.ApprovalRequest{
+	return askApproval(ctx, a.Notifier, types.ApprovalRequest{
 		TaskID: taskID,
 		Plan:   []string{"按原计划继续执行"},
 		Risk:   "medium",
@@ -229,8 +229,19 @@ func (a *Agent) budgetCheckpoint(ctx context.Context, taskID, goal string, steps
 			TaskID: taskID, Phase: "budget", Message: "⚠ " + reason, Progress: 88, Kind: "warn",
 		})
 	}
-	if a.checkBudget(taskID, reason) {
+	if a.checkBudget(ctx, taskID, reason) {
 		return nil
+	}
+	// Cancelling while the budget prompt is up is a stop, not a budget
+	// rejection: the result the user sees must not blame the budget for it.
+	if ctx.Err() != nil {
+		return &types.GoalResult{
+			Goal:   goal,
+			Status: types.GoalCancelled,
+			Error:  "任务已取消",
+			Steps:  steps,
+			Score:  0,
+		}
 	}
 	return &types.GoalResult{
 		Goal:   goal,

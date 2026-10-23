@@ -1324,18 +1324,22 @@
     ]);
     const L = s.llm;
     const targets = [{ name: '主模型', model: L.model, body: {} }];
-    if (L.fast_model)
+    const fastEntry = (L.models || []).find((m) => m.is_fast);
+    if (L.fast_model) {
+      // The auxiliary model may be a separate endpoint from another vendor;
+      // do not test it against the primary model's URL.
       targets.push({
         name: '辅助模型',
         model: L.fast_model,
         body: {
           model: L.fast_model,
-          base_url: L.base_url,
-          protocol: L.protocol,
-          provider_id: L.provider_id,
-          plan: L.plan,
+          base_url: (fastEntry && fastEntry.base_url) || L.base_url,
+          protocol: (fastEntry && fastEntry.protocol) || L.protocol,
+          provider_id: (fastEntry && fastEntry.provider_id) || L.provider_id,
+          plan: (fastEntry && fastEntry.plan) || L.plan,
         },
       });
+    }
     const results = new Map();
     const resultEl = (t) => {
       const r = results.get(t.name);

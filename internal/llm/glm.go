@@ -20,6 +20,7 @@ type GLMClient struct {
 	Temperature   float64
 	MaxTokens     int
 	HTTP          *http.Client
+	timeout       time.Duration
 	noStreamUsage atomic.Bool
 }
 
@@ -30,7 +31,8 @@ func NewGLM(baseURL, apiKey, model string, temperature float64, maxTokens int, t
 		Model:       model,
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
-		HTTP:        &http.Client{Timeout: timeout, Transport: Transport()},
+		HTTP:        &http.Client{Transport: Transport()},
+		timeout:     timeout,
 	}
 }
 
@@ -116,7 +118,7 @@ func (c *GLMClient) buildMessages(req ChatRequest) []chatMessage {
 
 func (c *GLMClient) payload(req ChatRequest, stream bool) chatRequestPayload {
 	temp := req.Temperature
-	if temp == 0 {
+	if temp == 0 && !req.TemperatureSet {
 		temp = c.Temperature
 	}
 	maxTok := req.MaxTokens
@@ -192,6 +194,8 @@ func (c *GLMClient) do(ctx context.Context, body []byte) (*http.Response, error)
 }
 
 func (c *GLMClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
+	ctx, cancel := withRequestTimeout(ctx, c.timeout)
+	defer cancel()
 	resp, err := c.post(ctx, c.payload(req, false))
 	if err != nil {
 		return "", err
@@ -232,6 +236,7 @@ func (c *GLMClient) ChatStream(ctx context.Context, req ChatRequest, onDelta fun
 
 	var full strings.Builder
 	var streamUsage *chatUsage
+	var streamErr error
 	err = scanStream(ctx, resp.Body, func(line string) bool {
 		if !strings.HasPrefix(line, "data:") {
 			return true
@@ -246,6 +251,14 @@ func (c *GLMClient) ChatStream(ctx context.Context, req ChatRequest, onDelta fun
 		var cr chatResponse
 		if err := json.Unmarshal([]byte(data), &cr); err != nil {
 			return true
+		}
+		if cr.Error != nil {
+			msg := strings.TrimSpace(cr.Error.Message)
+			if msg == "" {
+				msg = "未提供原因"
+			}
+			streamErr = fmt.Errorf("llm: 流式响应错误: %s", msg)
+			return false
 		}
 		if cr.Usage != nil {
 			streamUsage = cr.Usage
@@ -267,6 +280,9 @@ func (c *GLMClient) ChatStream(ctx context.Context, req ChatRequest, onDelta fun
 	})
 	if err != nil {
 		return full.String(), err
+	}
+	if streamErr != nil {
+		return full.String(), streamErr
 	}
 	if full.Len() == 0 {
 		return "", fmt.Errorf("llm: 流式响应为空")

@@ -12,6 +12,7 @@ import { probeRuntimes, runtimeBinDirs } from './runtimes';
 import { Splash } from './splash';
 import { installTray, dispatchTrayAction, trayHintOnce } from './tray';
 import { installUpdater } from './updater';
+import { initFileLogging } from './log';
 
 const t0 = Date.now();
 const log = (msg: string) =>
@@ -21,6 +22,7 @@ const SPLASH_HOLD_SECONDS = 5;
 
 if (process.env.GLEAM_DESKTOP_USER_DATA)
   app.setPath('userData', resolve(process.env.GLEAM_DESKTOP_USER_DATA));
+initFileLogging();
 
 registerAppScheme();
 app.enableSandbox();
@@ -102,6 +104,7 @@ function run(): void {
   const h = Number(process.env.GLEAM_DESKTOP_HEIGHT) || undefined;
 
   app.whenReady().then(async () => {
+    initFileLogging();
     hardenSession(session.defaultSession);
     installIpc(
       () => ({ sidecarVersion: sidecar?.ready?.version ?? null }),
@@ -195,7 +198,25 @@ function run(): void {
     win.webContents.once('did-finish-load', () =>
       log('renderer did-finish-load'),
     );
-    await win.loadURL(`${APP_ORIGIN}/`);
+    win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
+      if (isMainFrame) log(`renderer failed to load: ${code} ${desc} ${url}`);
+    });
+    win.webContents.on('render-process-gone', (_e, details) =>
+      log(`renderer process gone: ${details.reason} (${details.exitCode})`),
+    );
+    win.webContents.on('unresponsive', () => log('renderer unresponsive'));
+    try {
+      await win.loadURL(`${APP_ORIGIN}/`);
+    } catch (err) {
+      log(`loadURL failed: ${String(err)}`);
+      splash?.close();
+      dialog.showErrorBox(
+        'Gleam',
+        `The Gleam UI failed to load:\n${String(err)}`,
+      );
+      app.quit();
+      return;
+    }
     if (holdSeconds > 0)
       await new Promise((r) => setTimeout(r, holdSeconds * 1000));
     splash?.close();
@@ -204,6 +225,13 @@ function run(): void {
       installUpdater({
         allowClose: () => {
           allowWindowClose = true;
+        },
+        quitForUpdate: async () => {
+          allowWindowClose = true;
+          if (sidecar?.running) {
+            const how = await sidecar.stop();
+            log(`update: sidecar stopped (${how})`);
+          }
         },
       });
 

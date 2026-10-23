@@ -1,7 +1,10 @@
 package webui
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -107,5 +110,22 @@ func TestImportScanShape(t *testing.T) {
 				t.Errorf("MCP 候选多了字段 %q：它可能把环境变量的值带出去了", k)
 			}
 		}
+	}
+}
+
+func TestReadCappedRejectsOversizedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "huge.md")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), importReadMaxBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readCapped(path); err == nil {
+		t.Fatal("超过上限的文件应被拒绝，不能整个读进内存")
+	}
+	small := filepath.Join(t.TempDir(), "ok.md")
+	if err := os.WriteFile(small, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := readCapped(small); err != nil || string(raw) != "ok" {
+		t.Fatalf("raw=%q err=%v", raw, err)
 	}
 }

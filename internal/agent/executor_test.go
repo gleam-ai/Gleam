@@ -248,8 +248,17 @@ func TestExecute_RefErrors(t *testing.T) {
 }
 
 func TestExecute_StepTimeout(t *testing.T) {
-	e := &Executor{Reg: newTestRegistry(), Gate: safety.New("auto", nil, nil, nil, time.Second), StepTimeout: 100 * time.Millisecond, Notifier: NopNotifier{}}
-	plan := types.Plan{Steps: []types.Step{{ID: "s1", Tool: "slow"}}}
+	// A tool that ignores cancellation and then reports a deadline error still
+	// ends as a timeout failure. A tool that returns a result past the deadline
+	// counts as a late success (TestExecute_AcceptsLateSuccess): the work is
+	// done, and reporting it as a timeout would invite a duplicate retry.
+	r := registry.New()
+	r.MustRegister(&funcTool{name: "slow-fail", perm: types.PermissionReadOnly, fn: func(ctx context.Context, args map[string]any) (any, error) {
+		time.Sleep(150 * time.Millisecond)
+		return nil, context.DeadlineExceeded
+	}})
+	e := &Executor{Reg: r, Gate: safety.New("auto", nil, nil, nil, time.Second), StepTimeout: 80 * time.Millisecond, Notifier: NopNotifier{}}
+	plan := types.Plan{Steps: []types.Step{{ID: "s1", Tool: "slow-fail"}}}
 	res := e.Execute(context.Background(), plan, "t", "auto", false)
 	if res.Failed != 1 || !strings.Contains(res.ByID["s1"].Error, "超时") {
 		t.Fatalf("应为超时失败: %+v", res.ByID["s1"])

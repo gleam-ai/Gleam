@@ -2,6 +2,7 @@ package webui
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -427,5 +428,21 @@ func TestRemoteInstallFindsEntryFromSearchNotJustBrowse(t *testing.T) {
 	inst := f.call("POST", "/api/market/mcp/install", map[string]any{"id": "io.example/only-by-search"})
 	if inst["installed"] != true {
 		t.Fatalf("应能从搜索结果里找到并装上：%v", inst)
+	}
+}
+
+func TestMarketQueryCacheIsBounded(t *testing.T) {
+	marketCacheState.mu.Lock()
+	marketCacheState.byQuery = nil
+	marketCacheState.mu.Unlock()
+	s := &Server{}
+	for i := 0; i < marketQueryCacheMax*3; i++ {
+		s.cacheMarketQuery(fmt.Sprintf("q%d", i), nil)
+	}
+	marketCacheState.mu.Lock()
+	n := len(marketCacheState.byQuery)
+	marketCacheState.mu.Unlock()
+	if n > marketQueryCacheMax {
+		t.Fatalf("搜索缓存 %d 条，超过上限 %d", n, marketQueryCacheMax)
 	}
 }

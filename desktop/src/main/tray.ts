@@ -132,24 +132,21 @@ function label(title: string, fallback: string): string {
 
 async function confirmQuit(): Promise<void> {
   const t = TEXT[lang];
+  // Only parent to a visible window. Windows hides modal dialogs owned by a
+  // hidden window, which would strand the tray with no way to quit.
   const w = target();
-  const result = w
-    ? await dialog.showMessageBox(w, {
-        type: 'question',
-        title: t.quitTitle,
-        message: t.quitMessage,
-        buttons: [t.quitCancel, t.quitConfirm],
-        defaultId: 0,
-        cancelId: 0,
-      })
-    : await dialog.showMessageBox({
-        type: 'question',
-        title: t.quitTitle,
-        message: t.quitMessage,
-        buttons: [t.quitCancel, t.quitConfirm],
-        defaultId: 0,
-        cancelId: 0,
-      });
+  const options = {
+    type: 'question' as const,
+    title: t.quitTitle,
+    message: t.quitMessage,
+    buttons: [t.quitCancel, t.quitConfirm],
+    defaultId: 0,
+    cancelId: 0,
+  };
+  const result =
+    w && w.isVisible()
+      ? await dialog.showMessageBox(w, options)
+      : await dialog.showMessageBox(options);
   if (result.response === 1) app.quit();
 }
 

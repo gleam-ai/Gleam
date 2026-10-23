@@ -4,6 +4,7 @@ package systray
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"syscall"
@@ -37,12 +38,14 @@ var (
 	pGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
 	pLoadIconW           = user32.NewProc("LoadIconW")
 	pLoadImageW          = user32.NewProc("LoadImageW")
+	pRegisterWindowMsgW  = user32.NewProc("RegisterWindowMessageW")
 )
 
 const (
-	imageIcon     = 1
-	lrDefaultSize = 0x00000040
-	lrShared      = 0x00008000
+	imageIcon      = 1
+	lrDefaultSize  = 0x00000040
+	lrShared       = 0x00008000
+	lrLoadFromFile = 0x00000010
 )
 
 const (
@@ -144,6 +147,11 @@ var (
 	hwnd        uintptr
 	nidHicon    uintptr
 	currentIcon []byte
+
+	// After Explorer restarts the old icon disappears with the taskbar;
+	// TaskbarCreated is the only signal to attach it again. Ignoring it leaves
+	// the tray permanently blank and forces the user to kill the process.
+	taskbarCreatedMsg uint32
 )
 
 func runPlatform(cfg Config) error {
@@ -182,6 +190,10 @@ func runPlatform(cfg Config) error {
 }
 
 func registerSystrayWindow(instance uintptr) error {
+	created, _ := syscall.UTF16PtrFromString("TaskbarCreated")
+	if m, _, _ := pRegisterWindowMsgW.Call(uintptr(unsafe.Pointer(created))); m != 0 {
+		taskbarCreatedMsg = uint32(m)
+	}
 	className, _ := syscall.UTF16PtrFromString("GleamSystrayCls")
 	windowName, _ := syscall.UTF16PtrFromString("GleamSystray")
 	hc, _, _ := pLoadCursorW.Call(0, uintptr(idcArrow))
@@ -258,6 +270,13 @@ func wndProc(hwndArg uintptr, msgID uint32, wparam, lparam uintptr) uintptr {
 	case wmQuit:
 		removeNotifyIcon()
 		pPostQuitMessage.Call(0)
+	default:
+		if taskbarCreatedMsg != 0 && msgID == taskbarCreatedMsg {
+			runnerMu.Lock()
+			cfg := theRunner.cfg
+			runnerMu.Unlock()
+			addNotifyIcon(cfg)
+		}
 	}
 	ret, _, _ := pDefWindowProcW.Call(hwndArg, uintptr(msgID), wparam, lparam)
 	return ret
@@ -306,7 +325,25 @@ func modifyIcon(b []byte) {
 	pShell_NotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
 }
 
-func loadIconFromBytes(_ []byte) uintptr {
+func loadIconFromBytes(ico []byte) uintptr {
+	if len(ico) >= 6 && ico[0] == 0 && ico[1] == 0 && ico[2] == 1 && ico[3] == 0 {
+		// LoadImageW only accepts a disk path; deleting the temp file is safe
+		// because the icon data has already been copied into the HICON.
+		if f, err := os.CreateTemp("", "gleam-tray-*.ico"); err == nil {
+			name := f.Name()
+			_, werr := f.Write(ico)
+			cerr := f.Close()
+			if werr == nil && cerr == nil {
+				p, _ := syscall.UTF16PtrFromString(name)
+				if icon, _, _ := pLoadImageW.Call(0, uintptr(unsafe.Pointer(p)), imageIcon, 0, 0,
+					lrLoadFromFile|lrDefaultSize); icon != 0 {
+					_ = os.Remove(name)
+					return icon
+				}
+			}
+			_ = os.Remove(name)
+		}
+	}
 	if h, _, _ := pGetModuleHandleW.Call(0); h != 0 {
 		if icon, _, _ := pLoadImageW.Call(h, uintptr(1), imageIcon, 0, 0, lrDefaultSize|lrShared); icon != 0 {
 			return icon

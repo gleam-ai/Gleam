@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -13,9 +12,11 @@ import (
 	"gleam/pkg/types"
 )
 
-type ScreenshotTool struct{}
+type ScreenshotTool struct {
+	Roots []string
+}
 
-func NewScreenshot() *ScreenshotTool { return &ScreenshotTool{} }
+func NewScreenshot(roots ...string) *ScreenshotTool { return &ScreenshotTool{Roots: roots} }
 
 func (t *ScreenshotTool) Name() string { return "desktop.screenshot" }
 func (t *ScreenshotTool) Description() string {
@@ -26,10 +27,14 @@ func (t *ScreenshotTool) Permission() types.Permission {
 }
 
 func (t *ScreenshotTool) Paths(ctx context.Context, args map[string]any) []string {
-	if p := toolutil.Str(args, "path"); p != "" {
-		return []string{p}
+	p := toolutil.Str(args, "path")
+	if p == "" {
+		return nil
 	}
-	return nil
+	if abs, err := toolutil.ResolveInRoots(p, toolutil.RootsFrom(ctx, t.Roots)); err == nil {
+		return []string{abs}
+	}
+	return []string{p}
 }
 
 func (t *ScreenshotTool) Schema() map[string]any {
@@ -40,10 +45,16 @@ func (t *ScreenshotTool) Schema() map[string]any {
 func (t *ScreenshotTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	path := toolutil.Str(args, "path")
 	if path == "" {
-		path = filepath.Join(".", fmt.Sprintf("screenshot-%d.png", time.Now().Unix()))
+		path = fmt.Sprintf("screenshot-%d.png", time.Now().Unix())
 	}
+	// Resolve through the workspace boundary: the path is model-supplied, and
+	// `../..` must not turn "take a screenshot" into an arbitrary file write.
+	abs, err := toolutil.ResolveInRoots(path, toolutil.RootsFrom(ctx, t.Roots))
+	if err != nil {
+		return nil, err
+	}
+	path = abs
 
-	var err error
 	switch runtime.GOOS {
 	case "windows":
 		err = takeScreenshotWindows(path)
@@ -55,8 +66,7 @@ func (t *ScreenshotTool) Execute(ctx context.Context, args map[string]any) (any,
 	if err != nil {
 		return nil, fmt.Errorf("截屏失败: %w", err)
 	}
-	abs, _ := filepath.Abs(path)
-	return map[string]any{"path": path, "absolute": abs}, nil
+	return map[string]any{"path": path, "absolute": path}, nil
 }
 
 func takeScreenshotWindows(path string) error {

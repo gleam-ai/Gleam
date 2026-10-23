@@ -284,14 +284,45 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "%v", err)
 		return
 	}
+	if req.ConversationID != "" && s.Agent.Convos != nil {
+		if _, err := s.Agent.Convos.Get(req.ConversationID); err != nil {
+			writeErr(w, 400, "对话不存在或已被删除，请新建对话后重试")
+			return
+		}
+	}
 	taskID := types.NewID()
 	req.TaskID = taskID
-	ctx, cancel := context.WithCancel(context.Background())
 
-	t := &taskInfo{ID: taskID, Goal: body.Goal, Mode: body.Mode, TaskMode: body.TaskMode, Status: types.GoalRunning, Started: time.Now(), Cancel: cancel}
+	// Serialize submissions so the single-flight check and memory reload cannot
+	// interleave with another submit.
+	s.submitMu.Lock()
+	s.mu.Lock()
+	for _, running := range s.tasks {
+		if running.Status == types.GoalRunning {
+			goal := types.Shorten(running.Goal, 40)
+			s.mu.Unlock()
+			s.submitMu.Unlock()
+			writeErr(w, 409, "还有目标在运行（%s），等它结束或先停止它再提交", goal)
+			return
+		}
+	}
+	s.mu.Unlock()
+	// A conversation's context must be loaded right before its task starts:
+	// creating another conversation resets rolling memory, and the old code
+	// relied on the tab having called /activate first.
+	if req.ConversationID != "" && s.Agent.Convos != nil {
+		if _, err := s.Agent.LoadConversationContext(req.ConversationID); err != nil {
+			s.submitMu.Unlock()
+			writeErr(w, 400, "对话上下文加载失败：%v", err)
+			return
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t := &taskInfo{ID: taskID, Goal: body.Goal, Mode: body.Mode, TaskMode: body.TaskMode, ConversationID: body.ConversationID, Status: types.GoalRunning, Started: time.Now(), Cancel: cancel}
 	s.mu.Lock()
 	s.tasks[taskID] = t
 	s.mu.Unlock()
+	s.submitMu.Unlock()
 
 	go func() {
 		result := s.Agent.RunGoal(ctx, req)
@@ -405,7 +436,8 @@ func (s *Server) archivedTask(id string) (*taskInfo, bool) {
 func archivedTaskInfo(g *types.GoalResult) *taskInfo {
 	return &taskInfo{
 		ID: g.TaskID, Goal: g.Goal, Mode: g.Mode, TaskMode: string(g.TaskMode),
-		Status: g.Status, Result: g, Started: g.StartedAt,
+		ConversationID: g.ConversationID,
+		Status:         g.Status, Result: g, Started: g.StartedAt,
 	}
 }
 

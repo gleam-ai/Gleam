@@ -6,6 +6,7 @@ const { JsonRpcClient } = require('./rpc.js');
 
 let client = null;
 let child = null;
+let starting = null;
 let channel = null;
 let statusItem = null;
 let view = null;
@@ -76,19 +77,29 @@ function noteTask(id, patch) {
 
 async function ensureClient() {
   if (client) return client;
+  if (starting) return starting;
+  starting = startClient();
+  try {
+    return await starting;
+  } finally {
+    starting = null;
+  }
+}
+
+async function startClient() {
   const command = cfg('command', 'gleam');
   const args = cfg('args', ['serve']);
   channel = channel || vscode.window.createOutputChannel('Gleam');
-  child = spawn(command, args, {
+  const proc = spawn(command, args, {
     cwd: workspaceRoot(),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
-  const write = (chunk) => {
-    if (child.stdin.writable) child.stdin.write(chunk);
-  };
-  client = new JsonRpcClient({
-    sendRaw: write,
+  child = proc;
+  const rpc = new JsonRpcClient({
+    sendRaw: (chunk) => {
+      if (proc.stdin.writable) proc.stdin.write(chunk);
+    },
     timeoutMs: cfg('requestTimeoutMs', 30000),
     onNotification: (method, params) => {
       if (method === 'goal/progress') {
@@ -125,25 +136,47 @@ async function ensureClient() {
     },
     onRequest: onEngineRequest,
   });
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => client.feed(chunk));
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => {
+  client = rpc;
+  const cleanup = () => {
+    if (client === rpc) client = null;
+    if (child === proc) child = null;
+  };
+  proc.stdout.setEncoding('utf8');
+  // 绑定当前实例：旧进程的迟到输出不能喂进新 client。
+  proc.stdout.on('data', (chunk) => rpc.feed(chunk));
+  proc.stderr.setEncoding('utf8');
+  proc.stderr.on('data', (chunk) => {
     for (const line of String(chunk).split('\n'))
       if (line.trim()) log(`stderr: ${line}`);
   });
-  child.on('exit', (code, signal) => {
+  proc.on('error', (err) => {
+    log(`engine spawn failed: ${err.message}`);
+    setStatus('stopped', `engine failed to start: ${err.message}`);
+    rpc.failAllPending(`engine failed to start: ${err.message}`);
+    cleanup();
+  });
+  proc.on('exit', (code, signal) => {
     setStatus('stopped', `engine exited (code ${code}, signal ${signal})`);
     log(`engine exited: code=${code} signal=${signal}`);
-    if (client) client.failAllPending('engine exited');
-    client = null;
-    child = null;
+    rpc.failAllPending('engine exited');
+    cleanup();
   });
-  await client.request('initialize', {});
-  const info = await client.request('ping');
-  log(`engine ready: ${JSON.stringify(info)}`);
-  setStatus('ready', `${command} ${args.join(' ')}`);
-  return client;
+  try {
+    await rpc.request('initialize', {});
+    const info = await rpc.request('ping');
+    log(`engine ready: ${JSON.stringify(info)}`);
+    setStatus('ready', `${command} ${args.join(' ')}`);
+    return rpc;
+  } catch (err) {
+    // 握手失败不能把坏 client 留在全局：否则后续每个命令都等满 30 秒。
+    log(`engine handshake failed: ${err && err.message ? err.message : err}`);
+    try {
+      proc.kill();
+    } catch {}
+    rpc.failAllPending('engine handshake failed');
+    cleanup();
+    throw err;
+  }
 }
 
 async function onEngineRequest(method, params) {

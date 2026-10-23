@@ -26,7 +26,13 @@ export function runtimesRoot(): string {
 
 export function runtimeBinDirs(): string[] {
   const root = runtimesRoot();
-  return [join(root, 'node'), join(root, 'uv')].filter((d) => existsSync(d));
+  const nodeDir = join(root, 'node');
+  // Unix keeps node/npx under node/bin; Windows puts them directly under node/.
+  const candidates =
+    process.platform === 'win32'
+      ? [nodeDir, join(root, 'uv')]
+      : [join(nodeDir, 'bin'), nodeDir, join(root, 'uv')];
+  return candidates.filter((d) => existsSync(d));
 }
 
 export function pathWithRuntimes(
@@ -69,7 +75,7 @@ export async function probeRuntimes(
   const uvxName = isWin ? 'uvx.exe' : 'uvx';
 
   const nodeVer = existsSync(nodeExe) ? await versionOf(nodeExe, ['-v']) : '';
-  const npxThere = existsSync(join(root, 'node', npxName));
+  const npxThere = existsSync(join(root, 'node', isWin ? '' : 'bin', npxName));
   const uvVer = existsSync(uvExe) ? await versionOf(uvExe, ['--version']) : '';
   const uvxThere = existsSync(join(root, 'uv', uvxName));
   const gitVer = await versionOf('git', ['--version']);

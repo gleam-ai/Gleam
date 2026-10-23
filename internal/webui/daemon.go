@@ -12,7 +12,7 @@ import (
 func (s *Server) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
 	mgr := s.daemonManager()
 	if mgr == nil {
-		http.Error(w, `{"error":"无法获取可执行文件路径"}`, http.StatusInternalServerError)
+		writeErr(w, http.StatusInternalServerError, "无法获取可执行文件路径")
 		return
 	}
 	info, err := mgr.Status()
@@ -33,13 +33,13 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 		Action string `json:"action"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"无效请求"}`, http.StatusBadRequest)
+		writeErr(w, http.StatusBadRequest, "无效请求")
 		return
 	}
 
 	mgr := s.daemonManager()
 	if mgr == nil {
-		http.Error(w, `{"error":"无法获取可执行文件路径"}`, http.StatusInternalServerError)
+		writeErr(w, http.StatusInternalServerError, "无法获取可执行文件路径")
 		return
 	}
 
@@ -54,7 +54,7 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 	case "stop":
 		err = mgr.Stop()
 	default:
-		http.Error(w, `{"error":"未知操作"}`, http.StatusBadRequest)
+		writeErr(w, http.StatusBadRequest, "未知操作")
 		return
 	}
 
@@ -64,7 +64,11 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the latest status after the operation succeeds.
-	info, _ := mgr.Status()
+	info, err := mgr.Status()
+	if err != nil || info == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"name":    info.Name,

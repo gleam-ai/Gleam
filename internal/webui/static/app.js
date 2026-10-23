@@ -398,8 +398,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#nav-more-body').hidden) setMoreOpen(false);
 });
 
-// 快捷入口是空态（#goals-empty）的一部分，feed 会被 resetFeedToEmpty 整块
-// 重建，逐节点绑定会随重建丢失——改成事件委托，绑一次。
+// Quick starts are part of the empty state (#goals-empty), and the feed is
+// rebuilt wholesale by resetFeedToEmpty; per-node handlers would be lost on
+// rebuild, so delegate the click once.
 document.addEventListener('click', (e) => {
   const card = e.target.closest('.quick-card');
   if (!card) return;
@@ -1423,8 +1424,7 @@ function paintFailBanner() {
   // 根因优先规则：鉴权失败会让后续全部失败，混合时主入口给它——
   // 不论最新一张是不是它。修根因比按时间顺序摆按钮更接近"下一步该干什么"。
   const authOnes = failed.filter(
-    (t) =>
-      failKind((t.info.result && t.info.result.error) || '') === 'auth',
+    (t) => failKind((t.info.result && t.info.result.error) || '') === 'auth',
   );
   const auth = authOnes.length > 0;
   const authLatest = auth ? authOnes.sort((a, b) => at(b) - at(a))[0] : null;
@@ -1461,7 +1461,8 @@ function paintFailBanner() {
         // 落到出问题那一家：任务结果自带 ConfigSnapshot.provider，与设置页
         // #set-provider 的 option value 同源（都来自 /api/providers 的 id）。
         // 对得上才切，对不上保持当前选中态——不猜。
-        const snap = task && task.info.result && task.info.result.config_snapshot;
+        const snap =
+          task && task.info.result && task.info.result.config_snapshot;
         const pid = snap && snap.provider;
         const sel = $('#set-provider');
         if (pid && sel && [...sel.options].some((o) => o.value === pid)) {
@@ -1557,19 +1558,7 @@ function refreshWorkbench() {
     })
     .forEach((task) => feed.appendChild(task.card));
 
-  // 首屏三块指标与现场栏共用一次计算：两处各数一遍，迟早会给出两个数。
-  // 「本周完成」按完成时刻算，没有 finished_at 的退回开始时刻——
-  // 按提交时刻算会把一个上周提交、今早才跑完的任务记到上周去。
-  const weekAgo = Date.now() - 7 * 864e5;
-  const weekDone = all.filter((task) => {
-    const info = task.info || {};
-    if (info.status !== 'success' && info.status !== 'partial') return false;
-    const at = Date.parse(
-      (info.result && info.result.finished_at) || info.started_at || '',
-    );
-    return Number.isFinite(at) && at >= weekAgo;
-  }).length;
-  LiveRail.summary(counts, attention, weekDone);
+  LiveRail.summary(counts, attention);
   paintFailBanner();
 }
 
@@ -1597,7 +1586,9 @@ function paintElapsed() {
     const from = Date.parse(t.info.started_at || '') || Date.now();
     const s = Math.max(0, Math.round((Date.now() - from) / 1000));
     span.textContent =
-      s >= 60 ? `已运行 ${Math.floor(s / 60)} 分 ${s % 60} 秒` : `已运行 ${s} 秒`;
+      s >= 60
+        ? `已运行 ${Math.floor(s / 60)} 分 ${s % 60} 秒`
+        : `已运行 ${s} 秒`;
   }
 }
 function ensureElapsedTicker() {
@@ -2002,6 +1993,8 @@ const PHASE_CN = {
   execute: '执行',
   reflect: '复盘',
   budget: '预算',
+  context: '上下文',
+  done: '完成',
 };
 
 function demoteMilestone(live) {
@@ -2205,6 +2198,10 @@ async function resolveApproval(id, approved, box, task) {
     box.classList.remove('approval-card');
     box.removeAttribute('data-approval-id');
     box.replaceChildren(note);
+    // 会话里的审批卡清掉指针，否则同一任务的下一张审批会被旧卡片挡住。
+    for (const live of convoLive.values()) {
+      if (live.approvalEl === box) live.approvalEl = null;
+    }
     if (task) {
       task.resolvedApprovals = task.resolvedApprovals || new Set();
       task.resolvedApprovals.add(id);
@@ -2703,7 +2700,19 @@ function sseData(e) {
   }
 }
 
+// Compression is reported as ordinary planner progress, not a dedicated event.
+// Match the notice text so the water level refreshes on every style's wording.
+function isContextNote(message) {
+  return (
+    typeof message === 'string' &&
+    /摘要|自动压缩|上下文窗口|压缩早期上下文|上下文已压缩|携带的对话收紧/.test(
+      message,
+    )
+  );
+}
+
 let sseConnection = null;
+let sseOpened = false;
 function connectSSE() {
   if (sseConnection) {
     sseConnection.close();
@@ -2711,15 +2720,25 @@ function connectSSE() {
   }
   const es = new EventSource('/api/events');
   sseConnection = es;
-  es.onopen = () => setConn('up');
+  es.onopen = () => {
+    setConn('up');
+    // Events are not replayed while disconnected; resync from the server
+    // once after reconnecting.
+    if (sseOpened) resyncAfterReconnect().catch(() => {});
+    sseOpened = true;
+  };
   es.onerror = () => setConn('down');
   es.addEventListener('progress', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
     LiveRail.observe(d);
+    const contextNote = d.phase === 'context' || isContextNote(d.message);
+    if (contextNote) loadContext();
     if (viewingConvo && convoLive.has(d.task_id)) {
       if (d.phase === 'chat' && d.kind === 'llm' && d.message)
         convoStream(d.task_id, d.message);
+      else if (d.message && (d.phase === 'context' || isContextNote(d.message)))
+        convoNotice(d.task_id, d.message);
       return;
     }
     const t = await ensureTask(d.task_id);
@@ -2751,8 +2770,11 @@ function connectSSE() {
     LiveRail.result(r);
     loadCues().catch(() => {});
     if (tasks.has(r.task_id)) applyResult(r.task_id, r);
+    // A live bubble can outlive the view it was created in; retire it even
+    // when the user is looking at the workbench, or its stop button survives
+    // the task and reappears on the next visit.
+    if (convoLive.has(r.task_id)) convoComplete(r.task_id, r);
     if (viewingConvo) {
-      convoComplete(r.task_id, r);
       if (r.status === 'success')
         toast(`目标完成（${r.score}/100）`, 'success');
       else if (r.status !== 'cancelled')
@@ -2806,6 +2828,151 @@ function connectSSE() {
     await ensureTask(d.task_id);
     applyEvent(d.task_id, 'suggest_skill', d);
   });
+}
+
+// SSE does not replay events missed while disconnected, so resync from the
+// server after reconnecting: running tasks, finished replies on disk, and
+// approvals raised during the outage all need to be replayed from current
+// server state, or the UI stays frozen on the last frame before the drop.
+async function resyncAfterReconnect() {
+  loadCues().catch(() => {});
+  loadSchedules().catch(() => {});
+  loadContext();
+  let goals = [];
+  let goalsLoaded = false;
+  try {
+    goals = (await api('GET', '/api/goals')).goals || [];
+    goalsLoaded = true;
+  } catch {}
+
+  const inConvo = !!(viewingConvo && currentConvo);
+  if (inConvo) {
+    const convoId = currentConvo.id;
+    try {
+      const c = await api(
+        'GET',
+        `/api/conversations/${encodeURIComponent(convoId)}`,
+      );
+      // The user may have switched away during the resync; a late response
+      // must not overwrite the new view.
+      if (!currentConvo || currentConvo.id !== convoId) return;
+      renderConvoMessages(c);
+      if (c.title && c.title !== currentConvo.title) {
+        currentConvo.title = c.title;
+        $('#goals-title').textContent = c.title;
+      }
+    } catch {}
+    for (const info of goals) {
+      if (info.status !== 'running' || info.conversation_id !== convoId)
+        continue;
+      const cached = tasks.get(info.task_id);
+      if (cached) cached.info = info;
+      if (convoLive.has(info.task_id)) continue;
+      appendLiveConvoTurn(info.goal, info.task_id, info.task_mode, {
+        skipUser: true,
+      });
+      for (const ev of info.events || []) {
+        if (ev.type !== 'progress' || !ev.data) continue;
+        const d = ev.data;
+        if (d.phase === 'chat' && d.kind === 'llm' && d.message)
+          convoStream(info.task_id, d.message);
+        else if (
+          d.message &&
+          (d.phase === 'context' || isContextNote(d.message))
+        )
+          convoNotice(info.task_id, d.message);
+      }
+    }
+    // Finished during the outage: retire its live bubble (and stop button).
+    for (const info of goals) {
+      if (info.status === 'running' || !convoLive.has(info.task_id)) continue;
+      convoComplete(
+        info.task_id,
+        info.result || { task_id: info.task_id, status: info.status },
+      );
+    }
+    loadConvoList(convoId);
+  } else if (goals.length) {
+    // The workbench only patches state, never replays events: chat deltas in
+    // applyEvent carry no idempotency marker, so replaying a whole card would
+    // duplicate the same text. New tasks get their cards separately.
+    for (const info of goals) {
+      if (tasks.has(info.task_id)) {
+        // Full idempotent refresh: status badge, stop button, result slots.
+        // Assigning info alone left a running badge on a finished task.
+        renderTaskCard(info, false);
+      } else if (info.status === 'running') {
+        renderTaskCard(info, true);
+      }
+    }
+  }
+
+  // A card can outlive the engine process that owned it (update, crash). The
+  // server's list is authoritative: anything still shown as running but no
+  // longer known there will never send a completion event.
+  if (goalsLoaded) {
+    const known = new Set(goals.map((g) => g.task_id));
+    const lost = '服务已重启，这个任务没能继续。已完成的步骤仍保留在笔记里。';
+    for (const [id, t] of tasks) {
+      if (t.info.status !== 'running' || known.has(id)) continue;
+      applyResult(id, {
+        task_id: id,
+        status: 'failed',
+        score: 0,
+        error: lost,
+      });
+    }
+    for (const id of [...convoLive.keys()]) {
+      if (known.has(id)) continue;
+      convoComplete(id, { task_id: id, status: 'failed', error: lost });
+    }
+  }
+
+  try {
+    const { approvals } = await api('GET', '/api/approvals');
+    const list = approvals || [];
+    pendingApprovals = list.length;
+    updateApprovalBadge(0);
+    LiveRail.approvals(list);
+    // Approvals decided or timed out during the outage send no event back, so
+    // stale cards still on the page must be invalidated in place; otherwise
+    // the user clicks approve on a decision that no longer exists.
+    const alive = new Set(list.map((ap) => ap.id));
+    document.querySelectorAll('[data-approval-id]').forEach((box) => {
+      if (alive.has(box.dataset.approvalId)) return;
+      box.classList.remove('approval-card');
+      box.removeAttribute('data-approval-id');
+      box.replaceChildren(el('div', 'approval-resolved', '该审批已失效'));
+    });
+    for (const live of convoLive.values()) {
+      if (
+        live.approvalEl &&
+        !alive.has(live.approvalEl.dataset.approvalId || '')
+      )
+        live.approvalEl = null;
+    }
+    const goalById = new Map(goals.map((g) => [g.task_id, g]));
+    for (const ap of list) {
+      if (!ap.task_id) {
+        renderStandaloneApproval(ap);
+        continue;
+      }
+      if (inConvo) {
+        const live = convoLive.get(ap.task_id);
+        const goal = goalById.get(ap.task_id);
+        const belongs = goal && goal.conversation_id === currentConvo.id;
+        if (!belongs && !(live && live.convoId === currentConvo.id)) continue;
+        if (!live && belongs)
+          appendLiveConvoTurn(goal.goal, ap.task_id, goal.task_mode, {
+            skipUser: true,
+          });
+        convoApproval(ap);
+        continue;
+      }
+      const t = await ensureTask(ap.task_id);
+      if (t) renderApproval(t, ap);
+    }
+  } catch {}
 }
 
 function bindSegmented(sel) {
@@ -3220,7 +3387,9 @@ function applyPreset() {
   const pl = p.plans.find((x) => x.kind === kind) || p.plans[0];
   if (pl) {
     $('#set-base-url').value = pl.base_url;
-    $('#set-model').value = pl.model;
+    // When a plan has no default model, fall back to the vendor's first model;
+    // never clear the field and silently keep the old vendor's model.
+    $('#set-model').value = pl.model || (p.models || [])[0] || '';
     $('#set-protocol').value = pl.protocol;
   }
 }
@@ -3589,6 +3758,12 @@ async function saveMemory() {
 }
 
 async function saveLLM() {
+  const modelId = ($('#set-model').value || '').trim();
+  if (!modelId) {
+    toast('模型 ID 不能为空：请填写要使用的模型', 'error', 6000);
+    $('#set-model').focus();
+    return;
+  }
   const parsed = $('#set-tiers')
     ? parseTiers($('#set-tiers').value)
     : { tiers: undefined, bad: [] };
@@ -4818,6 +4993,7 @@ function openWorkspaceDialog() {
 
 let currentConvo = null;
 let viewingConvo = false;
+let convoLoadSeq = 0;
 const convoLive = new Map();
 
 const CONVO_ICONS = {
@@ -5113,15 +5289,18 @@ function setThreadMode(on) {
   sec.classList.toggle('thread-mode', on);
   goalInput.placeholder = composerPlaceholder();
   $('#goal-filters').parentElement.style.display = on ? 'none' : '';
-  // command-deck / quick-launch 已随 WorkBuddy 形态退休删除（DOM 不在了），
-  // 这里只兜 cue-deck；querySelector 可能返回 null，直接 .style 会抛错。
+  // command-deck / quick-launch were retired with the old home layout (their
+  // DOM is gone), so only cue-deck is looked up; querySelector may return
+  // null and touching .style directly would throw.
   const cue = document.querySelector('.cue-deck');
   if (cue) cue.style.display = on ? 'none' : '';
 }
 
-// 空态快捷入口：与 index.html #goals-empty 里的静态块保持同构（文案与
-// data-prompt 一字不差，改一处必须同步另一处）。品牌主视觉已从空态退场：
-// 标识在侧栏与顶栏各有一处，空态需要的是"下一步能做什么"，不是主视觉。
+// Empty-state quick starts: keep them structurally identical to the static
+// block in index.html #goals-empty (copy and data-prompt must match exactly;
+// change one and change the other). The brand hero left the empty state: the
+// mark already appears in the sidebar and top bar, and the empty state should
+// answer "what can I do next", not "what is this product".
 const EMPTY_ENTRIES = `<div class="empty-entries" aria-label="快捷开始"><button class="quick-card" type="button" data-prompt="整理当前工作区的文件，按类型归档并生成一份索引" data-task="work"><strong>整理工作区</strong><small>文件归档 · 生成索引</small></button><button class="quick-card" type="button" data-prompt="分析最近的项目进度，提炼风险并给出下一步行动" data-task="work"><strong>项目复盘</strong><small>进度分析 · 风险提醒</small></button><button class="quick-card" type="button" data-prompt="阅读当前目录的文档，提炼关键结论并整理成简报" data-task="code"><strong>快速研究</strong><small>阅读文档 · 输出简报</small></button></div>`;
 
 function resetFeedToEmpty(title, desc, opts = {}) {
@@ -5143,6 +5322,7 @@ function resetFeedToEmpty(title, desc, opts = {}) {
 }
 
 async function enterConvoView(c, opts = {}) {
+  convoLoadSeq++;
   currentConvo = c;
   setThreadMode(true);
   $('#goals-title').textContent = c.title || '新对话';
@@ -5173,8 +5353,8 @@ async function startNewConvo(spaceId) {
       spaceState.activeId = view.active_id || spaceId;
       if (view.workspace) renderWorkspace({ workspace: view.workspace });
     }
+    convoLoadSeq++;
     currentConvo = null;
-    convoLive.clear();
     showView('goals');
     goalInput.focus();
   } catch (err) {
@@ -5183,19 +5363,23 @@ async function startNewConvo(spaceId) {
 }
 
 async function openConvo(id) {
+  const seq = ++convoLoadSeq;
   try {
     const c = await api(
       'POST',
       `/api/conversations/${encodeURIComponent(id)}/activate`,
     );
+    // A slow response must not overwrite a later click; only the latest
+    // selection wins.
+    if (seq !== convoLoadSeq) return;
     currentConvo = c;
-    convoLive.clear();
     setThreadMode(true);
     $('#goals-title').textContent = c.title || '新对话';
     renderConvoMessages(c);
     await loadConvoList(c.id);
     goalInput.focus();
   } catch (err) {
+    if (seq !== convoLoadSeq) return;
     toast(`打开对话失败：${err.message}`, 'error');
   }
 }
@@ -5214,9 +5398,25 @@ function renderConvoMessages(c) {
   const msgs = c.messages || [];
   if (!msgs.length) {
     resetFeedToEmpty('这是一个空对话', '在下方输入第一条消息开始。');
-    return;
+  } else {
+    msgs.forEach((m) => feed.appendChild(convoBubble(m)));
   }
-  msgs.forEach((m) => feed.appendChild(convoBubble(m)));
+  // A reply persisted to the conversation means the task is over; its live
+  // node should leave to avoid showing it twice.
+  const persisted = new Set(
+    msgs
+      .filter((m) => m.role === 'assistant' && m.task_id)
+      .map((m) => m.task_id),
+  );
+  for (const [taskID, live] of convoLive) {
+    if (persisted.has(taskID) && !live.approvalEl) {
+      convoLive.delete(taskID);
+      continue;
+    }
+    if (live.convoId && live.convoId !== c.id) continue;
+    feed.appendChild(live.wrap);
+    if (live.approvalEl) feed.appendChild(live.approvalEl);
+  }
   scrollToBottom(false);
   refreshWorkbench();
 }
@@ -5309,11 +5509,13 @@ async function openTaskDetail(taskID) {
   }
 }
 
-function appendLiveConvoTurn(goal, taskID, taskMode) {
+function appendLiveConvoTurn(goal, taskID, taskMode, opts = {}) {
+  if (convoLive.has(taskID)) return;
   const feed = $('#goal-feed');
   const empty = $('#goals-empty');
   if (empty) empty.remove();
-  feed.appendChild(convoBubble({ role: 'user', content: goal }));
+  if (!opts.skipUser)
+    feed.appendChild(convoBubble({ role: 'user', content: goal }));
   const aWrap = el('div', 'msg msg--assistant');
   const aBody = el('div', 'msg-body');
   const aContent = el('div', 'msg-content streaming');
@@ -5329,13 +5531,21 @@ function appendLiveConvoTurn(goal, taskID, taskMode) {
     wrap: aWrap,
     approvalEl: null,
     taskMode: taskMode,
+    convoId: currentConvo ? currentConvo.id : '',
   });
   scrollToBottom(false);
 }
 
 function convoApproval(ap) {
   const live = convoLive.get(ap.task_id);
-  if (!live || live.approvalEl) return;
+  if (!live) return;
+  // One task can request approval several times; once the old card is decided
+  // it no longer takes up space.
+  if (live.approvalEl) {
+    if (live.approvalEl.dataset.approvalId === ap.id) return;
+    live.approvalEl.remove();
+    live.approvalEl = null;
+  }
   const riskCls = ap.risk === 'high' ? 'risk-high' : 'risk-medium';
   const box = el('div', 'approval-card convo-approval');
   box.dataset.approvalId = ap.id;
@@ -5367,6 +5577,15 @@ function convoStream(taskID, delta) {
   scrollToBottom();
 }
 
+function convoNotice(taskID, text) {
+  const live = convoLive.get(taskID);
+  if (!live || !text || live.lastNotice === text) return;
+  live.lastNotice = text;
+  const note = el('div', 'msg-status msg-status--running', text);
+  live.wrap.before(note);
+  scrollToBottom();
+}
+
 function convoComplete(taskID, result) {
   const live = convoLive.get(taskID);
   const text = (result && (result.summary || result.error)) || '';
@@ -5378,24 +5597,25 @@ function convoComplete(taskID, result) {
     // 跑完了就没有可停止的东西：按钮必须跟着走，留下它只会让人点了个空
     mountStopButton(live.bodyEl, taskID, 'done');
     convoLive.delete(taskID);
-  } else if (viewingConvo && currentConvo) {
-    // 非实时（重连/晚到完成事件）：回源刷新整段会话保证一致
-    api('GET', `/api/conversations/${encodeURIComponent(currentConvo.id)}`)
-      .then(renderConvoMessages)
-      .catch(() => {});
   }
-  if (viewingConvo && currentConvo) {
+  const convoId = (result && result.conversation_id) || (live && live.convoId);
+  const belongs = currentConvo && convoId && convoId === currentConvo.id;
+  if (viewingConvo && currentConvo && (live || belongs)) {
     loadConvoList(currentConvo.id);
-    // 首条消息后后端会按内容生成标题，回源同步顶部标题
+    // 首条消息后后端会按内容生成标题；顺带回源一次内容，补上断线漏掉的
+    // 非流式事件。只刷新当前对话：后台任务的完成事件不该重绘这一段。
     api('GET', `/api/conversations/${encodeURIComponent(currentConvo.id)}`)
       .then((c) => {
+        if (!currentConvo || c.id !== currentConvo.id) return;
         if (c.title && c.title !== currentConvo.title) {
           currentConvo.title = c.title;
           $('#goals-title').textContent = c.title;
         }
+        if (!live) renderConvoMessages(c);
       })
       .catch(() => {});
   }
+  loadContext();
   scrollToBottom();
 }
 
@@ -6160,7 +6380,6 @@ const LiveRail = (() => {
     model: $('#ro-model'),
     host: $('#ro-host'),
     tools: $('#ro-tools'),
-    approvals: $('#ro-approvals'),
     schedules: $('#ro-schedules'),
     memory: $('#ro-memory'),
     version: $('#ro-version'),
@@ -6456,6 +6675,14 @@ const LiveRail = (() => {
 
   const approval = guard((ap) => {
     if (!ap) return;
+    // SSE can deliver the same request twice (subscribe snapshot + broadcast);
+    // count and log it once, or the rail claims two things are waiting.
+    if (
+      ap.id &&
+      apList &&
+      apList.querySelector(`[data-approval-id="${ap.id}"]`)
+    )
+      return;
     const plan = (ap.plan || [])[0] || '';
     addRow(
       ap.task_id,
@@ -6501,10 +6728,7 @@ const LiveRail = (() => {
   });
 
   // attention 是"在等谁"的唯一算法（工作台数出来的），这里只跟着它同步，不再自己数一遍。
-  const summary = guard((counts, attention, weekDone) => {
-    setRead(ro.approvals, String(attention || 0), attention ? 'warn' : null);
-    setRead($('#metric-active'), String(counts.active || 0));
-    setRead($('#metric-done'), String(weekDone || 0));
+  const summary = guard((counts, attention) => {
     waiting = attention || 0;
     if (cur) paintRead();
     if (!cur) {
@@ -6577,17 +6801,31 @@ const LiveRail = (() => {
     const meta = el('div', 'ap-meta');
     const high = ap.risk === 'high';
     meta.appendChild(
-      el('span', 'ap-risk' + (high ? ' ap-risk--high' : ''), high ? '高风险' : '中风险'),
+      el(
+        'span',
+        'ap-risk' + (high ? ' ap-risk--high' : ''),
+        high ? '高风险' : '中风险',
+      ),
     );
-    meta.appendChild(el('span', 'ap-time', clock(ap.created_at ? new Date(ap.created_at) : null)));
+    meta.appendChild(
+      el(
+        'span',
+        'ap-time',
+        clock(ap.created_at ? new Date(ap.created_at) : null),
+      ),
+    );
     main.appendChild(meta);
     const acts = el('div', 'ap-acts');
     const ok = el('button', 'ap-btn ap-btn--ok', '允许');
     const no = el('button', 'ap-btn ap-btn--no', '拒绝');
     ok.type = 'button';
     no.type = 'button';
-    ok.addEventListener('click', () => resolveApproval(ap.id, true, row, null).then(refreshApprovals));
-    no.addEventListener('click', () => resolveApproval(ap.id, false, row, null).then(refreshApprovals));
+    ok.addEventListener('click', () =>
+      resolveApproval(ap.id, true, row, null).then(refreshApprovals),
+    );
+    no.addEventListener('click', () =>
+      resolveApproval(ap.id, false, row, null).then(refreshApprovals),
+    );
     acts.append(ok, no);
     row.append(main, acts);
     return row;
@@ -8715,15 +8953,36 @@ const Updater = (() => {
     }
   }
 
+  async function startDownload() {
+    if (state !== 'available') return;
+    state = 'downloading';
+    if (btn) btn.disabled = true;
+    paintBtn('准备下载…', 'downloading');
+    try {
+      const res = await desk.update.download();
+      if (!res || !res.ok) throw new Error((res && res.error) || '下载未开始');
+    } catch (err) {
+      state = 'available';
+      if (btn) btn.disabled = false;
+      paintBtn('更新', 'available');
+      toast(
+        '更新下载失败：' + (err && err.message ? err.message : '未知错误'),
+        'error',
+      );
+    }
+  }
+
   function init() {
     if (btn) {
       btn.addEventListener('click', () => {
         if (state === 'downloaded') openInstallDialog();
+        else if (state === 'available') void startDownload();
       });
     }
     if (badge) {
       badge.addEventListener('click', () => {
         if (state === 'downloaded') openInstallDialog();
+        else if (state === 'available') void startDownload();
       });
     }
 
@@ -8735,6 +8994,7 @@ const Updater = (() => {
         case 'available':
           state = 'available';
           version = s.version;
+          if (btn) btn.disabled = false;
           showBtn();
           paintBtn('更新', 'available');
           paintBadge('available');
@@ -8742,6 +9002,7 @@ const Updater = (() => {
         case 'downloading':
           state = 'downloading';
           percent = s.percent;
+          if (btn) btn.disabled = true;
           showBtn();
           paintBtn(`更新 ${s.percent}%`, 'downloading');
           paintBadge('downloading');
@@ -8749,6 +9010,7 @@ const Updater = (() => {
         case 'downloaded':
           state = 'downloaded';
           version = s.version;
+          if (btn) btn.disabled = false;
           showBtn();
           paintBtn('重启', 'ready');
           paintBadge('ready');
@@ -8756,12 +9018,14 @@ const Updater = (() => {
         case 'not-available':
           state = 'idle';
           version = '';
+          if (btn) btn.disabled = false;
           hideBtn();
           hideBadge();
           break;
         case 'error':
           state = 'idle';
           version = '';
+          if (btn) btn.disabled = false;
           hideBtn();
           hideBadge();
           break;
@@ -8769,7 +9033,113 @@ const Updater = (() => {
     });
   }
 
-  return { init };
+  function openCheckDialog() {
+    let off = null;
+    const done = () => {
+      if (off) {
+        off();
+        off = null;
+      }
+    };
+    Modal.open(
+      '检查更新',
+      (box) => {
+        const line = el('p', 'modal-text', '正在向发布页确认…');
+        box.appendChild(line);
+        const actions = el('div', 'modal-actions');
+        const page = el('button', 'btn btn-secondary', '去发布页');
+        page.type = 'button';
+        page.addEventListener('click', openReleases);
+        const later = el('button', 'btn btn-secondary', '关闭');
+        later.type = 'button';
+        later.addEventListener('click', () => Modal.close());
+        const primary = el('button', 'btn btn-primary', '下载更新');
+        primary.type = 'button';
+        primary.hidden = true;
+        primary.addEventListener('click', () => {
+          if (state === 'downloaded') {
+            Modal.close();
+            openInstallDialog();
+          } else if (state === 'available') {
+            void startDownload();
+          }
+        });
+        actions.append(page, later, primary);
+        box.appendChild(actions);
+
+        let cur = '';
+        let last = null;
+        const paint = (s) => {
+          if (!s || !s.kind) return;
+          switch (s.kind) {
+            case 'checking':
+              line.textContent = '正在向发布页确认…';
+              primary.hidden = true;
+              break;
+            case 'available':
+              line.textContent = `发现新版本 v${s.version}。下载只在你点按钮后开始，不会在后台悄悄占用带宽。`;
+              primary.hidden = false;
+              primary.disabled = false;
+              primary.textContent = '下载更新';
+              break;
+            case 'downloading':
+              line.textContent = `正在下载 v${s.version}（${s.percent}%）…`;
+              primary.hidden = true;
+              break;
+            case 'downloaded':
+              line.textContent = `v${s.version} 已下载并完成校验。安装会退出并重新打开 Gleam。`;
+              primary.hidden = false;
+              primary.disabled = false;
+              primary.textContent = '安装并重启';
+              break;
+            case 'not-available':
+              line.textContent = cur
+                ? `已是最新版本 ${cur}。`
+                : '已是最新版本。';
+              primary.hidden = true;
+              break;
+            case 'error':
+              line.textContent = `检查更新失败：${s.message || '未知错误'}。可以稍后再试，或去发布页手动下载。`;
+              primary.hidden = true;
+              break;
+          }
+        };
+        api('GET', '/api/info')
+          .then((info) => {
+            cur = info && info.version ? 'v' + info.version : '';
+            if (last && last.kind === 'not-available') paint(last);
+          })
+          .catch(() => {});
+
+        // The status event is the single source of truth; check() only kicks
+        // the backend. paint() is driven by both to avoid a stale first frame.
+        off = desk.update.onStatus((s) => {
+          last = s;
+          paint(s);
+        });
+        desk.update
+          .status()
+          .then((s) => {
+            last = s;
+            paint(s);
+          })
+          .catch(() => {});
+        desk.update
+          .check()
+          .then((r) => {
+            if (r && r.ok === false) {
+              line.textContent =
+                '这个桌面版本不支持应用内更新，请去发布页下载新版安装包。';
+              primary.hidden = true;
+            }
+          })
+          .catch(() => {});
+      },
+      done,
+    );
+  }
+
+  return { init, openCheckDialog };
 })();
 
 /* ---------- 语音输入：Web Speech API ---------- */
@@ -8820,8 +9190,14 @@ const VoiceInput = (() => {
     recognition.onerror = (e) => {
       console.warn('[voice] error:', e.error);
       stop();
-      if (e.error === 'not-allowed') {
-        toast('麦克风权限被拒绝，请在浏览器设置中允许', 'error', 4000);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        toast(
+          window.gleamDesktop && window.gleamDesktop.isDesktop
+            ? '麦克风权限被拒绝。请在系统设置的隐私一栏里允许 Gleam 使用麦克风'
+            : '麦克风权限被拒绝，请在浏览器设置中允许',
+          'error',
+          4000,
+        );
       }
     };
 
@@ -8947,15 +9323,19 @@ const Hardware = (function () {
       card.innerHTML = `
         <div class="device-card-header">
           <div class="device-icon">${DEVICE_ICONS[device.id] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>'}</div>
-          <div class="device-info"><h3>${device.name}</h3><p>${device.description}</p></div>
+          <div class="device-info"><h3>${esc(device.name)}</h3><p>${esc(device.description)}</p></div>
         </div>
-        <div class="device-capabilities">${(device.capabilities || []).map((cap) => `<span class="capability-tag">${CAPABILITY_LABELS[cap] || cap}</span>`).join('')}</div>
-        <div class="device-actions">${
-          isConnected
-            ? `<button class="btn btn-secondary" onclick="Hardware.disconnectDevice('${device.id}')">断开</button>`
-            : `<button class="btn btn-primary" onclick="Hardware.connectDevice('${device.id}')">${device.id === 'xiaohong' ? '一键配置' : '连接'}</button>`
-        }</div>
+        <div class="device-capabilities">${(device.capabilities || []).map((cap) => `<span class="capability-tag">${esc(CAPABILITY_LABELS[cap] || cap)}</span>`).join('')}</div>
+        <div class="device-actions"><button class="btn ${isConnected ? 'btn-secondary' : 'btn-primary'}" data-act="toggle">${
+          isConnected ? '断开' : device.id === 'xiaohong' ? '一键配置' : '连接'
+        }</button></div>
       `;
+      card
+        .querySelector('[data-act="toggle"]')
+        .addEventListener('click', () => {
+          if (isConnected) Hardware.disconnectDevice(device.id);
+          else Hardware.connectDevice(device.id);
+        });
       grid.appendChild(card);
     });
   }
@@ -8974,12 +9354,18 @@ const Hardware = (function () {
       const item = document.createElement('div');
       item.className = 'connected-item';
       item.innerHTML = `
-        <div class="connected-item-info"><div class="status-indicator"></div><span class="connected-item-name">${inst.name}</span></div>
+        <div class="connected-item-info"><div class="status-indicator"></div><span class="connected-item-name">${esc(inst.name)}</span></div>
         <div class="connected-item-actions">
-          <button class="btn btn-ghost" onclick="Hardware.showDeviceInfo('${inst.id}')">详情</button>
-          <button class="btn btn-secondary" onclick="Hardware.disconnectDevice('${inst.id}')">断开</button>
+          <button class="btn btn-ghost" data-act="info">详情</button>
+          <button class="btn btn-secondary" data-act="disconnect">断开</button>
         </div>
       `;
+      item
+        .querySelector('[data-act="info"]')
+        .addEventListener('click', () => Hardware.showDeviceInfo(inst.id));
+      item
+        .querySelector('[data-act="disconnect"]')
+        .addEventListener('click', () => Hardware.disconnectDevice(inst.id));
       list.appendChild(item);
     });
   }
@@ -9090,7 +9476,7 @@ const Hardware = (function () {
     networks.forEach((net) => {
       const item = document.createElement('div');
       item.className = 'wifi-item';
-      item.innerHTML = `<span class="wifi-name">${net.name}</span><span class="wifi-signal">${getSignalStrength(net.signal)}</span>`;
+      item.innerHTML = `<span class="wifi-name">${esc(net.name)}</span><span class="wifi-signal">${getSignalStrength(net.signal)}</span>`;
       item.addEventListener('click', () => {
         document
           .querySelectorAll('.wifi-item')

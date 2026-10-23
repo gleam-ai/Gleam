@@ -75,6 +75,7 @@ type Scheduler struct {
 
 	watch    map[string]watchSnap
 	lastFire map[string]time.Time
+	inflight map[string]bool
 }
 
 type watchSnap struct {
@@ -91,6 +92,7 @@ func Open(path string, fire FireFunc) (*Scheduler, error) {
 		stop:     make(chan struct{}),
 		watch:    map[string]watchSnap{},
 		lastFire: map[string]time.Time{},
+		inflight: map[string]bool{},
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -186,14 +188,44 @@ func (s *Scheduler) tick(now time.Time) {
 	s.mu.Unlock()
 	for _, j := range due {
 		if fire != nil {
-			j := *j
-			go fire(j)
+			s.start(j.Name, fire, *j)
 		}
 	}
 }
 
+// start keeps the same job from stacking: if the previous run is still going,
+// this trigger is dropped instead of starting another goroutine that mixes up
+// the working directory and conversation.
+func (s *Scheduler) start(name string, fire FireFunc, j Job) {
+	if !s.reserve(name) {
+		return
+	}
+	s.launch(name, fire, j)
+}
+
+func (s *Scheduler) reserve(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inflight[name] {
+		return false
+	}
+	s.inflight[name] = true
+	return true
+}
+
+func (s *Scheduler) launch(name string, fire FireFunc, j Job) {
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.inflight, name)
+			s.mu.Unlock()
+		}()
+		fire(j)
+	}()
+}
+
 func (s *Scheduler) checkWatch(j *Job, now time.Time) {
-	snap, _ := s.snapshot(j.WatchPath, j.WatchPattern)
+	snap := s.snapshot(j.WatchPath, j.WatchPattern)
 	if prev, ok := s.watch[j.Name]; ok && snap != prev {
 		if last, ok2 := s.lastFire[j.Name]; !ok2 || now.Sub(last) > 10*time.Second {
 			nowT := now
@@ -202,36 +234,60 @@ func (s *Scheduler) checkWatch(j *Job, now time.Time) {
 			if j.NextRun == nil {
 				s.recomputeNext(j, now)
 			}
-			if s.fire != nil {
+			if s.fire != nil && !s.inflight[j.Name] {
+				s.inflight[j.Name] = true
 				job := *j
-				go s.fire(job)
+				s.launch(j.Name, s.fire, job)
 			}
 		}
 	}
 	s.watch[j.Name] = snap
 }
 
-func (s *Scheduler) snapshot(path, pattern string) (watchSnap, watchSnap) {
+func (s *Scheduler) snapshot(path, pattern string) watchSnap {
 	info, err := os.Stat(path)
 	if err != nil {
-		return watchSnap{}, watchSnap{}
+		return watchSnap{}
 	}
-	snap := watchSnap{ModTime: info.ModTime(), Size: info.Size(), Count: 1}
-	if info.IsDir() {
-		entries, err := os.ReadDir(path)
-		if err == nil {
-			snap.Count = len(entries)
+	if !info.IsDir() {
+		return watchSnap{ModTime: info.ModTime(), Size: info.Size(), Count: 1}
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return watchSnap{}
+	}
+	// The directory snapshot aggregates only matching entries: using the
+	// directory mtime would change the snapshot for an unrelated new file and
+	// falsely trigger the watch job.
+	var snap watchSnap
+	for _, e := range entries {
+		if pattern != "" {
+			if ok, _ := filepath.Match(pattern, e.Name()); !ok {
+				continue
+			}
+		}
+		st, err := e.Info()
+		if err != nil {
+			continue
+		}
+		snap.Count++
+		snap.Size += st.Size()
+		if st.ModTime().After(snap.ModTime) {
+			snap.ModTime = st.ModTime()
 		}
 	}
-	return snap, snap
+	return snap
 }
 
 func (s *Scheduler) recomputeNext(j *Job, now time.Time) {
+	// Clear before computing: when no next run exists (invalid or never-matching
+	// cron) the field must stay nil, or the stale past time makes every tick
+	// consider it due and fires forever.
+	j.NextRun = nil
 	switch {
 	case j.Cron != "":
 		if c, err := ParseCron(j.Cron); err == nil {
-			next := c.Next(now)
-			if !next.IsZero() {
+			if next := c.Next(now); !next.IsZero() {
 				j.NextRun = &next
 			}
 		}
@@ -239,9 +295,7 @@ func (s *Scheduler) recomputeNext(j *Job, now time.Time) {
 		next := now.Add(time.Duration(j.IntervalSec) * time.Second)
 		j.NextRun = &next
 	case j.WatchPath != "":
-		next := now.Add(5 * time.Second)
-		j.NextRun = nil
-		_ = next
+		// Watch jobs are triggered by file changes and have no fixed next run.
 	}
 }
 
@@ -347,6 +401,10 @@ func (s *Scheduler) TriggerNow(name string) (bool, error) {
 		s.mu.Unlock()
 		return false, fmt.Errorf("任务 %q 已停用", name)
 	}
+	if s.inflight[name] {
+		s.mu.Unlock()
+		return false, fmt.Errorf("任务 %q 正在运行，请等本轮结束", name)
+	}
 	nowT := time.Now()
 	j.LastRun = &nowT
 	s.recomputeNext(j, nowT)
@@ -354,11 +412,15 @@ func (s *Scheduler) TriggerNow(name string) (bool, error) {
 		j.Enabled = false
 		j.NextRun = nil
 	}
-	err := s.saveLocked()
+	fire := s.fire
 	job := *j
+	if fire != nil {
+		s.inflight[name] = true
+	}
+	err := s.saveLocked()
 	s.mu.Unlock()
-	if s.fire != nil {
-		go s.fire(job)
+	if fire != nil {
+		s.launch(name, fire, job)
 	}
 	return true, err
 }

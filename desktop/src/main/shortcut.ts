@@ -40,27 +40,31 @@ function reveal(): void {
 }
 
 function apply(accelerator: string): ShortcutResult {
-  if (current) {
-    globalShortcut.unregister(current);
-    current = '';
-  }
   const accel = accelerator.trim();
-  if (!accel) return { ok: true, accelerator: '' };
+  if (accel === current) return { ok: true, accelerator: current };
+  if (!accel) {
+    if (current) globalShortcut.unregister(current);
+    current = '';
+    return { ok: true, accelerator: '' };
+  }
+  // Register the new accelerator before unregistering the old one: a failed
+  // registration must not disable the shortcut that currently works.
   try {
     if (!globalShortcut.register(accel, reveal)) {
       return {
         ok: false,
-        accelerator: '',
+        accelerator: current,
         error: '这个组合已经被别的程序占用了',
       };
     }
   } catch (err) {
     return {
       ok: false,
-      accelerator: '',
+      accelerator: current,
       error: `这个组合 Electron 不认：${(err as Error).message}`,
     };
   }
+  if (current) globalShortcut.unregister(current);
   current = accel;
   return { ok: true, accelerator: accel };
 }

@@ -275,12 +275,17 @@ func (a *Agent) SettingsView() map[string]any {
 	var apiKeySet bool
 	var keyHost string
 	if def := a.defaultModelEntry(); def != nil {
-		apiKeySet = strings.TrimSpace(def.APIKey) != ""
-		keyHost = llm.KeyScope(def.BaseURL)
+		key, kh := a.llmKeyFor(def.BaseURL, def.APIKey)
+		apiKeySet = key != ""
+		keyHost = kh
 	} else {
 		activeKey, kh := a.llmKeyFor(cfg.LLM.BaseURL, "")
 		apiKeySet = activeKey != ""
 		keyHost = kh
+	}
+	fastModel := cfg.LLM.FastModel
+	if fast := a.fastModelEntry(); fast != nil {
+		fastModel = fast.Model
 	}
 	return map[string]any{
 		"persona": map[string]any{"name": cfg.Persona.Name, "style": cfg.Persona.Style},
@@ -336,7 +341,7 @@ func (a *Agent) SettingsView() map[string]any {
 			"provider_id":      cfg.LLM.ProviderID,
 			"plan":             cfg.LLM.Plan,
 			"model":            cfg.LLM.Model,
-			"fast_model":       cfg.LLM.FastModel,
+			"fast_model":       fastModel,
 			"tiers":            tiersView(cfg.LLM.Tiers),
 			"base_url":         cfg.LLM.BaseURL,
 			"temperature":      cfg.LLM.Temperature,
@@ -346,7 +351,7 @@ func (a *Agent) SettingsView() map[string]any {
 			"api_key_set":      apiKeySet,
 			"api_key_host":     keyHost,
 			"api_key_host_cur": llm.KeyScope(cfg.LLM.BaseURL),
-			"models":           modelsView(cfg.LLM.Models, keyHost),
+			"models":           a.modelsView(cfg.LLM.Models),
 		},
 		"scheduler": map[string]any{"enabled": cfg.Scheduler.Enabled},
 		"workspace": cfg.Workspace,
@@ -362,22 +367,22 @@ func tiersView(tiers map[string]string) map[string]any {
 	return out
 }
 
-func modelsView(models []config.ModelEntry, _ string) []map[string]any {
+func (a *Agent) modelsView(models []config.ModelEntry) []map[string]any {
 	out := make([]map[string]any, 0, len(models))
 	for _, m := range models {
-		out = append(out, modelEntryView(m))
+		out = append(out, a.modelEntryView(m))
 	}
 	return out
 }
 
-func modelEntryView(m config.ModelEntry) map[string]any {
-	keySet := strings.TrimSpace(m.APIKey) != ""
+func (a *Agent) modelEntryView(m config.ModelEntry) map[string]any {
+	key, _ := a.llmKeyFor(m.BaseURL, m.APIKey)
 	return map[string]any{
 		"id": m.ID, "name": m.Name,
 		"provider_id": m.ProviderID, "protocol": m.Protocol,
 		"base_url": m.BaseURL, "model": m.Model, "plan": m.Plan,
 		"is_default": m.IsDefault, "is_fast": m.IsFast,
-		"api_key_set": keySet,
+		"api_key_set": strings.TrimSpace(key) != "",
 	}
 }
 
@@ -418,6 +423,12 @@ func modelEntryFromMap(m map[string]any) (config.ModelEntry, error) {
 	if e.Model == "" {
 		return e, fmt.Errorf("模型 ID 不能为空")
 	}
+	if strings.TrimSpace(e.BaseURL) == "" && llm.FindProvider(e.ProviderID) == nil {
+		return e, fmt.Errorf("接口地址不能为空：选择厂商预设或手动填写 Base URL")
+	}
+	if e.Protocol != "" && !llm.ValidProtocol(e.Protocol) {
+		return e, fmt.Errorf("不支持的 API 类型 %q", e.Protocol)
+	}
 	return e, nil
 }
 
@@ -442,8 +453,69 @@ func (a *Agent) defaultModelEntry() *config.ModelEntry {
 	return nil
 }
 
+func (a *Agent) fastModelEntry() *config.ModelEntry {
+	for i := range a.Cfg.LLM.Models {
+		if a.Cfg.LLM.Models[i].IsFast {
+			return &a.Cfg.LLM.Models[i]
+		}
+	}
+	return nil
+}
+
+func (a *Agent) clearFastFlag() {
+	for i := range a.Cfg.LLM.Models {
+		a.Cfg.LLM.Models[i].IsFast = false
+	}
+}
+
+// bindModelKey writes the model's own API key into the encrypted credential
+// file; when credentials are unavailable it stays in memory (tests or read-only
+// setups), so the key never lands in a read-only config.
+func (a *Agent) bindModelKey(m *config.ModelEntry) error {
+	key := strings.TrimSpace(m.APIKey)
+	if key == "" || a.Creds == nil {
+		return nil
+	}
+	if _, err := BindLLMKey(a.Cfg, a.Creds, m.BaseURL, key, false); err != nil {
+		return err
+	}
+	m.APIKey = ""
+	return nil
+}
+
+// InitModelRuntime runs once the credential store is ready: migrate legacy
+// plaintext keys and rebuild the primary, auxiliary and tier clients from the
+// default model.
+func (a *Agent) InitModelRuntime() {
+	a.migrateModelKeys()
+	a.syncModelRuntime()
+}
+
+// migrateModelKeys moves model keys written to settings.yaml by older versions
+// into the credential file.
+func (a *Agent) migrateModelKeys() {
+	if a == nil || a.Creds == nil {
+		return
+	}
+	changed := false
+	for i := range a.Cfg.LLM.Models {
+		m := &a.Cfg.LLM.Models[i]
+		if strings.TrimSpace(m.APIKey) == "" {
+			continue
+		}
+		if _, err := BindLLMKey(a.Cfg, a.Creds, m.BaseURL, m.APIKey, false); err != nil {
+			continue
+		}
+		m.APIKey = ""
+		changed = true
+	}
+	if changed {
+		_ = a.saveModelsOverlay()
+	}
+}
+
 func (a *Agent) ModelsList() []map[string]any {
-	return modelsView(a.Cfg.LLM.Models, "")
+	return a.modelsView(a.Cfg.LLM.Models)
 }
 
 func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
@@ -457,16 +529,23 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	if a.modelIndex(entry.ID) >= 0 {
 		return nil, fmt.Errorf("模型 ID %q 已存在", entry.ID)
 	}
+	if err := a.bindModelKey(&entry); err != nil {
+		return nil, err
+	}
 	if entry.IsDefault || !a.hasDefaultModel() {
 		a.setDefaultFlag(entry.ID)
 		entry.IsDefault = true
+	}
+	if entry.IsFast {
+		a.clearFastFlag()
+		a.Cfg.LLM.FastModel = ""
 	}
 	a.Cfg.LLM.Models = append(a.Cfg.LLM.Models, entry)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
 	a.syncModelRuntime()
-	return map[string]any{"model": modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
+	return map[string]any{"model": a.modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
 func (a *Agent) hasDefaultModel() bool {
@@ -497,15 +576,22 @@ func (a *Agent) ModelUpdate(id string, raw map[string]any) (map[string]any, erro
 	if _, hasKey := raw["api_key"]; !hasKey {
 		entry.APIKey = a.Cfg.LLM.Models[idx].APIKey
 	}
+	if err := a.bindModelKey(&entry); err != nil {
+		return nil, err
+	}
 	if entry.IsDefault {
 		a.setDefaultFlag(id)
+	}
+	if entry.IsFast {
+		a.clearFastFlag()
+		a.Cfg.LLM.FastModel = ""
 	}
 	a.Cfg.LLM.Models[idx] = entry
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
 	a.syncModelRuntime()
-	return map[string]any{"model": modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
+	return map[string]any{"model": a.modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
 func (a *Agent) ModelDelete(id string) (map[string]any, error) {
@@ -531,7 +617,7 @@ func (a *Agent) ModelSetDefault(id string) (map[string]any, error) {
 		return nil, err
 	}
 	a.syncModelRuntime()
-	return map[string]any{"model": modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
+	return map[string]any{"model": a.modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
 func (a *Agent) SetActiveModel(id string) (map[string]any, error) {
@@ -544,7 +630,7 @@ func (a *Agent) SetActiveModel(id string) (map[string]any, error) {
 		return nil, err
 	}
 	a.syncModelRuntime()
-	return map[string]any{"active": modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList()}, nil
+	return map[string]any{"active": a.modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList()}, nil
 }
 
 func (a *Agent) ActiveModel() map[string]any {
@@ -552,7 +638,7 @@ func (a *Agent) ActiveModel() map[string]any {
 	if entry == nil {
 		return nil
 	}
-	return modelEntryView(*entry)
+	return a.modelEntryView(*entry)
 }
 
 func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
@@ -570,6 +656,7 @@ func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
 	a.Cfg.LLM.Model = model
 	a.Cfg.LLM.Protocol = protocol
 	a.Cfg.LLM.APIKey = key
+	a.Cfg.LLM.APIKeyScope = llm.KeyScope(baseURL)
 	return nil
 }
 
@@ -577,12 +664,10 @@ func (a *Agent) syncModelRuntime() {
 	if a == nil || a.Cfg == nil {
 		return
 	}
-	entry := a.defaultModelEntry()
-	if entry == nil {
-		return
-	}
-	if err := a.applyModelEntry(*entry); err != nil {
-		return
+	if entry := a.defaultModelEntry(); entry != nil {
+		if err := a.applyModelEntry(*entry); err != nil {
+			return
+		}
 	}
 	a.RebuildFastClient()
 	a.RebuildTierClients()
@@ -853,9 +938,47 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		return a.SettingsView(), fmt.Errorf("没有可应用的有效设置")
 	}
 
+	if lm, ok := sanitized["llm"].(map[string]any); ok && a.Cfg.LLM.Provider != "mock" {
+		// Resolve the post-apply target first: without a model, do not write
+		// the config, or the runtime sends requests with an empty model and the
+		// error points far from the real cause. Base URL may be cleared first.
+		_, model, _, _ := a.llmFormTarget(lm)
+		if strings.TrimSpace(model) == "" {
+			return a.SettingsView(), fmt.Errorf("模型 ID 不能为空：选择厂商后请填写要使用的模型")
+		}
+	}
+
 	prevProviderID := a.Cfg.LLM.ProviderID
+	prevPlan := a.Cfg.LLM.Plan
 	a.Cfg.Apply(sanitized)
 
+	if lm, ok := sanitized["llm"].(map[string]any); ok {
+		pid, _ := lm["provider_id"].(string)
+		plan, _ := lm["plan"].(string)
+		pidChanged := pid != "" && pid != prevProviderID
+		planChanged := plan != "" && plan != prevPlan
+		if _, hasProto := lm["protocol"]; !hasProto && (pidChanged || planChanged) {
+			// Without an explicit protocol, do not carry the old vendor/plan
+			// protocol over to the new endpoint.
+			a.Cfg.LLM.Protocol = ""
+		}
+		if pidChanged {
+			// Auxiliary and tier model names belong to the old vendor and do
+			// not exist after switching.
+			a.Cfg.LLM.FastModel = ""
+			a.Cfg.LLM.Tiers = nil
+			a.clearFastFlag()
+		} else if v, has := lm["fast_model"].(string); has {
+			// The advanced settings field is the legacy entry: when it is
+			// explicitly cleared or changed, a checkbox in the model list must
+			// not keep overriding it.
+			if strings.TrimSpace(v) == "" {
+				a.clearFastFlag()
+			} else if fast := a.fastModelEntry(); fast != nil && fast.Model != strings.TrimSpace(v) {
+				a.clearFastFlag()
+			}
+		}
+	}
 	if lm, ok := sanitized["llm"].(map[string]any); ok {
 		formKey, _ := lm["api_key"].(string)
 		clearKey, _ := lm["clear_api_key"].(bool)

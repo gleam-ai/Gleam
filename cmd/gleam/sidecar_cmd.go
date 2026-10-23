@@ -59,6 +59,9 @@ func cmdDesktopSidecar(args []string) error {
 		return err
 	}
 	srv := webui.NewServer(rt.agent)
+	// The Electron shell owns installation and updates (electron-updater).
+	// Letting the Go updater rewrite the sidecar binary bricks the install.
+	srv.DisableSelfUpdate = true
 	_ = os.Unsetenv(webui.TokenEnv)
 	srv.BindAddr = ln.Addr().String()
 	announceToken(srv)

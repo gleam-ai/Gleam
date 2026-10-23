@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,7 +52,13 @@ func newHTTPTransport(cfg ServerConfig, logf func(string, ...any)) (*httpTranspo
 
 func isLoopbackHost(host string) bool {
 	h := strings.ToLower(strings.TrimSpace(host))
-	return h == "localhost" || h == "127.0.0.1" || h == "::1" || strings.HasPrefix(h, "127.")
+	if h == "localhost" {
+		return true
+	}
+	// net.ParseIP, not a string prefix: "127.evil.com" must not count as
+	// loopback just because it starts with "127.".
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func (t *httpTransport) notify(method string, params any) error {

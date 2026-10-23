@@ -4,6 +4,8 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +15,34 @@ import (
 
 	"gleam/internal/agent"
 )
+
+// Keep oversized logs and configs from other tools out of memory. The JSON
+// cap is higher because files such as .claude.json carry history, but it must
+// still be bounded.
+const (
+	importReadMaxBytes = 1 << 20
+	importJSONMaxBytes = 16 << 20
+)
+
+func readCapped(path string) ([]byte, error) {
+	return readCappedLimit(path, importReadMaxBytes)
+}
+
+func readCappedLimit(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("文件超过 %d KB，已跳过", limit>>10)
+	}
+	return raw, nil
+}
 
 type memCandidate struct {
 	ID      string `json:"id"`
@@ -198,8 +228,11 @@ func scanProjectMemory(workspace string, seen map[string]bool) []memCandidate {
 			if !ok {
 				continue
 			}
+			body, err := readCapped(full)
+			if err != nil {
+				continue
+			}
 			seen[full] = true
-			body, _ := os.ReadFile(full)
 			out = append(out, memCandidate{
 				ID: candID("项目", full), App: "项目 · " + filepath.Base(it.dir), Kind: "记忆",
 				Path: full, Title: e.Name(), Bytes: size, Entries: countEntries(string(body)), Preview: head,
@@ -225,8 +258,11 @@ func scanMemory(workspace string) []memCandidate {
 		if !ok {
 			return
 		}
+		full, err := readCapped(path)
+		if err != nil {
+			return
+		}
 		seen[path] = true
-		full, _ := os.ReadFile(path)
 		out = append(out, memCandidate{
 			ID: candID(app, path), App: app, Kind: kind, Path: path, Title: title,
 			Bytes: size, Entries: countEntries(string(full)), Preview: head,
@@ -390,7 +426,7 @@ func scanMCP(installed map[string]bool) ([]mcpCandidate, int) {
 		})
 	}
 	for _, f := range mcpJSONFiles() {
-		raw, err := os.ReadFile(f.Path)
+		raw, err := readCappedLimit(f.Path, importJSONMaxBytes)
 		if err != nil {
 			continue
 		}
@@ -400,7 +436,7 @@ func scanMCP(installed map[string]bool) ([]mcpCandidate, int) {
 	}
 	home, _ := os.UserHomeDir()
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if raw, err := os.ReadFile(codexPath); err == nil {
+	if raw, err := readCappedLimit(codexPath, importJSONMaxBytes); err == nil {
 		for name, s := range parseCodexTOML(string(raw)) {
 			push("Codex CLI", codexPath, name, s.Command, s.Args, nil)
 		}
@@ -504,7 +540,7 @@ func (s *Server) handleImportApply(w http.ResponseWriter, r *http.Request) {
 			skippedMem++
 			continue
 		}
-		raw, err := os.ReadFile(c.Path)
+		raw, err := readCapped(c.Path)
 		if err != nil {
 			skippedMem++
 			continue

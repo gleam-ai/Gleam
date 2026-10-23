@@ -23,6 +23,9 @@ const (
 	marketMaxBody      = 4 << 20
 	marketCacheName    = "market-official-mcp.json"
 	marketCacheTTL     = 10 * time.Minute
+	// Search terms come from user input; the cache key space must be bounded,
+	// or it grows forever in a long-running process.
+	marketQueryCacheMax = 64
 )
 
 type marketState struct {
@@ -200,11 +203,36 @@ func (s *Server) marketSearch(ctx context.Context, q string, force bool) ([]mark
 
 func (s *Server) cacheMarketQuery(q string, presets []market.RemotePreset) {
 	marketCacheState.mu.Lock()
+	defer marketCacheState.mu.Unlock()
 	if marketCacheState.byQuery == nil {
 		marketCacheState.byQuery = map[string]marketEntry{}
 	}
 	marketCacheState.byQuery[q] = marketEntry{presets: presets, at: time.Now()}
-	marketCacheState.mu.Unlock()
+	if len(marketCacheState.byQuery) <= marketQueryCacheMax {
+		return
+	}
+	now := time.Now()
+	for k, e := range marketCacheState.byQuery {
+		if k != q && now.Sub(e.at) >= marketCacheTTL {
+			delete(marketCacheState.byQuery, k)
+		}
+	}
+	for len(marketCacheState.byQuery) > marketQueryCacheMax {
+		oldest := ""
+		var oldestAt time.Time
+		for k, e := range marketCacheState.byQuery {
+			if k == q {
+				continue
+			}
+			if oldest == "" || e.at.Before(oldestAt) {
+				oldest, oldestAt = k, e.at
+			}
+		}
+		if oldest == "" {
+			break
+		}
+		delete(marketCacheState.byQuery, oldest)
+	}
 }
 
 func (s *Server) marketCachePath() string {

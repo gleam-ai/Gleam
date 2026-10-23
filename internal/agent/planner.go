@@ -306,7 +306,7 @@ func (p *Planner) screenToolNames(goal string, tools []types.Tool, n int) []stri
 		System: sys,
 		Messages: []llm.Message{{Role: llm.RoleUser,
 			Content: "目标：" + types.Shorten(goal, 300) + "\n\n工具菜单：\n" + menu.String()}},
-		Temperature: 0, MaxTokens: 200, TaskID: p.TaskID,
+		Temperature: 0, TemperatureSet: true, MaxTokens: 200, TaskID: p.TaskID,
 	}
 	sctx, cancel := context.WithTimeout(context.Background(), screenTimeout)
 	defer cancel()
@@ -424,7 +424,7 @@ func (p *Planner) buildSystemPromptMeasured(goal, cwd string, recent []memory.Tu
 	})
 	bd.State += seg(func() {
 		if strings.TrimSpace(summary) != "" {
-			fmt.Fprintf(&b, "\n## 早期上下文摘要（已自动压缩）\n%s\n", types.Shorten(summary, summaryInjectCap))
+			fmt.Fprintf(&b, "\n## 早期上下文摘要（已自动压缩）\n%s\n", types.ShortenTail(summary, summaryInjectCap))
 		}
 	})
 	bd.State += seg(func() {

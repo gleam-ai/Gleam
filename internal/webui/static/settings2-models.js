@@ -434,7 +434,9 @@
                 } else {
                   const pl = curPlan();
                   st.base = pl ? pl.base_url : '';
-                  st.modelName = pl ? pl.model : '';
+                  st.modelName = pl
+                    ? pl.model || (curProv().models || [])[0] || ''
+                    : '';
                 }
               }
               close();
@@ -956,6 +958,17 @@
       submit.disabled = busy || !ok;
       return ok;
     }
+    function setBusy(v) {
+      busy = v;
+      cancel.disabled = v;
+      submit.disabled = v;
+      // Freeze the form during validation: otherwise values the user edited
+      // are not part of this request, yet it looks like they were saved.
+      body.querySelectorAll('input, select, button').forEach((el) => {
+        el.disabled = v;
+      });
+      validate();
+    }
     function showResult(kind, text) {
       result.hidden = false;
       result.className = 's2-dialog-result is-' + kind;
@@ -995,7 +1008,9 @@
               (v) => {
                 st.plan = v;
                 const pl = curPlan();
-                st.modelName = pl ? pl.model : '';
+                st.modelName = pl
+                  ? pl.model || (curProv().models || [])[0] || ''
+                  : '';
                 paint();
               },
             ),
@@ -1009,9 +1024,8 @@
     }
 
     async function submitNow() {
-      if (!validate()) return;
-      busy = true;
-      validate();
+      if (busy || !validate()) return;
+      setBusy(true);
       const t = target();
       try {
         showResult('pending', `正在校验 ${t.model}（一次真实的最小请求）…`);
@@ -1038,8 +1052,7 @@
       } catch (err) {
         showResult('fail', err.message || String(err));
       } finally {
-        busy = false;
-        validate();
+        setBusy(false);
       }
     }
     submit.addEventListener('click', submitNow);
@@ -1059,6 +1072,10 @@
       overlay.remove();
     }
     function tryClose() {
+      if (busy) {
+        showResult('pending', '正在校验模型，请稍候；完成前不会关闭这里。');
+        return;
+      }
       if (!dirty) {
         close();
         return;
@@ -1108,7 +1125,7 @@
     if (!st.editing && !isCustom()) {
       const pl = curPlan();
       st.base = pl ? pl.base_url : '';
-      st.modelName = pl ? pl.model : '';
+      st.modelName = pl ? pl.model || (curProv().models || [])[0] || '' : '';
     }
     paint();
     document.body.append(overlay);

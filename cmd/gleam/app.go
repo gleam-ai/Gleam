@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"gleam/internal/desktop"
@@ -27,6 +30,7 @@ func cmdApp(args []string) error {
 	mockScript := fs.String("mock-script", "", "Mock 响应脚本 JSON 路径")
 	addr := fs.String("addr", "127.0.0.1:8787", "监听地址")
 	noBrowser := fs.Bool("no-browser", false, "启动时不自动打开窗口（仅托盘）")
+	daemonMode := fs.Bool("daemon", false, "无界面守护模式（不打开窗口和托盘）")
 	flagArgs, _ := splitFlagArgs(args, fs)
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -35,9 +39,17 @@ func cmdApp(args []string) error {
 	listenAddr := *addr
 	if busy, gleam := probeAddr(*addr); busy {
 		if gleam {
-			_, _ = http.Post("http://"+*addr+"/api/show-window", "", nil)
-			fmt.Fprintf(os.Stderr, "[gleam] 已有实例运行于 http://%s，已请求其弹出窗口\n", *addr)
+			msg := "已请求其弹出窗口"
+			if *daemonMode {
+				msg = "守护进程已在运行，本次启动直接退出"
+			} else {
+				_, _ = http.Post("http://"+*addr+"/api/show-window", "", nil)
+			}
+			fmt.Fprintf(os.Stderr, "[gleam] 已有实例运行于 http://%s，%s\n", *addr, msg)
 			return nil
+		}
+		if *daemonMode {
+			return fmt.Errorf("守护模式要求的地址 %s 被其他程序占用", *addr)
 		}
 		listenAddr = "127.0.0.1:0"
 	}
@@ -72,6 +84,11 @@ func cmdApp(args []string) error {
 			fmt.Fprintln(os.Stderr, "[gleam] HTTP 错误:", err)
 		}
 	}()
+
+	if *daemonMode {
+		fmt.Fprintf(os.Stderr, "[gleam] 守护进程已启动: %s\n", url)
+		return serveDaemon(httpServer, rt.agent.DataDir(), url)
+	}
 
 	openWindow := func() { desktop.OpenWindow(url, nil) }
 	srv.ShowWindowFunc = openWindow
@@ -133,6 +150,29 @@ func cmdApp(args []string) error {
 	}
 	_ = lastSeen
 	return err
+}
+
+func serveDaemon(srv *http.Server, dataDir, url string) error {
+	logDir := filepath.Join(dataDir, "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	logPath := filepath.Join(logDir, "daemon.log")
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[gleam] 打不开守护日志 %s：%v\n", logPath, err)
+	} else {
+		defer f.Close()
+		fmt.Fprintf(f, "%s daemon started: %s (pid %d)\n", time.Now().Format(time.RFC3339), url, os.Getpid())
+	}
+
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	<-ch
+	if f != nil {
+		fmt.Fprintf(f, "%s daemon stopping\n", time.Now().Format(time.RFC3339))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return srv.Shutdown(ctx)
 }
 
 func openBrowser(url string) {

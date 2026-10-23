@@ -16,12 +16,20 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"gleam/internal/buildinfo"
 )
 
 const goToolchainVersion = "1.23.4"
+
+var (
+	goInstallMu sync.Mutex
+	// A variable rather than a constant: tests lower the cap to verify that
+	// oversized archives are rejected.
+	goArchiveMaxBytes int64 = 512 << 20
+)
 
 func goToolsRoot(dataDir string) string {
 	if strings.TrimSpace(dataDir) == "" {
@@ -84,6 +92,12 @@ func (s *Server) handleGoInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) installGoToolchain(ctx context.Context, name, dest string, urls []string) map[string]any {
+	// Only one install at a time: two requests would each unpack and swap the
+	// directory, and the later one would replace the files the first just
+	// wrote, leaving half a toolchain.
+	goInstallMu.Lock()
+	defer goInstallMu.Unlock()
+
 	out := map[string]any{
 		"found":   false,
 		"name":    name,
@@ -100,8 +114,27 @@ func (s *Server) installGoToolchain(ctx context.Context, name, dest string, urls
 		out["message"] = "创建下载目录失败：" + err.Error()
 		return out
 	}
-	archive := filepath.Join(tmpDir, name)
+	// The temp file must keep the real extension: the extractor picks zip vs
+	// tar.gz by suffix.
+	pattern := "go-download-*.tar.gz"
+	if strings.HasSuffix(name, ".zip") {
+		pattern = "go-download-*.zip"
+	}
+	tmpFile, err := os.CreateTemp(tmpDir, pattern)
+	if err != nil {
+		out["message"] = "创建临时文件失败：" + err.Error()
+		return out
+	}
+	archive := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(archive)
+		out["message"] = "创建临时文件失败：" + err.Error()
+		return out
+	}
 	defer os.Remove(archive)
+
+	staging := dest + fmt.Sprintf(".staging-%d", time.Now().UnixNano())
+	defer os.RemoveAll(staging)
 
 	var lastErr string
 	for _, u := range urls {
@@ -122,18 +155,23 @@ func (s *Server) installGoToolchain(ctx context.Context, name, dest string, urls
 				continue
 			}
 		}
-		_ = n
 		out["bytes"] = n
-		if err := os.RemoveAll(dest); err != nil {
-			out["message"] = "清理旧目录失败：" + err.Error()
+		_ = os.RemoveAll(staging)
+		if err := os.MkdirAll(staging, 0o755); err != nil {
+			out["message"] = "创建暂存目录失败：" + err.Error()
 			return out
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			out["message"] = "创建目标目录失败：" + err.Error()
-			return out
-		}
-		if err := extractGoArchive(archive, filepath.Dir(dest)); err != nil {
+		if err := extractGoArchive(archive, staging); err != nil {
 			out["message"] = "解压失败：" + err.Error()
+			return out
+		}
+		stagedRoot := filepath.Join(staging, "go")
+		if !DetectGo(goBinDir(stagedRoot)).Found {
+			out["message"] = "展开完成但没找到 go 可执行文件，目录可能不完整"
+			return out
+		}
+		if err := swapToolchainDir(stagedRoot, dest); err != nil {
+			out["message"] = err.Error()
 			return out
 		}
 		if st := DetectGo(goBinDir(dest)); st.Found {
@@ -146,13 +184,40 @@ func (s *Server) installGoToolchain(ctx context.Context, name, dest string, urls
 			out["source"] = "gleam-managed"
 			return out
 		}
-		out["message"] = "展开完成但没找到 go 可执行文件，目录可能不完整"
+		out["message"] = "安装完成但没找到 go 可执行文件，目录可能不完整"
 		return out
 	}
 
 	out["message"] = "下载失败，已试过所有镜像源：" + lastErr
 	out["download"] = urls[0]
 	return out
+}
+
+// swapToolchainDir replaces the whole directory and moves the old version back
+// on failure. RemoveAll-then-extract would turn "an old Go is installed" into
+// "nothing is installed" when extraction fails.
+func swapToolchainDir(staged, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("创建目标目录失败: %w", err)
+	}
+	backup := dest + fmt.Sprintf(".old-%d", time.Now().UnixNano())
+	hadOld := false
+	if _, err := os.Stat(dest); err == nil {
+		if err := os.Rename(dest, backup); err != nil {
+			return fmt.Errorf("暂存旧工具链失败: %w", err)
+		}
+		hadOld = true
+	}
+	if err := os.Rename(staged, dest); err != nil {
+		if hadOld {
+			_ = os.Rename(backup, dest)
+		}
+		return fmt.Errorf("替换工具链目录失败: %w", err)
+	}
+	if hadOld {
+		_ = os.RemoveAll(backup)
+	}
+	return nil
 }
 
 func goBinDir(root string) string { return filepath.Join(root, "bin") }
@@ -182,17 +247,26 @@ func (s *Server) fetchTo(ctx context.Context, raw, dst string) (int64, error) {
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
+	if resp.ContentLength > goArchiveMaxBytes {
+		return 0, fmt.Errorf("归档 %d 字节，超过上限 %d 字节", resp.ContentLength, goArchiveMaxBytes)
+	}
 	f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
 	}
-	n, copyErr := io.Copy(f, io.LimitReader(resp.Body, 512<<20))
+	// Read one extra byte: a LimitReader capped at the limit cannot tell
+	// "exactly 512 MiB" from "there is more", and would accept a truncated
+	// download as success.
+	n, copyErr := io.Copy(f, io.LimitReader(resp.Body, goArchiveMaxBytes+1))
 	closeErr := f.Close()
 	if copyErr != nil {
 		return n, copyErr
 	}
 	if closeErr != nil {
 		return n, closeErr
+	}
+	if n > goArchiveMaxBytes {
+		return n, fmt.Errorf("归档超过上限 %d 字节", goArchiveMaxBytes)
 	}
 	if s.Agent != nil && s.Agent.Gate != nil {
 		s.Agent.Gate.RecordEgress("go.toolchain", hostOf(raw), int(n))

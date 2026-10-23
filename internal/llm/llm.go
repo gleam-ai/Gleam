@@ -22,8 +22,11 @@ type ChatRequest struct {
 	System      string
 	Messages    []Message
 	Temperature float64
-	MaxTokens   int
-	TaskID      string
+	// TemperatureSet distinguishes an explicit 0 (deterministic output) from an
+	// unset value that keeps the client default.
+	TemperatureSet bool
+	MaxTokens      int
+	TaskID         string
 }
 
 type Usage struct {

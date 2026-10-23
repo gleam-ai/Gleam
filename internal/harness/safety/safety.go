@@ -24,6 +24,7 @@ type Gate struct {
 	WorkspaceRoots  []string
 	ApprovalTimeout time.Duration
 	toolPerm        map[string]types.Permission
+	sessionTrusted  map[string]bool
 	auditMu         sync.Mutex
 	audit           []AuditEntry
 	auditPath       string
@@ -67,7 +68,34 @@ func New(mode string, trustedTools, trustedPaths, workspaceRoots []string, appro
 		WorkspaceRoots:  workspaceRoots,
 		ApprovalTimeout: approvalTimeout,
 		toolPerm:        map[string]types.Permission{},
+		sessionTrusted:  map[string]bool{},
 	}
+}
+
+// sessionTrustTools is the allowlist of sensitive tools that are trusted for
+// the rest of the session after one approval. They reach the network or read
+// local private data, but repeated use does not widen the blast radius; a
+// prompt every time only trains the user to click allow. File writes are not
+// on the list: permanent approval would turn an overreach into silent
+// behavior.
+var sessionTrustTools = map[string]bool{
+	"web.fetch":              true,
+	"desktop.clipboard.read": true,
+	"memory.save":            true,
+	"prompt.run":             true,
+	"agent.delegate":         true,
+}
+
+// TrustForSession applies only to allowlisted tools and reports whether the
+// trust was actually recorded.
+func (g *Gate) TrustForSession(name string) bool {
+	if !sessionTrustTools[name] {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sessionTrusted[name] = true
+	return true
 }
 
 type Decision struct {
@@ -109,7 +137,7 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 	}
 
 	g.mu.RLock()
-	trustedTool := g.TrustedTools[t.Name()]
+	trustedTool := g.TrustedTools[t.Name()] || g.sessionTrusted[t.Name()]
 	mode := g.Mode
 	g.mu.RUnlock()
 
@@ -151,18 +179,23 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 }
 
 func (g *Gate) pathTrusted(p string) bool {
-	if p == "" {
+	if strings.TrimSpace(p) == "" {
 		return false
 	}
-	if !filepath.IsAbs(p) {
-		if len(g.WorkspaceRoots) > 0 {
-			return true
-		}
-		return false
-	}
+	p = filepath.Clean(p)
 	g.mu.RLock()
-	defer g.mu.RUnlock()
-	for _, root := range g.TrustedPaths {
+	hasRoots := len(g.WorkspaceRoots) > 0
+	trusted := append([]string(nil), g.TrustedPaths...)
+	g.mu.RUnlock()
+	if !filepath.IsAbs(p) {
+		if !hasRoots {
+			return false
+		}
+		// Relative paths are applied by each tool against its own root; one
+		// that climbs out is not covered by any root and needs a human.
+		return p != ".." && !strings.HasPrefix(p, ".."+string(filepath.Separator))
+	}
+	for _, root := range trusted {
 		if pathWithin(root, p) {
 			return true
 		}

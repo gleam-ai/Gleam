@@ -501,7 +501,11 @@ func ValidProtocol(p string) bool {
 
 func ResolveTarget(providerID, plan, baseURL, model, protocol string) (string, string, string) {
 	base, model, presetProto := ResolvePreset(providerID, plan, baseURL, model)
-	if presetProto != "" {
+	// An explicit protocol wins: when the user or an existing config states a
+	// protocol, a plan default must not silently override it (otherwise a
+	// custom endpoint is forced onto another API shape). Only fall back to the
+	// plan value when no protocol is set.
+	if !ValidProtocol(protocol) {
 		protocol = presetProto
 	}
 	if !ValidProtocol(protocol) {

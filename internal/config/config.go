@@ -273,9 +273,8 @@ func (c *Config) SaveOverlay(path string) error {
 			mm.Set("base_url", m.BaseURL)
 			mm.Set("model", m.Model)
 			mm.Set("plan", m.Plan)
-			if m.APIKey != "" {
-				mm.Set("api_key", m.APIKey)
-			}
+			// Keys go into the encrypted credential file (per endpoint host);
+			// the config keeps only public metadata.
 			mm.Set("is_default", m.IsDefault)
 			mm.Set("is_fast", m.IsFast)
 			modelsArr = append(modelsArr, mm)
@@ -373,6 +372,21 @@ func (c *Config) SaveOverlay(path string) error {
 			args = append(args, a)
 		}
 		sm.Set("args", args)
+		if len(s.Env) > 0 {
+			env := NewYMap()
+			for k, v := range s.Env {
+				env.Set(k, v)
+			}
+			sm.Set("env", env)
+		}
+		sm.Set("url", s.URL)
+		if len(s.Headers) > 0 {
+			headers := NewYMap()
+			for k, v := range s.Headers {
+				headers.Set(k, v)
+			}
+			sm.Set("headers", headers)
+		}
 		sm.Set("trust", s.Trust)
 		sm.Set("enabled", s.Enabled)
 		mcpArr = append(mcpArr, sm)
@@ -534,11 +548,16 @@ func (c *Config) apply(m map[string]any) {
 				getStr(sm, "name", &srv.Name)
 				getStr(sm, "command", &srv.Command)
 				getStrs(sm, "args", &srv.Args)
+				getStr(sm, "url", &srv.URL)
+				getStrMap(sm, "env", &srv.Env)
+				getStrMap(sm, "headers", &srv.Headers)
 				getStr(sm, "trust", &srv.Trust)
 				if b, ok := sm["enabled"].(bool); ok {
 					srv.Enabled = b
 				}
-				if srv.Name != "" && srv.Command != "" {
+				// Remote MCP entries have only a URL and no command; do not
+				// drop them by the stdio condition.
+				if srv.Name != "" && (srv.Command != "" || srv.URL != "") {
 					c.MCP = append(c.MCP, srv)
 				}
 			}
@@ -633,6 +652,29 @@ func getFloat(m map[string]any, key string, dst *float64) {
 func getBool(m map[string]any, key string, dst *bool) {
 	if v, ok := m[key].(bool); ok {
 		*dst = v
+	}
+}
+
+func getStrMap(m map[string]any, key string, dst *map[string]string) {
+	v, ok := m[key]
+	if !ok {
+		return
+	}
+	raw, ok := v.(map[string]any)
+	if !ok || len(raw) == 0 {
+		return
+	}
+	out := make(map[string]string, len(raw))
+	for k, val := range raw {
+		k = strings.TrimSpace(k)
+		s, ok := val.(string)
+		if k == "" || !ok || strings.TrimSpace(s) == "" {
+			continue
+		}
+		out[k] = s
+	}
+	if len(out) > 0 {
+		*dst = out
 	}
 }
 

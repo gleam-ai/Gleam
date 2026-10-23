@@ -24,7 +24,7 @@ func (t *GenerateTool) Description() string {
 	return "把一段提示词交给模型执行，返回它的回答。外部技能（提示词包）靠它落地：技能正文就是提示词，这一步负责跑。"
 }
 
-func (t *GenerateTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *GenerateTool) Permission() types.Permission { return types.PermissionUserApproved }
 
 func (t *GenerateTool) Schema() map[string]any {
 	return toolutil.Schema("调用模型执行一段提示词", []string{"prompt"}, map[string]any{

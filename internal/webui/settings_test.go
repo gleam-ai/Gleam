@@ -79,6 +79,95 @@ func TestWebUI_ModelAddRewiresRuntime(t *testing.T) {
 	}
 }
 
+func TestWebUI_ModelFastFlagIsExclusiveAndDrivesHelper(t *testing.T) {
+	f := newFixture(t, nil)
+	f.agent.Cfg.LLM.Provider = "custom"
+
+	first := modelPatch("fast-one", "helper-a", "sk-a")
+	first["is_fast"] = true
+	f.call("POST", "/api/models", first)
+	if f.agent.FastLLM == nil || f.agent.FastLLM.Name() != "helper-a" {
+		t.Fatalf("勾选辅助模型后应真的用它做小调用，FastLLM=%v", f.agent.FastLLM)
+	}
+
+	second := modelPatch("fast-two", "helper-b", "sk-b")
+	second["is_fast"] = true
+	f.call("POST", "/api/models", second)
+	fastCount := 0
+	for _, item := range f.call("GET", "/api/models", nil)["models"].([]any) {
+		if item.(map[string]any)["is_fast"] == true {
+			fastCount++
+		}
+	}
+	if fastCount != 1 {
+		t.Errorf("辅助模型只能有一个，实际 %d 个", fastCount)
+	}
+	if f.agent.FastLLM == nil || f.agent.FastLLM.Name() != "helper-b" {
+		t.Errorf("辅助模型应切到新勾选的 helper-b，FastLLM=%v", f.agent.FastLLM)
+	}
+
+	f.call("DELETE", "/api/models/m-fast-two", nil)
+	if f.agent.FastLLM != nil {
+		t.Errorf("删掉唯一的辅助模型后应回落到主模型，FastLLM=%v", f.agent.FastLLM)
+	}
+}
+
+func TestWebUI_ModelKeyGoesToCredentialsNotYAML(t *testing.T) {
+	f := newFixture(t, nil)
+	cred, err := credentials.Open(f.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.agent.Creds = cred
+	f.agent.Cfg.LLM.Provider = "custom"
+
+	f.call("POST", "/api/models", modelPatch("secret", "m-secret", "sk-model-secret"))
+	raw, err := os.ReadFile(filepath.Join(f.dataDir, config.OverlayFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "sk-model-secret") {
+		t.Error("settings.yaml 泄漏了模型 API Key")
+	}
+	if got, _ := cred.ResolveLLMAPIKey(scopeOf("https://models.example.test/v1")); got != "sk-model-secret" {
+		t.Errorf("凭证文件没拿到模型密钥，得到 %q", got)
+	}
+	if got := f.agent.Cfg.LLM.Models[0].APIKey; got != "" {
+		t.Errorf("内存里的模型条目不该留着明文密钥，得到 %q", got)
+	}
+	active := f.call("GET", "/api/models", nil)["active"].(map[string]any)
+	if active["api_key_set"] != true {
+		t.Error("密钥进了凭证文件后，界面仍应显示已设置")
+	}
+}
+
+func TestWebUI_SettingsRejectsEmptyModelAndClearsStaleTiers(t *testing.T) {
+	f := newFixture(t, nil)
+	f.agent.Cfg.LLM.Provider = "glm"
+	f.agent.Cfg.LLM.Model = "glm-old"
+	f.agent.Cfg.LLM.FastModel = "glm-cheap"
+	f.agent.Cfg.LLM.Tiers = map[string]string{"coding": "glm-coder"}
+
+	body := `{"llm":{"provider_id":"deepseek","plan":"token","base_url":"https://api.deepseek.com/v1","model":""}}`
+	if code, _ := f.status("POST", "/api/settings", body); code < 400 {
+		t.Error("切换厂商却不给模型时应当拒绝，而不是沿用旧厂商的模型")
+	}
+	if f.agent.Cfg.LLM.Model != "glm-old" {
+		t.Errorf("被拒绝的请求不该改配置，model=%q", f.agent.Cfg.LLM.Model)
+	}
+
+	f.call("POST", "/api/settings", map[string]any{
+		"llm": map[string]any{
+			"provider_id": "deepseek", "plan": "token",
+			"base_url": "https://api.deepseek.com/v1", "model": "deepseek-flash",
+		},
+	})
+	if f.agent.Cfg.LLM.FastModel != "" || len(f.agent.Cfg.LLM.Tiers) != 0 {
+		t.Errorf("换厂商后旧厂商的辅助模型/档位必须清空，fast=%q tiers=%v",
+			f.agent.Cfg.LLM.FastModel, f.agent.Cfg.LLM.Tiers)
+	}
+}
+
 func TestWebUI_ModelDeleteFallsBack(t *testing.T) {
 	f := newFixture(t, nil)
 	f.agent.Cfg.LLM.Provider = "custom"

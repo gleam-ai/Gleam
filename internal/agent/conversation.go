@@ -7,14 +7,15 @@ import (
 	"gleam/pkg/types"
 )
 
-func (a *Agent) appendConvo(convoID string, msg conversation.Message) {
+func (a *Agent) appendConvo(convoID string, msg conversation.Message) error {
 	if a.Convos == nil || strings.TrimSpace(convoID) == "" {
-		return
+		return nil
 	}
 	if strings.TrimSpace(msg.Content) == "" {
-		return
+		return nil
 	}
-	_, _ = a.Convos.Append(convoID, msg)
+	_, err := a.Convos.Append(convoID, msg)
+	return err
 }
 
 func convoReply(r *types.GoalResult) string {
@@ -37,6 +38,12 @@ func (a *Agent) LoadConversationContext(convoID string) (*conversation.Conversat
 	c, err := a.Convos.Get(convoID)
 	if err != nil {
 		return nil, err
+	}
+	// Opening another conversation while a goal is running must not rewrite the
+	// running goal's rolling memory. The next activation after the task ends
+	// reloads the selected conversation normally.
+	if a.RunningTasks() > 0 {
+		return c, nil
 	}
 	if a.Mem != nil {
 		a.Mem.ResetConversation()
@@ -72,7 +79,7 @@ func (a *Agent) NewConversation(spaceIDs ...string) (*conversation.Conversation,
 	if err != nil {
 		return nil, err
 	}
-	if a.Mem != nil {
+	if a.Mem != nil && a.RunningTasks() == 0 {
 		a.Mem.ResetConversation()
 	}
 	return c, nil

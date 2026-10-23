@@ -95,7 +95,10 @@ func Parse(text string) (Spec, error) {
 	}
 
 	hasDaily := dailyRe.MatchString(text)
-	h, mi, hasTime := parseClock(text)
+	h, mi, hasTime, err := parseClock(text)
+	if err != nil {
+		return Spec{}, err
+	}
 	if hasDaily || hasTime {
 		if !hasTime {
 			h, mi = 9, 0
@@ -176,7 +179,10 @@ func intervalUnitSec(unit string) int {
 }
 
 func buildCron(text, dow string, day int, summaryFmt string, _ bool) (Spec, error) {
-	h, mi, hasTime := parseClock(text)
+	h, mi, hasTime, err := parseClock(text)
+	if err != nil {
+		return Spec{}, err
+	}
 	if !hasTime {
 		h, mi = 9, 0
 	}
@@ -196,19 +202,19 @@ func buildCron(text, dow string, day int, summaryFmt string, _ bool) (Spec, erro
 	return Spec{Cron: cron, Summary: summary}, validate(cron)
 }
 
-func parseClock(text string) (int, int, bool) {
+func parseClock(text string) (int, int, bool, error) {
 	if m := clockColonRe.FindStringSubmatch(text); m != nil {
 		h, _ := strconv.Atoi(m[1])
 		mi, _ := strconv.Atoi(m[2])
 		if h > 23 || mi > 59 {
-			return 0, 0, false
+			return 0, 0, false, clockRangeError(h, mi)
 		}
-		return applyPeriod(h, text), mi, true
+		return applyPeriod(h, text), mi, true, nil
 	}
 	if m := clockDianRe.FindStringSubmatch(text); m != nil {
 		n, ok := atoiCN(m[1])
 		if !ok || n > 23 {
-			return 0, 0, false
+			return 0, 0, false, fmt.Errorf("时间无效：%q，小时应在 0-23 之间", m[1])
 		}
 		mi := 0
 		switch {
@@ -220,13 +226,22 @@ func parseClock(text string) (int, int, bool) {
 			mi = 45
 		case m[2] != "":
 			mnRaw := strings.TrimSuffix(strings.TrimSpace(m[2]), "分")
-			if v, ok2 := atoiCN(mnRaw); ok2 && v <= 59 {
-				mi = v
+			v, ok2 := atoiCN(mnRaw)
+			if !ok2 || v > 59 {
+				return 0, 0, false, fmt.Errorf("时间无效：%q，分钟应在 0-59 之间", strings.TrimSpace(m[2]))
 			}
+			mi = v
 		}
-		return applyPeriod(n, text), mi, true
+		return applyPeriod(n, text), mi, true, nil
 	}
-	return 0, 0, false
+	return 0, 0, false, nil
+}
+
+func clockRangeError(h, mi int) error {
+	if h > 23 {
+		return fmt.Errorf("时间无效：%02d:%02d，小时应在 0-23 之间", h, mi)
+	}
+	return fmt.Errorf("时间无效：%02d:%02d，分钟应在 0-59 之间", h, mi)
 }
 
 func applyPeriod(h int, text string) int {

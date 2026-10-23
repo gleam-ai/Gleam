@@ -16,6 +16,7 @@ type AnthropicClient struct {
 	Temperature float64
 	MaxTokens   int
 	HTTP        *http.Client
+	timeout     time.Duration
 }
 
 func NewAnthropic(baseURL, apiKey, model string, temperature float64, maxTokens int, timeout time.Duration) *AnthropicClient {
@@ -25,7 +26,8 @@ func NewAnthropic(baseURL, apiKey, model string, temperature float64, maxTokens 
 		Model:       model,
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
-		HTTP:        &http.Client{Timeout: timeout, Transport: Transport()},
+		HTTP:        &http.Client{Transport: Transport()},
+		timeout:     timeout,
 	}
 }
 
@@ -76,7 +78,7 @@ type anthropicMessage struct {
 
 func (c *AnthropicClient) payload(req ChatRequest, stream bool) anthropicPayload {
 	temp := req.Temperature
-	if temp == 0 {
+	if temp == 0 && !req.TemperatureSet {
 		temp = c.Temperature
 	}
 	maxTok := req.MaxTokens
@@ -124,6 +126,8 @@ type anthropicResponse struct {
 }
 
 func (c *AnthropicClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
+	ctx, cancel := withRequestTimeout(ctx, c.timeout)
+	defer cancel()
 	body, err := json.Marshal(c.payload(req, false))
 	if err != nil {
 		return "", err
@@ -173,6 +177,7 @@ func (c *AnthropicClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 
 	var full strings.Builder
 	var u Usage
+	var streamErr error
 	err = scanStream(ctx, rc, func(line string) bool {
 		if !strings.HasPrefix(line, "data:") {
 			return true
@@ -182,7 +187,11 @@ func (c *AnthropicClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 			return true
 		}
 		var ev struct {
-			Type    string `json:"type"`
+			Type  string `json:"type"`
+			Error *struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
 			Message *struct {
 				Usage *struct {
 					InputTokens              int `json:"input_tokens"`
@@ -204,6 +213,14 @@ func (c *AnthropicClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 		}
 		if json.Unmarshal([]byte(data), &ev) != nil {
 			return true
+		}
+		if ev.Type == "error" || ev.Type == "message_error" {
+			if ev.Error != nil && ev.Error.Message != "" {
+				streamErr = fmt.Errorf("llm: 流式响应错误(%s): %s", ev.Error.Type, ev.Error.Message)
+			} else {
+				streamErr = fmt.Errorf("llm: 流式响应错误")
+			}
+			return false
 		}
 		switch ev.Type {
 		case "message_start":
@@ -238,13 +255,16 @@ func (c *AnthropicClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 					onDelta(ev.Delta.Text)
 				}
 			}
-		case "message_stop", "message_error", "error":
+		case "message_stop":
 			return false
 		}
 		return true
 	})
 	if err != nil {
 		return full.String(), err
+	}
+	if streamErr != nil {
+		return full.String(), streamErr
 	}
 	if full.Len() == 0 {
 		return "", fmt.Errorf("llm: 流式响应为空")

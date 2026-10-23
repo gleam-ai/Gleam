@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -17,7 +18,7 @@ import (
 	"gleam/pkg/types"
 )
 
-var slugStrip = regexp.MustCompile(`[\s\p{P}]+`)
+var slugStrip = regexp.MustCompile(`[^a-zA-Z0-9_\-\p{Han}]+`)
 
 // RunGoal runs one goal synchronously; callers may wrap it in a goroutine.
 // A non-empty req.TaskID is reused.
@@ -36,27 +37,28 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	// otherwise it detects the message it just wrote.
 	retried := req.ConversationID != "" && a.Convos != nil && a.Convos.DetectRetry(req.ConversationID, goal)
 
-	// Record in the persisted conversation (left sidebar list); the raw user
-	// goal, without the system-injected reference prefix.
-	a.appendConvo(req.ConversationID, conversation.Message{
-		Role: "user", Content: goal, TaskID: taskID,
-		Mode: string(normalizeTaskMode(req.TaskMode)), CreatedAt: time.Now(),
-	})
-
 	handle := &taskHandle{id: taskID, goal: goal, mode: mode, status: types.GoalRunning, started: time.Now()}
 	a.mu.Lock()
+	// A duplicated submission (same reused TaskID) must not append the user
+	// message twice; check before recording, not after.
 	if old, ok := a.tasks[taskID]; ok && old.status == types.GoalRunning {
 		a.mu.Unlock()
 		return a.resultOf(old) // same ID already running: reuse its result
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	handle.cancel = cancel
 	a.tasks[taskID] = handle
 	a.mu.Unlock()
+
+	// Record in the persisted conversation (left sidebar list); the raw user
+	// goal, without the system-injected reference prefix.
+	convoErr := a.appendConvo(req.ConversationID, conversation.Message{
+		Role: "user", Content: goal, TaskID: taskID,
+		Mode: string(normalizeTaskMode(req.TaskMode)), CreatedAt: time.Now(),
+	})
 	// Start usage accounting (async calls after task completion, e.g. GEO, also count).
 	a.initUsage(taskID)
-
-	ctx, cancel := context.WithCancel(ctx)
-	handle.cancel = cancel
-	defer cancel()
 
 	// The config snapshot captures startup values, not teardown values: if the
 	// user changes the model or tier mid-task, the second half runs on the new
@@ -75,6 +77,7 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 	prog.stamp(result)
 	result.ConfigSnapshot = &snap
 	result.TaskID = taskID
+	result.ConversationID = req.ConversationID
 	result.Mode = mode
 	result.TaskMode = normalizeTaskMode(req.TaskMode)
 	result.StartedAt = handle.started
@@ -98,10 +101,23 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 
 	// Record the assistant reply in the same conversation; failures and
 	// cancellations leave a trace too, so history never misses a turn.
-	a.appendConvo(req.ConversationID, conversation.Message{
+	if err := a.appendConvo(req.ConversationID, conversation.Message{
 		Role: "assistant", Content: convoReply(result), TaskID: taskID,
 		Mode: string(normalizeTaskMode(req.TaskMode)), Status: string(result.Status), CreatedAt: time.Now(),
-	})
+	}); err != nil {
+		convoErr = errors.Join(convoErr, err)
+	}
+	// Losing the record must not be silent: the answer is still delivered, but
+	// "the history is missing this turn" belongs on the result card, otherwise
+	// the next session looks like the task never happened.
+	if convoErr != nil && result != nil {
+		note := "⚠️ 对话记录未能写入本机：" + convoErr.Error()
+		if strings.TrimSpace(result.Suggestion) == "" {
+			result.Suggestion = note
+		} else {
+			result.Suggestion = strings.TrimSpace(result.Suggestion) + "\n" + note
+		}
+	}
 
 	a.mu.Lock()
 	handle.status = result.Status
@@ -206,6 +222,15 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	}
 	notify := func(phase, msg string, pct int, kind string) {
 		a.Notifier.OnProgress(types.ProgressEvent{TaskID: taskID, Phase: phase, Message: msg, Progress: pct, Kind: kind})
+	}
+	// A stop must win over a verdict computed after it: reflection may still
+	// return "done" for the steps that finished before the user pressed stop,
+	// and reporting that as success hides the fact that the run was cut short.
+	markCancelled := func(res *types.GoalResult) {
+		if res != nil && ctx.Err() != nil {
+			res.Status = types.GoalCancelled
+			res.Error = "任务已取消"
+		}
 	}
 
 	cwd := a.workspaceOf(req)
@@ -337,7 +362,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// plan_first: show the full plan first, one approval.
 		preApproved := false
 		if mode == string(types.ModePlanFirst) {
-			resp := a.Notifier.OnApproval(types.ApprovalRequest{
+			resp := askApproval(ctx, a.Notifier, types.ApprovalRequest{
 				TaskID: taskID, Plan: planDescriptions(plan), WholePlan: true,
 				Risk: planMaxRisk(a.Reg, plan), Reason: "plan_first 模式：执行前需要确认完整计划",
 			})
@@ -387,11 +412,12 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// Stopping before Execute is deliberate: what it reviews is exactly
 		// "what happens next", and once running, things are already moving.
 		if a.Cfg.Safety.DeepReview {
-			if ok, reason := a.deepReviewPlan(ctx, taskID, goal, &plan); !ok && !a.confirmDeepReview(taskID, reason) {
+			if ok, reason := a.deepReviewPlan(ctx, taskID, goal, &plan); !ok && !a.confirmDeepReview(ctx, taskID, reason) {
 				res := &types.GoalResult{
 					Goal: goal, Status: types.GoalFailed, Score: 0,
 					Error: "深度扫描未通过：" + reason,
 				}
+				markCancelled(res)
 				a.finalize(taskID, res, &plan, req.Role)
 				return res
 			}
@@ -442,6 +468,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			if reflection.Suggestion != "" {
 				result.Suggestion = reflection.Suggestion
 			}
+			markCancelled(result)
 			a.finalize(taskID, result, &plan, req.Role)
 			return result
 		}
@@ -458,6 +485,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			}
 			result.Error = stuckMsg + "。继续重规划大概率还是同样结果。"
 			result.Suggestion = "建议把目标说得更具体（例如指定要处理的文件或期望的输出格式），或补充缺少的信息后重试；也可以切换到「对话」模式先对齐需求。"
+			markCancelled(result)
 			a.finalize(taskID, result, &plan, req.Role)
 			return result
 		}
@@ -471,6 +499,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			if reflection.Suggestion != "" {
 				result.Suggestion = reflection.Suggestion
 			}
+			markCancelled(result)
 			a.finalize(taskID, result, &plan, req.Role)
 			return result
 		}
@@ -539,8 +568,10 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	var volatile strings.Builder
 	fmt.Fprintf(&volatile, "\n\n## 当前环境\n工作目录：%s", a.Cfg.Workspace)
 	if a.Mem != nil {
-		if s := a.Mem.Summary(); strings.TrimSpace(s) != "" {
-			volatile.WriteString("\n\n## 早期上下文摘要\n" + types.Shorten(s, 400))
+		// Same tail and annotation as the planner: a rolling summary is most
+		// useful at its newest end, and the "omitted N turns" note lives there.
+		if s := a.Mem.SummaryAnnotated(); strings.TrimSpace(s) != "" {
+			volatile.WriteString("\n\n## 早期上下文摘要（已自动压缩）\n" + types.ShortenTail(s, 400))
 		}
 	}
 	sys += volatile.String()
@@ -754,12 +785,14 @@ func skillSlug(goal string, store *skill.Store) string {
 	if base == "" {
 		base = "skill"
 	}
+	if store == nil {
+		return base
+	}
 	name := base
-	for i := 2; ; i++ {
-		if store != nil {
-			if _, err := store.Get(name); err != nil {
-				break // does not exist, usable
-			}
+	// Bounded: an unexpected store error must not turn naming into a spin.
+	for i := 2; i <= 100; i++ {
+		if _, err := store.Get(name); err != nil {
+			break // does not exist, usable
 		}
 		name = fmt.Sprintf("%s-%d", base, i)
 	}

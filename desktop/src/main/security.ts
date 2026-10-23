@@ -4,6 +4,7 @@ import {
   dialog,
   ipcMain,
   shell,
+  systemPreferences,
   type IpcMainInvokeEvent,
   type Session,
   type WebContents,
@@ -51,23 +52,50 @@ export function hardenContents(contents: WebContents): void {
   });
 }
 
+function isAudioOnly(details: Electron.PermissionRequest): boolean {
+  const types = (details as Electron.MediaAccessPermissionRequest).mediaTypes;
+  // Camera requests must always list the types; treating a missing list as
+  // audio would silently grant video.
+  return !!types && types.length > 0 && types.every((t) => t === 'audio');
+}
+
+function grantMicrophone(callback: (granted: boolean) => void): void {
+  // askForMediaAccess needs a usage description in the bundle; in dev the
+  // Electron helper owns that, so let Chromium ask instead of crashing TCC.
+  if (process.platform !== 'darwin' || !app.isPackaged) {
+    callback(true);
+    return;
+  }
+  void systemPreferences
+    .askForMediaAccess('microphone')
+    .then((ok) => callback(ok))
+    .catch(() => callback(false));
+}
+
 export function hardenSession(ses: Session): void {
   ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    const ok =
-      permission === 'clipboard-sanitized-write' &&
-      isAppURL(details.requestingUrl);
+    const fromApp = isAppURL(details.requestingUrl);
+    if (fromApp && permission === 'media' && isAudioOnly(details)) {
+      grantMicrophone(callback);
+      return;
+    }
+    const ok = permission === 'clipboard-sanitized-write' && fromApp;
     if (!ok)
       console.warn(
         `[security] denied permission ${permission} for ${details.requestingUrl}`,
       );
     callback(ok);
   });
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
-    return (
-      permission === 'clipboard-sanitized-write' &&
-      requestingOrigin === APP_ORIGIN
-    );
-  });
+  ses.setPermissionCheckHandler(
+    (_wc, permission, requestingOrigin, details) => {
+      if (requestingOrigin !== APP_ORIGIN) return false;
+      if (permission === 'clipboard-sanitized-write') return true;
+      // Voice input needs the microphone. An unknown media type is the generic
+      // "is any capture allowed" probe; video is denied here and in the request
+      // handler above.
+      return permission === 'media' && details.mediaType !== 'video';
+    },
+  );
   ses.on('will-download', (e) => e.preventDefault());
 }
 
@@ -84,6 +112,7 @@ export const IPC_CHANNELS = [
   'desktop:globalShortcut',
   'desktop:update:check',
   'desktop:update:status',
+  'desktop:update:download',
   'desktop:update:restart',
   'desktop:tray:sync',
 ] as const;

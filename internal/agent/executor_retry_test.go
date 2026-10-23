@@ -56,6 +56,44 @@ func TestExecute_TimeoutRetriesExhausted(t *testing.T) {
 	}
 }
 
+func TestExecute_TimeoutNotRetriedForSideEffects(t *testing.T) {
+	var calls int32
+	r := registry.New()
+	r.MustRegister(&funcTool{name: "write-slow", perm: types.PermissionUserApproved, fn: func(ctx context.Context, args map[string]any) (any, error) {
+		atomic.AddInt32(&calls, 1)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}})
+	e := &Executor{Reg: r, Gate: safety.New("auto", nil, nil, nil, time.Second),
+		StepTimeout: 60 * time.Millisecond, StepRetries: 3, Notifier: &recordingNotifier{}}
+	res := e.Execute(context.Background(), types.Plan{Steps: []types.Step{{ID: "s1", Tool: "write-slow"}}}, "t", "auto", true)
+	if res.Steps[0].Status != types.StepFailed {
+		t.Fatalf("超时的写操作应失败: %+v", res.Steps[0])
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("写操作超时不应自动重试，调用次数 = %d", got)
+	}
+}
+
+func TestExecute_AcceptsLateSuccess(t *testing.T) {
+	var calls int32
+	r := registry.New()
+	r.MustRegister(&funcTool{name: "late", perm: types.PermissionReadOnly, fn: func(ctx context.Context, args map[string]any) (any, error) {
+		atomic.AddInt32(&calls, 1)
+		<-ctx.Done()
+		return "done", nil // finished at the deadline, but it did finish
+	}})
+	e := &Executor{Reg: r, Gate: safety.New("auto", nil, nil, nil, time.Second),
+		StepTimeout: 50 * time.Millisecond, StepRetries: 2, Notifier: &recordingNotifier{}}
+	res := e.Execute(context.Background(), types.Plan{Steps: []types.Step{{ID: "s1", Tool: "late"}}}, "t", "auto", false)
+	if res.Steps[0].Status != types.StepSucceeded {
+		t.Fatalf("截止时刻完成的结果应被接受: %+v", res.Steps[0])
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("已成功的步骤不应重试，调用次数 = %d", got)
+	}
+}
+
 func TestExecute_NonTimeoutErrorNotRetried(t *testing.T) {
 	var calls int32
 	r := registry.New()

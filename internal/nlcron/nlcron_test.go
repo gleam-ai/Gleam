@@ -65,6 +65,11 @@ func TestParseErrors(t *testing.T) {
 	if _, err := Parse("每隔1秒"); err == nil {
 		t.Error("每隔1秒 应当被拒绝")
 	}
+	for _, in := range []string{"每天9点60分", "每天25点", "每天 25:00", "每天 9:75"} {
+		if _, err := Parse(in); err == nil {
+			t.Errorf("Parse(%q) 应报时间越界，而不是悄悄改到别的时刻", in)
+		}
+	}
 }
 
 func TestResolvePriority(t *testing.T) {

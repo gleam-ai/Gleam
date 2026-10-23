@@ -52,7 +52,7 @@ func (r *llmReviewer) Review(userGoal, tool string, args map[string]any) (bool, 
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: fmt.Sprintf(
 			"用户目标：%s\n\n待执行动作：%s\n参数：%s",
 			types.Shorten(userGoal, 200), tool, types.Shorten(string(argText), 400))}},
-		Temperature: 0, MaxTokens: 150, TaskID: r.TaskID,
+		Temperature: 0, TemperatureSet: true, MaxTokens: 150, TaskID: r.TaskID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), reviewTimeout)
 	defer cancel()
@@ -103,7 +103,7 @@ func (a *Agent) deepReviewPlan(ctx context.Context, taskID, goal string, plan *t
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: fmt.Sprintf(
 			"用户目标：%s\n\n计划（共 %d 步）：\n%s",
 			types.Shorten(goal, 300), len(plan.Steps), types.Shorten(b.String(), 1800))}},
-		Temperature: 0, MaxTokens: 200, TaskID: taskID,
+		Temperature: 0, TemperatureSet: true, MaxTokens: 200, TaskID: taskID,
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, deepReviewTimeout)

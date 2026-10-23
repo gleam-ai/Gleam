@@ -55,6 +55,35 @@ func TestResolveLLMAPIKeyBoundToHost(t *testing.T) {
 	}
 }
 
+func TestKeepsKeysPerHost(t *testing.T) {
+	s := openStore(t)
+	if err := s.SetLLMAPIKey("sk-glm", hostA); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLLMAPIKey("sk-ds", "api.deepseek.com"); err != nil {
+		t.Fatal(err)
+	}
+	if k, h := s.ResolveLLMAPIKey(hostA); k != "sk-glm" || h != hostA {
+		t.Errorf("第一家 = %q / %q", k, h)
+	}
+	if k, h := s.ResolveLLMAPIKey("api.deepseek.com"); k != "sk-ds" || h != "api.deepseek.com" {
+		t.Errorf("第二家 = %q / %q", k, h)
+	}
+	// The first vendor's key should still be there after switching back.
+	if k, _ := s.ResolveLLMAPIKey(hostA); k != "sk-glm" {
+		t.Errorf("切回后 = %q", k)
+	}
+	if err := s.SetLLMAPIKey("", hostA); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := s.ResolveLLMAPIKey(hostA); k != "" {
+		t.Errorf("清除第一家后 = %q", k)
+	}
+	if k, _ := s.ResolveLLMAPIKey("api.deepseek.com"); k != "sk-ds" {
+		t.Error("清一家不该顺走另一家的钥匙")
+	}
+}
+
 func TestLegacyKeyBindsOnFirstUse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, File)

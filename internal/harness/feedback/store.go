@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gleam/internal/atomicfile"
@@ -29,12 +30,13 @@ type Store struct {
 
 func NewStore(dataDir string) *Store { return &Store{dataDir: dataDir} }
 
+var fallbackSeq atomic.Uint32
+
 func NewID() string {
 	var b [2]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		now := time.Now().UnixNano()
-		b[0] = byte(now)
-		b[1] = byte(now >> 8)
+		v := fallbackSeq.Add(1)
+		b[0], b[1] = byte(v>>8), byte(v)
 	}
 	now := time.Now()
 	return fmt.Sprintf("fb-%s-%s", now.Format("20060102-150405"), hex.EncodeToString(b[:]))

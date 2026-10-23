@@ -7,7 +7,71 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestManager_CompressDoesNotBlockOtherCalls(t *testing.T) {
+	m, _ := Open(t.TempDir(), 2, 64, 100)
+	for i := 0; i < 5; i++ {
+		m.AddTurn("user", fmt.Sprintf("第 %d 轮的对话内容", i+1))
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan bool, 1)
+	go func() {
+		done <- m.Compress(func(string) (string, error) {
+			close(entered)
+			<-release
+			return "压缩后的摘要内容", nil
+		})
+	}()
+	<-entered
+	called := make(chan struct{})
+	go func() {
+		m.AddTurn("user", "压缩期间的新一轮对话")
+		_ = m.Summary()
+		close(called)
+	}()
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("压缩调模型期间记忆读写被全局锁死")
+	}
+	close(release)
+	if !<-done {
+		t.Fatal("压缩应成功")
+	}
+	if !strings.Contains(m.Summary(), "压缩后的摘要内容") {
+		t.Errorf("摘要 = %q", m.Summary())
+	}
+}
+
+func TestManager_CompressDropsStaleSummaryAfterClear(t *testing.T) {
+	m, _ := Open(t.TempDir(), 2, 64, 100)
+	for i := 0; i < 5; i++ {
+		m.AddTurn("user", fmt.Sprintf("旧会话第 %d 轮", i+1))
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan bool, 1)
+	go func() {
+		done <- m.Compress(func(string) (string, error) {
+			close(entered)
+			<-release
+			return "旧会话的摘要", nil
+		})
+	}()
+	<-entered
+	m.ClearSummary()
+	close(release)
+	if <-done {
+		t.Error("清空上下文后，在途压缩结果不该写回")
+	}
+	if s := m.Summary(); s != "" {
+		t.Errorf("新上下文不该带旧摘要: %q", s)
+	}
+}
 
 func TestManager_PinSurvivesCompress(t *testing.T) {
 	m, _ := Open(t.TempDir(), 2, 64, 100)
@@ -136,6 +200,52 @@ func TestStore_RememberDedup(t *testing.T) {
 	}
 	if got := s.Count(); got != 1 {
 		t.Errorf("去重后条目数 = %d，应为 1", got)
+	}
+}
+
+func TestStore_NearDuplicateFromTaskDoesNotOverwriteUserMemory(t *testing.T) {
+	s, _ := OpenStore(filepath.Join(t.TempDir(), "lt.json"), 128, 100)
+	user := "项目约定：用户偏好是部署到测试环境时把端口固定为 8080，不要改"
+	if _, err := s.Remember(user, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RememberScoped("项目约定：用户偏好是部署到测试环境时把端口固定为 9090，不要改", "task", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Count(); got != 2 {
+		t.Fatalf("低可信来源不该抹掉用户记忆，条目数 = %d", got)
+	}
+	var sawUser, sawTask bool
+	for _, h := range s.Search("部署端口", 10) {
+		sawUser = sawUser || strings.Contains(h.Content, "8080")
+		sawTask = sawTask || strings.Contains(h.Content, "9090")
+	}
+	if !sawUser || !sawTask {
+		t.Errorf("两条事实都应可检索：user=%v task=%v", sawUser, sawTask)
+	}
+}
+
+func TestStore_RejectsOversizeAndTrimsTags(t *testing.T) {
+	s, _ := OpenStore(filepath.Join(t.TempDir(), "lt.json"), 64, 100)
+	if _, err := s.Remember(strings.Repeat("长", maxMemoryRunes+1), nil); err == nil {
+		t.Fatal("超过上限的记忆应被拒绝，而不是静默截断")
+	}
+	id, err := s.Remember("偏好：深色主题",
+		[]string{"  偏好 ", "偏好", "", strings.Repeat("标签", 40)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, h := range s.Search("深色主题", 5) {
+		if h.ID == id {
+			got = h.Tags
+		}
+	}
+	if len(got) != 2 {
+		t.Errorf("标签应去重限长，得到 %d 个：%v", len(got), got)
+	}
+	if len([]rune(got[1])) > maxTagRunes {
+		t.Errorf("超长标签未截断：%q", got[1])
 	}
 }
 

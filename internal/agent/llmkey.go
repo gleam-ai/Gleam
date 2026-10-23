@@ -35,7 +35,7 @@ func BindLLMKey(cfg *config.Config, creds *credentials.Store, baseURL, explicit 
 	}
 	if clear {
 		if creds != nil {
-			if err := creds.SetLLMAPIKey("", ""); err != nil {
+			if err := creds.SetLLMAPIKey("", scope); err != nil {
 				return "", fmt.Errorf("密钥已清除但本地凭证文件更新失败: %w", err)
 			}
 		}

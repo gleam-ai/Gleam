@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('gleamDesktop', {
   update: {
     check: (): Promise<unknown> => ipcRenderer.invoke('desktop:update:check'),
     status: (): Promise<unknown> => ipcRenderer.invoke('desktop:update:status'),
+    download: (): Promise<unknown> =>
+      ipcRenderer.invoke('desktop:update:download'),
     restart: (): Promise<unknown> =>
       ipcRenderer.invoke('desktop:update:restart'),
     onStatus: (cb: (s: unknown) => void): (() => void) => {

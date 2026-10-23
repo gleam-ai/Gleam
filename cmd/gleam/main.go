@@ -294,7 +294,7 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(webTool)
 	reg.MustRegister(desktop.NewClipboardRead())
 	reg.MustRegister(desktop.NewClipboardWrite())
-	reg.MustRegister(desktop.NewScreenshot())
+	reg.MustRegister(desktop.NewScreenshot(wsRoots...))
 	reg.MustRegister(desktop.NewNotify())
 	reg.MustRegister(desktop.NewSnippets(cfg.DataDir))
 	hardware.New().RegisterAll(reg)
@@ -327,13 +327,13 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	a.MCP = agent.NewMCPManager()
 	a.FileTools = fileTools
 	a.Growth = growthLog
-	a.RebuildFastClient()
+	a.Creds = credStore
+	a.InitModelRuntime()
 	if geoStore, err := geo.Open(filepath.Join(cfg.DataDir, "geo_history.json")); err == nil {
 		a.GEO = geoStore
 	}
 	a.Convos = convoStore
 	a.Spaces = spaceStore
-	a.Creds = credStore
 	authMgr := auth.New(credStore)
 	authMgr.OnEgress = func(host string, nbytes int) { gate.RecordEgress("cloud", host, nbytes) }
 	a.Auth = authMgr
@@ -707,8 +707,12 @@ func cmdDaemon(args []string) error {
 			return err
 		}
 		fmt.Printf("服务名称：%s\n", info.Name)
-		fmt.Printf("状态：%s\n", info.State)
-		fmt.Printf("开机自启：%v\n", info.Enabled)
+		fmt.Printf("状态：%s\n", info.State.Label())
+		autoStart := "否"
+		if info.Enabled {
+			autoStart = "是"
+		}
+		fmt.Printf("开机自启：%s\n", autoStart)
 
 	case "queue":
 		queue, err := daemon.OpenQueue(dataDir)

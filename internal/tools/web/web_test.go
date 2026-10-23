@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -104,6 +105,28 @@ func TestWeb_ExtractsHTMLText(t *testing.T) {
 	}
 	if strings.Contains(text, "alert") || strings.Contains(text, "color:red") {
 		t.Errorf("script/style 应被剔除: %q", text)
+	}
+}
+
+func TestWeb_RechecksDNSAtDialTime(t *testing.T) {
+	tool := New()
+	calls := 0
+	tool.lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+		calls++
+		if calls == 1 {
+			return []net.IP{net.ParseIP("93.184.216.34")}, nil
+		}
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil // rebinding
+	}
+	_, err := tool.Execute(context.Background(), map[string]any{"url": "http://rebind.example/"})
+	if err == nil {
+		t.Fatal("DNS 重绑定到本机地址应在连接前被拦下")
+	}
+	if !strings.Contains(err.Error(), "拒绝访问本机或内网地址") {
+		t.Fatalf("应报内网拦截，实际: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("解析应至少发生两次（校验 + 连接），实际 %d", calls)
 	}
 }
 

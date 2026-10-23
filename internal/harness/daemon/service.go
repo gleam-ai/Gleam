@@ -20,6 +20,21 @@ const (
 	StateUnknown   ServiceState = "unknown"
 )
 
+// Label is the human-readable localized state; State itself is a stable
+// protocol value and must not be used for display.
+func (s ServiceState) Label() string {
+	switch s {
+	case StateInstalled:
+		return "已安装（未运行）"
+	case StateRunning:
+		return "运行中"
+	case StateStopped:
+		return "已停止"
+	default:
+		return "未知"
+	}
+}
+
 type ServiceInfo struct {
 	Name    string
 	State   ServiceState
@@ -105,75 +120,90 @@ func (m *Manager) Status() (*ServiceInfo, error) {
 	}
 }
 
+func (m *Manager) taskCommand() string {
+	return fmt.Sprintf(`"%s" app --daemon --data-dir "%s"`, m.binPath, m.dataDir)
+}
+
 func (m *Manager) installWindows() error {
-	args := []string{
-		"create", m.name,
-		"binPath=", fmt.Sprintf(`"%s" app --daemon --data-dir "%s"`, m.binPath, m.dataDir),
-		"start=", "auto",
-		"obj=", "LocalService",
-		"DisplayName=", "Gleam Daemon",
-	}
-	cmd := exec.Command("sc", args...)
+	// Run as the current user at logon: LocalService cannot read the user's
+	// config/data dir, which made the installed service exit immediately.
+	cmd := exec.Command("schtasks", "/Create", "/F",
+		"/SC", "ONLOGON",
+		"/TN", m.name,
+		"/TR", m.taskCommand())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("注册 Windows 服务失败：%w\n%s", err, string(out))
+		return fmt.Errorf("注册 Windows 计划任务失败：%w\n%s", err, string(out))
 	}
 	return nil
 }
 
 func (m *Manager) uninstallWindows() error {
-	cmd := exec.Command("sc", "delete", m.name)
+	_ = exec.Command("schtasks", "/End", "/TN", m.name).Run()
+	cmd := exec.Command("schtasks", "/Delete", "/F", "/TN", m.name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("卸载 Windows 服务失败：%w\n%s", err, string(out))
+		return fmt.Errorf("删除 Windows 计划任务失败：%w\n%s", err, string(out))
 	}
 	return nil
 }
 
 func (m *Manager) startWindows() error {
-	cmd := exec.Command("sc", "start", m.name)
+	if state, enabled, err := m.windowsTaskState(); err == nil && enabled && strings.EqualFold(state, "Running") {
+		return nil
+	}
+	cmd := exec.Command("schtasks", "/Run", "/TN", m.name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("启动服务失败：%w\n%s", err, string(out))
+		return fmt.Errorf("启动计划任务失败：%w\n%s", err, string(out))
 	}
 	return nil
 }
 
 func (m *Manager) stopWindows() error {
-	cmd := exec.Command("sc", "stop", m.name)
+	cmd := exec.Command("schtasks", "/End", "/TN", m.name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("停止服务失败：%w\n%s", err, string(out))
+		if state, _, stateErr := m.windowsTaskState(); stateErr == nil && !strings.EqualFold(state, "Running") {
+			return nil
+		}
+		return fmt.Errorf("停止计划任务失败：%w\n%s", err, string(out))
 	}
 	return nil
 }
 
 func (m *Manager) statusWindows() (*ServiceInfo, error) {
-	cmd := exec.Command("sc", "query", m.name)
-	out, err := cmd.CombinedOutput()
+	state, enabled, err := m.windowsTaskState()
 	if err != nil {
-		if strings.Contains(string(out), "1060") {
-			return &ServiceInfo{Name: m.name, State: StateUnknown, Enabled: false}, nil
-		}
-		return nil, fmt.Errorf("查询服务状态失败：%w\n%s", err, string(out))
+		return &ServiceInfo{Name: m.name, State: StateUnknown, Enabled: false}, nil
 	}
-
-	info := &ServiceInfo{Name: m.name}
-	output := string(out)
-
-	if strings.Contains(output, "RUNNING") {
+	info := &ServiceInfo{Name: m.name, Enabled: enabled}
+	switch {
+	case strings.EqualFold(state, "Running"):
 		info.State = StateRunning
-	} else if strings.Contains(output, "STOPPED") {
+	case strings.EqualFold(state, "Disabled"):
 		info.State = StateStopped
-	} else {
-		info.State = StateUnknown
+		info.Enabled = false
+	default:
+		info.State = StateStopped
 	}
-
-	if strings.Contains(output, "AUTO_START") {
-		info.Enabled = true
-	}
-
 	return info, nil
+}
+
+// windowsTaskState asks Task Scheduler directly. State enum names are stable
+// English identifiers even on localized Windows, unlike schtasks console text.
+func (m *Manager) windowsTaskState() (string, bool, error) {
+	name := strings.ReplaceAll(m.name, "'", "''")
+	script := fmt.Sprintf("(Get-ScheduledTask -TaskName '%s' -ErrorAction Stop).State", name)
+	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	if err != nil {
+		return "", false, fmt.Errorf("查询计划任务失败：%w\n%s", err, string(out))
+	}
+	state := strings.TrimSpace(string(out))
+	if state == "" {
+		return "", false, fmt.Errorf("计划任务状态为空")
+	}
+	return state, true, nil
 }
 
 func (m *Manager) installMacOS() error {
@@ -313,7 +343,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%s app --daemon --data-dir %s
+ExecStart="%s" app --daemon --data-dir "%s"
 Restart=on-failure
 RestartSec=10
 

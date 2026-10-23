@@ -14,9 +14,11 @@ func NewClipboardRead() *ClipboardReadTool { return &ClipboardReadTool{} }
 
 func (t *ClipboardReadTool) Name() string { return "desktop.clipboard.read" }
 func (t *ClipboardReadTool) Description() string {
-	return "读取系统剪贴板中的文本（只读）"
+	return "读取系统剪贴板中的文本（可能含密码或令牌，首次使用需批准）"
 }
-func (t *ClipboardReadTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *ClipboardReadTool) Permission() types.Permission {
+	return types.PermissionUserApproved
+}
 func (t *ClipboardReadTool) Schema() map[string]any {
 	return toolutil.Schema("读取系统剪贴板文本", nil, map[string]any{})
 }

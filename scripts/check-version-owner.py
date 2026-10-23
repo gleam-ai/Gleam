@@ -21,8 +21,9 @@ r"""前端不许再抄一份版本号，也不许替「有没有新版」下结�
 可问，所以那里不许抄；官网是纯静态页，没有出口可问，只能抄一份——那就把这一份关进
 `id="dl-version"` 与 `id="dl-date"` 两个打了标记的元素里，要求它**等于 owner**
 （版本的 owner 是 `buildinfo`，发布日期的 owner 是 `dist/` 下最新那份
-`SHA256SUMS-<date>.txt`，由 `scripts/package.sh` 打包时写出），并且整站只许出现一次。
-标记读不到时报"判据失效"而不是"通过"。
+`SHA256SUMS-<date>.txt`，由 `scripts/package.sh` 打包时写出）。每个语言页各有一份徽标：
+`website/index.html` 与 `website/index-zh.html` 都必须带上这两个标记，且标记**之外**
+不许再出现版本字面量。标记读不到时报"判据失效"而不是"通过"。
 
 **怎么改才通过**：版本只从 `GET /api/info` 取（`internal/webui/handlers.go` 引用
 `buildinfo.Version`）；说不准的事就说不准，别用完成时态替它圆。
@@ -178,42 +179,75 @@ def release_date(root):
     return "%s-%s-%s" % (d[:4], d[4:6], d[6:])
 
 
-def site_hits(page_text, scan_texts, version, latest_date):
+MARKED_VERSION_RE = re.compile(r'(id="dl-version"[^>]*>)\s*[^<]*?\s*(<)')
+
+
+def strip_marked_version(text):
+    """挖掉 `id="dl-version"` 元素里的文本：被标记的那一份不参与重复计数。"""
+    return MARKED_VERSION_RE.sub(r"\1\2", text)
+
+
+def site_hits(scan_texts, version, latest_date):
     """官网判据。**它和应用内前端的规则相反**，理由要写在这儿：
 
     应用内前端有 `GET /api/info` 可问，所以那里**不许**抄版本号；官网是纯静态页，
     没有后端可问，只能抄一份——那就把"抄"关进一个打了标记的元素里，并要求它
     **等于 owner**。两种做法都跟着 owner 走，区别只在有没有出口可问。
 
+    每个 .html 页都要有这两个标记（中英文各一份），因为访客落在哪一页都该看到
+    同一个版本；而标记**之外**任何一处版本字面量都算抄写，多一处就多一份会漂移的副本。
+
     返回 None ＝ 标记读不到（判据本身失效，必须报红，不许当成通过）。
     """
     hits = []
-    for marker, want, why in (
-        (
-            "dl-version",
-            "v" + version,
-            "版本徽标要等于 owner（internal/buildinfo）",
-        ),
-        ("dl-date", latest_date, "发布日期要等于 dist/ 下最新那份校验和的日期"),
-    ):
-        got = marked(page_text, marker)
-        if got is None:
-            print(
-                '%s 里找不到 id="%s"：判据失效（访客看不出这是哪个版本、哪天发的），'
-                "先修页面或本脚本。" % (WEBSITE_PAGE.replace("\\", "/"), marker)
-            )
-            return None
-        if got != want:
-            hits.append(
-                '%s  id="%s" 写着「%s」，应为「%s」——%s'
-                % (WEBSITE_PAGE.replace("\\", "/"), marker, got, want, why)
-            )
+    pages = [
+        (label, lines) for label, lines in scan_texts if label.endswith(".html")
+    ]
+    if not pages:
+        print("官网里一个 .html 页面都没扫到：判据失效，请先修本脚本。")
+        return None
+    for label, lines in pages:
+        text = "\n".join(lines)
+        for marker, want, why in (
+            (
+                "dl-version",
+                "v" + version,
+                "版本徽标要等于 owner（internal/buildinfo）",
+            ),
+            (
+                "dl-date",
+                latest_date,
+                "发布日期要等于 dist/ 下最新那份校验和的日期",
+            ),
+        ):
+            n_mark = len(re.findall(r'id="%s"' % re.escape(marker), text))
+            if n_mark == 0:
+                print(
+                    '%s 里找不到 id="%s"：判据失效（访客看不出这是哪个版本、哪天发的），'
+                    "先修页面或本脚本。" % (label, marker)
+                )
+                return None
+            if n_mark > 1:
+                hits.append(
+                    '%s 里 id="%s" 必须恰好出现一次（多一处就多一份会漂移的副本）'
+                    % (label, marker)
+                )
+                continue
+            got = marked(text, marker)
+            if got != want:
+                hits.append(
+                    '%s  id="%s" 写着「%s」，应为「%s」——%s'
+                    % (label, marker, got, want, why)
+                )
     lit = version_re(version)
-    n = sum(len(lit.findall(line)) for _, lines in scan_texts for line in lines)
-    if n > 1:
+    n = sum(
+        len(lit.findall(strip_marked_version("\n".join(lines))))
+        for _, lines in scan_texts
+    )
+    if n:
         hits.append(
-            '官网里 v%s 出现 %d 次，只许出现在 id="dl-version" 那一处'
-            "——多一处就多一份会漂移的副本" % (version, n)
+            '官网在 id="dl-version" 之外还有 %d 处 v%s'
+            "——多一处就多一份会漂移的副本" % (n, version)
         )
     hits.extend(scan(version, scan_texts, ban_literal=False))
     return hits
@@ -291,26 +325,60 @@ def self_test(version) -> int:
         + "</span>"
         '<time id="dl-date" datetime="' + day + '">' + day + "</time></p>"
     )
+    zh_page = good_page.replace("Released", "发布于")
     site_cases = [
-        ("官网徽标与 owner 一致（不许误报）", good_page, False),
-        ("官网徽标停在旧号", good_page.replace("v" + version, "v0.0.1"), True),
+        ("官网徽标与 owner 一致（不许误报）", [good_page], False),
+        (
+            "中英文两页各一份徽标（每页各一处，不许误报）",
+            [good_page, zh_page],
+            False,
+        ),
+        (
+            "中文页徽标停在旧号",
+            [good_page, zh_page.replace("v" + version, "v0.0.1")],
+            True,
+        ),
+        (
+            "中文页少了版本徽标（判据失效应报红）",
+            [good_page, "<p>下载</p>"],
+            True,
+        ),
+        (
+            "同一页里徽标被复制成两处",
+            [good_page + good_page],
+            True,
+        ),
+        (
+            "官网徽标停在旧号",
+            [good_page.replace("v" + version, "v0.0.1")],
+            True,
+        ),
         (
             "官网发布日期没跟着最新那次打包",
-            good_page.replace(day + "</time>", "2000-01-01</time>"),
+            [good_page.replace(day + "</time>", "2000-01-01</time>")],
             True,
         ),
         (
             "官网把版本号抄了两处",
-            good_page + "<p>本版 v" + version + " 修了三处。</p>",
+            [good_page + "<p>本版 v" + version + " 修了三处。</p>"],
             True,
         ),
-        ("官网声称已是最新", good_page + "<p>已是最新，无需更新。</p>", True),
-        ("官网少了版本徽标（判据失效应报红，不是报通过）", "<p>下载</p>", True),
+        ("官网声称已是最新", [good_page + "<p>已是最新，无需更新。</p>"], True),
+        (
+            "官网少了版本徽标（判据失效应报红，不是报通过）",
+            ["<p>下载</p>"],
+            True,
+        ),
     ]
-    for name, page, want_bad in site_cases:
-        hits = site_hits(
-            page, [(WEBSITE_PAGE, page.splitlines())], version, day
-        )
+    for name, pages, want_bad in site_cases:
+        docs = [
+            (
+                WEBSITE_PAGE if i == 0 else "website/index-zh.html",
+                page.splitlines(),
+            )
+            for i, page in enumerate(pages)
+        ]
+        hits = site_hits(docs, version, day)
         bad = hits is None or bool(hits)
         if bad != want_bad:
             print(
@@ -373,12 +441,7 @@ def main() -> int:
     if site_docs is None or latest is None:
         rc = 1
     else:
-        try:
-            page = "\n".join(read_lines(os.path.join(root, WEBSITE_PAGE)))
-        except OSError as e:
-            print("读不到 %s：%s" % (WEBSITE_PAGE, e))
-            return 1
-        site = site_hits(page, site_docs, version, latest)
+        site = site_hits(site_docs, version, latest)
         if site is None:
             rc = 1
         else:

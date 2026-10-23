@@ -26,6 +26,21 @@ func failingCmd() string {
 
 const execTimeout = 60 * time.Second
 
+func TestLimitedBufferKeepsPrefixAndMarksTruncation(t *testing.T) {
+	var b limitedBuffer
+	b.limit = 8
+	if n, err := b.Write([]byte("0123456789")); n != 10 || err != nil {
+		t.Fatalf("Write = %d, %v", n, err)
+	}
+	s := b.String()
+	if !strings.HasPrefix(s, "01234567") || !strings.Contains(s, "输出已截断") {
+		t.Errorf("截断结果 = %q", s)
+	}
+	if b.buf.Len() > b.limit {
+		t.Errorf("缓冲区超过上限：%d", b.buf.Len())
+	}
+}
+
 func TestShell_ExecEcho(t *testing.T) {
 	tool := New(execTimeout)
 	out, err := tool.Execute(context.Background(), map[string]any{

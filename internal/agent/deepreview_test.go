@@ -89,7 +89,7 @@ func TestDeepReviewSendsSteps(t *testing.T) {
 
 func TestConfirmDeepReviewNoNotifier(t *testing.T) {
 	a := &Agent{Cfg: config.Default()}
-	if !a.confirmDeepReview("t1", "理由") {
+	if !a.confirmDeepReview(context.Background(), "t1", "理由") {
 		t.Error("没有 Notifier 时应放行")
 	}
 }

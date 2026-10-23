@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"gleam/internal/harness/growth"
 	"gleam/internal/harness/skill"
@@ -139,5 +140,37 @@ func TestSkillGrowth_UsedOnlyOnSuccessfulRun(t *testing.T) {
 	}
 	if got := g.Stats().SkillUses; got != 1 {
 		t.Errorf("Stats.SkillUses = %d，want 1", got)
+	}
+}
+
+func TestSkillSlug_NilStoreTerminates(t *testing.T) {
+	done := make(chan string, 1)
+	go func() { done <- skillSlug("整理 项目 文件", nil) }()
+	select {
+	case got := <-done:
+		if got == "" {
+			t.Error("技能名不应为空")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("store 为 nil 时不应陷入死循环")
+	}
+}
+
+func TestSkillSlug_AvoidsExistingAndStaysValid(t *testing.T) {
+	st, err := skill.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Save(oneStepSkill("demo")); err != nil {
+		t.Fatal(err)
+	}
+	if got := skillSlug("demo", st); got == "demo" {
+		t.Errorf("已存在的技能名不应重复：%q", got)
+	}
+	got := skillSlug("写一份周报 🚀", nil)
+	for _, r := range got {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || (r >= 0x4e00 && r <= 0x9fff)) {
+			t.Fatalf("技能名含非法字符：%q", got)
+		}
 	}
 }

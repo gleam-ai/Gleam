@@ -487,6 +487,12 @@ func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskI
 	}
 	acancel()
 	clearPending()
+	if e.Gate != nil && approved {
+		// Approving a network/privacy tool trusts it for the whole session;
+		// file writes are not on the Gate allowlist, so approval still covers
+		// only the current step.
+		e.Gate.TrustForSession(step.Tool)
+	}
 	if e.Gate != nil {
 		action := "approved"
 		if !approved {
@@ -664,7 +670,10 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 			r.Error = "任务已取消"
 			return finalize()
 		}
-		if err == nil && !timedOut {
+		if err == nil {
+			// A tool that finished right at the deadline still finished: the
+			// result is real, so accept it instead of throwing it away and
+			// re-running the work.
 			r.Status = types.StepSucceeded
 			r.Output = out
 			r.Outcome = types.OutcomeOK
@@ -686,25 +695,23 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		}
 		r.Status = types.StepFailed
 		r.Outcome = types.OutcomeFailed
-		if err != nil {
-			if timedOut {
-				r.Error = fmt.Sprintf("步骤超时（%v）: %v", timeout, err)
-				r.ErrorKind = types.ErrTimeout
-			} else {
-				r.Error = err.Error()
-				r.ErrorKind = types.ClassifyError(r.Error)
-				if dedupable {
-					state.failedStore(fp, r.Error)
-				}
-				r.Attempt = attempt
-				r.Retried = attempt > 1
-				return finalize()
-			}
-		} else {
-			r.Error = fmt.Sprintf("步骤超时（%v）", timeout)
+		if timedOut {
+			r.Error = fmt.Sprintf("步骤超时（%v）: %v", timeout, err)
 			r.ErrorKind = types.ErrTimeout
+		} else {
+			r.Error = err.Error()
+			r.ErrorKind = types.ClassifyError(r.Error)
+			if dedupable {
+				state.failedStore(fp, r.Error)
+			}
+			r.Attempt = attempt
+			r.Retried = attempt > 1
+			return finalize()
 		}
-		if attempt >= attempts {
+		// Retrying a timed-out step is only safe when repeating it cannot
+		// duplicate a side effect. A write/shell step may have completed its
+		// work before the deadline; a second run would do it twice.
+		if attempt >= attempts || !e.readOnly(tool) {
 			if dedupable {
 				state.failedStore(fp, r.Error)
 			}

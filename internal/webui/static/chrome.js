@@ -11,6 +11,7 @@ if (Desk && Desk.platform)
 
 function renderNotes(md) {
   if (!md) return '';
+  const bold = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   const lines = md.split('\n');
   const out = [];
   let inList = false;
@@ -34,8 +35,7 @@ function renderNotes(md) {
         inList = true;
       }
       let content = trimmed.slice(2);
-      content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      out.push('<li>' + content + '</li>');
+      out.push('<li>' + bold(content) + '</li>');
     } else if (trimmed === '') {
       if (inList) {
         out.push('</ul>');
@@ -47,8 +47,7 @@ function renderNotes(md) {
         inList = false;
       }
       let content = trimmed;
-      content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      out.push('<p>' + content + '</p>');
+      out.push('<p>' + bold(content) + '</p>');
     }
   }
   if (inList) out.push('</ul>');
@@ -717,6 +716,7 @@ const UpdateCheck = (() => {
         '检查更新',
       );
     }
+    if (r.managed) return managed(r, cur);
     newer(r, cur);
   }
 
@@ -728,6 +728,34 @@ const UpdateCheck = (() => {
           ? '发布页上还没有正式版本，暂时无从比较。'
           : '没能连上更新源。检查一下网络；如果走代理，确认 Gleam 能出网。';
     alertModal('本机版本 ' + cur + '。\n\n' + why, '检查更新');
+  }
+
+  function managed(r, cur) {
+    Modal.open('检查更新', (box) => {
+      const p = el('p', 'modal-text');
+      p.textContent = '发现新版本 v' + r.latest + '，你现在是 ' + cur + '。';
+      box.appendChild(p);
+      if (r.notes) {
+        box.appendChild(el('div', 'field-label', '这次更新了什么'));
+        const pre = el('div', 'update-notes');
+        pre.innerHTML = renderNotes(r.notes);
+        box.appendChild(pre);
+      }
+      const hint = el('p', 'field-hint');
+      hint.textContent =
+        '桌面版由安装包更新，网页端不会覆盖正在运行的程序。去发布页下载新版安装包，安装后原来的对话和设置都还在。';
+      box.appendChild(hint);
+      const actions = el('div', 'modal-actions');
+      const page = el('button', 'btn btn-primary', '去发布页');
+      page.type = 'button';
+      page.addEventListener('click', () => openPage(r.notes_url || RELEASES));
+      const later = el('button', 'btn btn-secondary', '以后再说');
+      later.type = 'button';
+      later.addEventListener('click', Modal.close);
+      actions.appendChild(page);
+      actions.appendChild(later);
+      box.appendChild(actions);
+    });
   }
 
   function newer(r, cur) {
@@ -804,6 +832,16 @@ const UpdateCheck = (() => {
 })();
 
 async function checkUpdate() {
+  // Desktop builds own their update channel (NSIS / electron-updater); the
+  // engine's self-update endpoint would point at a different artifact. Route
+  // the menu entry through the same updater the composer button uses.
+  if (
+    window.gleamDesktop &&
+    window.gleamDesktop.update &&
+    typeof Updater.openCheckDialog === 'function'
+  ) {
+    return Updater.openCheckDialog();
+  }
   return UpdateCheck.run();
 }
 

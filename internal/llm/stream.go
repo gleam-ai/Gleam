@@ -29,6 +29,8 @@ func scanStream(ctx context.Context, rc io.Reader, onLine func(line string) bool
 		err  error
 	}
 	lines := make(chan lineMsg)
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
 		defer close(lines)
 		scanner := bufio.NewScanner(rc)
@@ -38,12 +40,15 @@ func scanStream(ctx context.Context, rc io.Reader, onLine func(line string) bool
 			case lines <- lineMsg{line: scanner.Text()}:
 			case <-ctx.Done():
 				return
+			case <-done:
+				return
 			}
 		}
 		if err := scanner.Err(); err != nil {
 			select {
 			case lines <- lineMsg{err: err}:
 			case <-ctx.Done():
+			case <-done:
 			}
 		}
 	}()

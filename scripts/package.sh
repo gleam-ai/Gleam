@@ -77,8 +77,11 @@ echo "[3/5] 打包前端与官网素材包"
 # 由 .github/workflows/deploy-website.yml 直接发布 website/ 目录。所以这里不再往
 # website/dist/ 拷一份（那是死产物，还容易让人以为站点走本地下载）。
 go run scripts/make-zip.go "$DIST/webui-static-$DATE.zip" internal/webui/static
+# 站点是完整可部署的：中文页、图标、二维码/截图与 CNAME 一个都不能少。
+# 不整目录打包，因为 website/dist/ 里是历史二进制（死产物），打进去只会让归档虚胖。
 go run scripts/make-zip.go "$DIST/website-$DATE.zip" \
-  website/index.html website/style.css website/app.js
+  website/index.html website/index-zh.html website/style.css website/app.js \
+  website/favicon.svg website/favicon-32.png website/CNAME website/images
 
 echo "[4/5] 打包全平台发布合集"
 go run scripts/make-zip.go "$DIST/Gleam-release-$DATE.zip" \

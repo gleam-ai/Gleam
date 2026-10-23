@@ -157,18 +157,18 @@
   border-radius: 50%;
   background: var(--color-fg-faint);
 }
-.workbench-dot[data-state='active'] {
+.workbench-dot[data-state="active"] {
   background: var(--state-run);
   animation: status-breathe 1.8s var(--ease-out) infinite;
 }
-.workbench-dot[data-state='attention'] {
+.workbench-dot[data-state="attention"] {
   background: var(--color-warning);
 }
 /* status-breathe 的第 6 处使用者，语义与既有五处一致（脉冲 = 活跃/运行中，
    唯一定义在 08-ia）。08-ia 的 reduced-motion 兜底是点名式列表（不含本文件
    的选择器），按 App 反模式「新增动画必须补兜底」在这里补自己的那份。 */
 @media (prefers-reduced-motion: reduce) {
-  .workbench-dot[data-state='active'] {
+  .workbench-dot[data-state="active"] {
     animation: none;
   }
 }

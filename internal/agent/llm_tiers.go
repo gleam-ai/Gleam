@@ -15,10 +15,25 @@ func (a *Agent) HelperLLM() llm.Client {
 }
 
 func (a *Agent) RebuildFastClient() {
-	if a == nil {
+	if a == nil || a.Cfg == nil || a.Cfg.LLM.Provider == "mock" {
+		a.FastLLM = nil
 		return
 	}
-	if a.Cfg == nil || a.Cfg.LLM.FastModel == "" || a.Cfg.LLM.Provider == "mock" {
+	// An entry checked as the auxiliary model carries full connection details
+	// (possibly another vendor), so prefer it. The fast_model field in advanced
+	// settings is the legacy form on the same connection.
+	if entry := a.fastModelEntry(); entry != nil {
+		base, model, protocol := llm.ResolveTarget(entry.ProviderID, entry.Plan, entry.BaseURL, entry.Model, entry.Protocol)
+		if strings.TrimSpace(model) == "" {
+			a.FastLLM = nil
+			return
+		}
+		key, _ := a.llmKeyFor(base, entry.APIKey)
+		a.FastLLM = llm.New(protocol, base, key, model,
+			a.Cfg.LLM.Temperature, a.Cfg.LLM.MaxTokens, a.Cfg.LLM.TimeoutSecs)
+		return
+	}
+	if strings.TrimSpace(a.Cfg.LLM.FastModel) == "" {
 		a.FastLLM = nil
 		return
 	}

@@ -33,10 +33,9 @@
   --text-muted: var(--td);
   --glow-border: rgba(245, 200, 119, 0.25);
 
-  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun",
-    serif;
-  --font: "Inter", "Source Han Sans SC", "Microsoft YaHei", -apple-system,
-    sans-serif;
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --font:
+    "Inter", "Source Han Sans SC", "Microsoft YaHei", -apple-system, sans-serif;
   --mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
   --radius: 12px;
   --radius-lg: 16px;

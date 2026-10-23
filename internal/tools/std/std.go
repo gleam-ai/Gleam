@@ -57,7 +57,7 @@ func (t *memSaveTool) Name() string { return "memory.save" }
 func (t *memSaveTool) Description() string {
 	return "记住重要信息：写入长期记忆，跨会话可用"
 }
-func (t *memSaveTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *memSaveTool) Permission() types.Permission { return types.PermissionUserApproved }
 func (t *memSaveTool) Schema() map[string]any {
 	return toolutil.Schema("保存长期记忆", []string{"content"}, map[string]any{
 		"content": toolutil.SchemaProp("要记住的内容", "string"),
@@ -420,7 +420,7 @@ func (t *agentDelegateTool) Name() string { return "agent.delegate" }
 func (t *agentDelegateTool) Description() string {
 	return "把子任务委派给独立 LLM 调用处理，适合并行探索、信息检索或隔离上下文的子目标。返回文本结果。"
 }
-func (t *agentDelegateTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *agentDelegateTool) Permission() types.Permission { return types.PermissionUserApproved }
 func (t *agentDelegateTool) Schema() map[string]any {
 	return toolutil.Schema("委派子任务", []string{"goal"}, map[string]any{
 		"goal": toolutil.SchemaProp("子目标描述：要解决什么、期望什么产出", "string"),

@@ -8,9 +8,20 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const maxBodyBytes = 16 << 20
+
+// withRequestTimeout bounds non-streaming calls. Streaming calls must not use
+// http.Client.Timeout: it covers the whole body read and cut long generations
+// off mid-stream. They rely on scanStream's TTFB/stall watchers instead.
+func withRequestTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
 
 func StatusCode(err error) int {
 	var se *statusError

@@ -100,3 +100,7 @@ mac:
   target:
     - dir
   icon: ../assets/gleam.icns
+  # macOS 的语音输入走系统麦克风授权；没有这条声明，TCC 会直接终止进程，
+  # 而不是弹授权框。
+  extendInfo:
+    NSMicrophoneUsageDescription: 语音输入需要使用麦克风（Voice input needs microphone access）

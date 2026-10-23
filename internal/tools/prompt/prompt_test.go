@@ -69,10 +69,10 @@ func TestPromptRunRejectsEmptyPrompt(t *testing.T) {
 	}
 }
 
-func TestPromptRunPermissionIsReadOnly(t *testing.T) {
+func TestPromptRunRequiresApproval(t *testing.T) {
 	tool := NewGenerate(func() llm.Client { return &fakeClient{} })
-	if got := tool.Permission().String(); got != "readonly" {
-		t.Errorf("提示词步骤应是只读放行，得到 %q", got)
+	if got := tool.Permission().String(); got != "user_approved" {
+		t.Errorf("提示词步骤会调用模型外发内容，应需批准，得到 %q", got)
 	}
 	if tool.Name() != "prompt.run" {
 		t.Errorf("工具名 = %q", tool.Name())

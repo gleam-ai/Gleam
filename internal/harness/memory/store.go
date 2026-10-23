@@ -65,16 +65,66 @@ func (s *Store) RememberWithSource(content, source string, tags []string) (strin
 	return s.RememberScoped(content, source, "", tags)
 }
 
+const (
+	maxMemoryRunes = 4000
+	maxMemoryTags  = 12
+	maxTagRunes    = 32
+)
+
+// normalizeMemory folds case and whitespace so formatting differences in the
+// same sentence still merge.
+func normalizeMemory(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), " ")
+}
+
+func cleanMemoryTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := map[string]bool{}
+	for _, raw := range tags {
+		t := strings.TrimSpace(raw)
+		if t == "" || seen[t] {
+			continue
+		}
+		if r := []rune(t); len(r) > maxTagRunes {
+			t = string(r[:maxTagRunes])
+		}
+		seen[t] = true
+		out = append(out, t)
+		if len(out) >= maxMemoryTags {
+			break
+		}
+	}
+	return out
+}
+
+// sourceRank decides whether a new memory may overwrite an existing item.
+// Words from the user (empty source / user) outrank task records; external
+// sources such as web pages cannot overwrite local memory and are only
+// appended, so one injection cannot erase old facts.
+func sourceRank(source string) int {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "", "user", "manual":
+		return 2
+	default:
+		return 1
+	}
+}
+
 func (s *Store) RememberScoped(content, source, scope string, tags []string) (string, error) {
-	if strings.TrimSpace(content) == "" {
+	content = strings.TrimSpace(content)
+	if content == "" {
 		return "", fmt.Errorf("记忆内容为空")
 	}
+	if r := []rune(content); len(r) > maxMemoryRunes {
+		return "", fmt.Errorf("记忆内容过长（%d 字，上限 %d）", len(r), maxMemoryRunes)
+	}
+	tags = cleanMemoryTags(tags)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	newVec := embed(content, s.dim)
 	now := time.Now()
 
-	dupIdx := -1
+	dupIdx, dupScore := -1, float32(0)
 	for i := range s.items {
 		if s.items[i].Deleted {
 			continue
@@ -82,48 +132,79 @@ func (s *Store) RememberScoped(content, source, scope string, tags []string) (st
 		if s.items[i].Scope != scope {
 			continue
 		}
-		if cosine(newVec, s.items[i].Vec) >= DupThreshold {
-			dupIdx = i
-			break
+		score := cosine(newVec, s.items[i].Vec)
+		if score >= DupThreshold && score >= dupScore {
+			dupIdx, dupScore = i, score
 		}
 	}
 	if dupIdx >= 0 {
 		it := &s.items[dupIdx]
-		it.Content = content
-		it.Tags = append([]string(nil), tags...)
-		it.CreatedAt = now
-		it.Vec = newVec
-		if source != "" {
-			it.Source = source
+		// Similar is not synonymous: "port changed to 9090" and "the port is
+		// 8080" may still score above the threshold. Only the same or a more
+		// trusted source may rewrite content; otherwise keep a separate item
+		// so both facts remain retrievable.
+		if normalizeMemory(it.Content) == normalizeMemory(content) ||
+			sourceRank(source) >= sourceRank(it.Source) {
+			it.Content = content
+			it.Tags = mergeTags(it.Tags, tags)
+			it.Vec = newVec
+			if sourceRank(source) >= sourceRank(it.Source) {
+				it.Source = source
+			}
+			s.dirty = true
+			return it.ID, nil
 		}
-		s.dirty = true
-		return it.ID, nil
 	}
 
 	id := types.NewID()
 	it := Item{
 		ID:        id,
 		Content:   content,
-		Tags:      append([]string(nil), tags...),
+		Tags:      tags,
 		CreatedAt: now,
 		Vec:       newVec,
 		Source:    source,
 		Scope:     scope,
 	}
-	if len(s.items) >= s.maxItems {
-		oldest := 0
-		for i := 1; i < len(s.items); i++ {
-			if s.items[i].CreatedAt.Before(s.items[oldest].CreatedAt) {
-				oldest = i
-			}
-		}
-		delete(s.index, s.items[oldest].ID)
-		s.items = append(s.items[:oldest], s.items[oldest+1:]...)
-		s.reindex()
-	}
+	s.makeRoom()
 	s.appendItem(it)
 	s.dirty = true
 	return id, nil
+}
+
+func mergeTags(old, add []string) []string {
+	merged := append([]string(nil), old...)
+	return cleanMemoryTags(append(merged, add...))
+}
+
+// makeRoom clears soft-deleted tombstones before evicting live items:
+// otherwise deleting more leaves the cap filled with dead data.
+func (s *Store) makeRoom() {
+	if len(s.items) < s.maxItems {
+		return
+	}
+	kept := s.items[:0]
+	for _, it := range s.items {
+		if !it.Deleted {
+			kept = append(kept, it)
+		}
+	}
+	if len(kept) < len(s.items) {
+		s.items = kept
+		s.reindex()
+	}
+	if len(s.items) < s.maxItems {
+		return
+	}
+	oldest := 0
+	for i := 1; i < len(s.items); i++ {
+		if s.items[i].CreatedAt.Before(s.items[oldest].CreatedAt) {
+			oldest = i
+		}
+	}
+	delete(s.index, s.items[oldest].ID)
+	s.items = append(s.items[:oldest], s.items[oldest+1:]...)
+	s.reindex()
 }
 
 func (s *Store) Search(query string, k int) []Hit {
@@ -232,6 +313,8 @@ type Manager struct {
 	omittedRunes int
 	dir          string
 	carry        int
+	compressing  bool
+	gen          int
 }
 
 func (m *Manager) CarryTurns() int {
@@ -376,18 +459,29 @@ func hitsAny(s string, subs []string) bool {
 
 func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.overflow) == 0 {
+	// Only one compression at a time: summarization can take tens of seconds,
+	// and concurrent runs would burn tokens on the same overflow twice.
+	if m.compressing || len(m.overflow) == 0 {
+		m.mu.Unlock()
 		return false
 	}
+	m.compressing = true
 	turns := m.overflow
 	text := renderTurns(turns)
 	m.overflow = nil
 	m.omittedTurns += len(turns)
 	m.omittedRunes += len([]rune(text))
+	gen := m.gen
+	raw := 0
+	for _, t := range turns {
+		raw += types.EstimateTokens(t.Content)
+	}
+	m.mu.Unlock()
 
 	summary := ""
 	if summarize != nil {
+		// Call the model outside the lock: AddTurn/Summary/Pinned stay
+		// available, so the agent and UI are not frozen on one request.
 		if s, err := summarize(text); err == nil && len([]rune(strings.TrimSpace(s))) >= 4 {
 			summary = strings.TrimSpace(s)
 		}
@@ -396,9 +490,13 @@ func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool
 		summary = extractiveSummary(text)
 	}
 
-	raw := 0
-	for _, t := range turns {
-		raw += types.EstimateTokens(t.Content)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.compressing = false
+	if m.gen != gen {
+		// The context was cleared or switched during summarization; the old
+		// summary must not be written into the new conversation.
+		return false
 	}
 	m.savedTok += maxInt(0, raw-types.EstimateTokens(summary))
 
@@ -463,6 +561,7 @@ func (m *Manager) Stats() ContextStats {
 
 func (m *Manager) ClearSummary() {
 	m.mu.Lock()
+	m.gen++
 	m.overflow = nil
 	m.summary = ""
 	m.savedTok = 0

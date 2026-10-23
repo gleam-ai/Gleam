@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	"gleam/pkg/types"
 )
 
@@ -10,6 +12,26 @@ type Notifier interface {
 	OnSuggestion(taskID, text string)
 	OnSuggestSkill(taskID string, draft types.SkillDraft)
 	OnTaskDone(ev types.TaskDoneEvent)
+}
+
+// askApproval waits for the answer but abandons the wait when the task is
+// cancelled. A notifier may block for the full approval timeout; a stop press
+// or a shutting-down host must not be stuck behind a dialog nobody will answer.
+func askApproval(ctx context.Context, n Notifier, req types.ApprovalRequest) types.ApprovalResponse {
+	if n == nil {
+		return types.ApprovalResponse{}
+	}
+	if ctx == nil {
+		return n.OnApproval(req)
+	}
+	ch := make(chan types.ApprovalResponse, 1)
+	go func() { ch <- n.OnApproval(req) }()
+	select {
+	case resp := <-ch:
+		return resp
+	case <-ctx.Done():
+		return types.ApprovalResponse{Note: "任务已取消"}
+	}
 }
 
 type ToolNotifier interface {

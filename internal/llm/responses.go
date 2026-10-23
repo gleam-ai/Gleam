@@ -16,6 +16,7 @@ type ResponsesClient struct {
 	Temperature float64
 	MaxTokens   int
 	HTTP        *http.Client
+	timeout     time.Duration
 }
 
 func NewResponses(baseURL, apiKey, model string, temperature float64, maxTokens int, timeout time.Duration) *ResponsesClient {
@@ -25,7 +26,8 @@ func NewResponses(baseURL, apiKey, model string, temperature float64, maxTokens 
 		Model:       model,
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
-		HTTP:        &http.Client{Timeout: timeout, Transport: Transport()},
+		HTTP:        &http.Client{Transport: Transport()},
+		timeout:     timeout,
 	}
 }
 
@@ -55,7 +57,7 @@ type responsesMessage struct {
 
 func (c *ResponsesClient) payload(req ChatRequest, stream bool) responsesPayload {
 	temp := req.Temperature
-	if temp == 0 {
+	if temp == 0 && !req.TemperatureSet {
 		temp = c.Temperature
 	}
 	maxTok := req.MaxTokens
@@ -129,6 +131,8 @@ func textFromOutput(raw []byte) (string, Usage, error) {
 }
 
 func (c *ResponsesClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
+	ctx, cancel := withRequestTimeout(ctx, c.timeout)
+	defer cancel()
 	body, err := json.Marshal(c.payload(req, false))
 	if err != nil {
 		return "", err
@@ -158,6 +162,7 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 
 	var full strings.Builder
 	var u Usage
+	var streamErr error
 	err = scanStream(ctx, rc, func(line string) bool {
 		if !strings.HasPrefix(line, "data:") {
 			return true
@@ -177,6 +182,13 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 						CachedTokens int `json:"cached_tokens"`
 					} `json:"input_tokens_details"`
 				} `json:"usage"`
+				Error *struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+				IncompleteDetails *struct {
+					Reason string `json:"reason"`
+				} `json:"incomplete_details"`
 			} `json:"response"`
 		}
 		if json.Unmarshal([]byte(data), &ev) != nil {
@@ -198,12 +210,37 @@ func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDel
 					u.CachedTokens = ru.InputTokensDetails.CachedTokens
 				}
 			}
+			if ev.Type == "response.failed" || ev.Type == "response.incomplete" {
+				reason := ""
+				if ev.Response != nil {
+					if ev.Response.Error != nil {
+						reason = strings.TrimSpace(ev.Response.Error.Message)
+						if reason == "" {
+							reason = ev.Response.Error.Code
+						}
+					}
+					if reason == "" && ev.Response.IncompleteDetails != nil {
+						reason = ev.Response.IncompleteDetails.Reason
+					}
+				}
+				if reason == "" {
+					reason = "未提供原因"
+				}
+				label := "失败"
+				if ev.Type == "response.incomplete" {
+					label = "不完整"
+				}
+				streamErr = fmt.Errorf("llm: 流式响应%s: %s", label, reason)
+			}
 			return false
 		}
 		return true
 	})
 	if err != nil {
 		return full.String(), err
+	}
+	if streamErr != nil {
+		return full.String(), streamErr
 	}
 	if full.Len() == 0 {
 		return "", fmt.Errorf("llm: 流式响应为空")

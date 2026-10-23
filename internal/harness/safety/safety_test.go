@@ -38,6 +38,28 @@ func TestGate_ReadOnlyAlwaysAllowed(t *testing.T) {
 	}
 }
 
+func TestGate_SessionTrustOnlyForSensitiveNoPathTools(t *testing.T) {
+	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
+
+	web := &fakeTool{name: "web.fetch", perm: types.PermissionUserApproved}
+	if d := g.Evaluate(web, nil); !d.NeedApproval {
+		t.Errorf("web.fetch 首次应审批: %+v", d)
+	}
+	if !g.TrustForSession("web.fetch") {
+		t.Fatal("web.fetch 应可记入会话信任")
+	}
+	if d := g.Evaluate(web, nil); d.NeedApproval {
+		t.Errorf("会话内已批准过，不该重复弹窗: %+v", d)
+	}
+
+	if g.TrustForSession("file.write") {
+		t.Error("写文件工具不能一次批准后永久放行")
+	}
+	if d := g.Evaluate(&fakeTool{name: "file.write", perm: types.PermissionUserApproved}, map[string]any{"path": `D:\other\a.txt`}); !d.NeedApproval {
+		t.Errorf("工作区外的写操作仍应逐次审批: %+v", d)
+	}
+}
+
 func TestGate_HighRiskAlwaysNeedsApproval(t *testing.T) {
 	g := New("auto", []string{"shell.exec"}, nil, []string{`D:\ws`}, time.Minute)
 	d := g.Evaluate(&fakeTool{name: "shell.exec", perm: types.PermissionFullAccess}, nil)

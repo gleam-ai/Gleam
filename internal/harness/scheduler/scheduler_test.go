@@ -229,4 +229,118 @@ func TestScheduler_EnableDisableDelete(t *testing.T) {
 	}
 }
 
+func TestScheduler_UnfireableNextRunStops(t *testing.T) {
+	var mu sync.Mutex
+	fired := 0
+	s, _ := Open(filepath.Join(t.TempDir(), "s.json"), func(Job) {
+		mu.Lock()
+		fired++
+		mu.Unlock()
+	})
+	if _, err := s.AddJob("broken", "0 9 * * *", 0, "目标", "auto"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.jobs["broken"].Cron = "not a cron"
+	s.jobs["broken"].NextRun = ptrTime(time.Now().Add(-time.Minute))
+	s.mu.Unlock()
+
+	s.tick(time.Now())
+	time.Sleep(100 * time.Millisecond)
+	s.tick(time.Now())
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	n := fired
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("无法计算下次时间的任务只应触发一次，实际 %d", n)
+	}
+	jobs := s.ListJobs()
+	if jobs[0].NextRun != nil {
+		t.Errorf("非法 cron 的 NextRun 应清空，实际 %v", jobs[0].NextRun)
+	}
+}
+
+func TestScheduler_SameJobDoesNotOverlap(t *testing.T) {
+	started := make(chan struct{}, 4)
+	release := make(chan struct{})
+	s, _ := Open(filepath.Join(t.TempDir(), "s.json"), func(Job) {
+		started <- struct{}{}
+		<-release
+	})
+	if _, err := s.AddJob("slow", "", 5, "慢任务", "auto"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	s.tick(now.Add(6 * time.Second))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("第一轮应启动")
+	}
+	s.tick(now.Add(12 * time.Second))
+	select {
+	case <-started:
+		t.Fatal("上一轮未结束时不应再启动")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		busy := s.inflight["slow"]
+		s.mu.Unlock()
+		if !busy {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	s.tick(now.Add(18 * time.Second))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("上一轮结束后应恢复触发")
+	}
+}
+
+func TestScheduler_WatchPatternFiltersUnrelatedFiles(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "a.log")
+	txtFile := filepath.Join(dir, "b.txt")
+	os.WriteFile(logFile, []byte("v1"), 0o644)
+	os.WriteFile(txtFile, []byte("v1"), 0o644)
+
+	var mu sync.Mutex
+	fired := 0
+	s, _ := Open(filepath.Join(t.TempDir(), "s.json"), func(Job) {
+		mu.Lock()
+		fired++
+		mu.Unlock()
+	})
+	s.mu.Lock()
+	s.jobs["logs"] = &Job{Name: "logs", WatchPath: dir, WatchPattern: "*.log", Goal: "日志变了", Enabled: true}
+	s.mu.Unlock()
+
+	base := time.Now()
+	s.tick(base)
+	os.WriteFile(txtFile, []byte("v2 much longer"), 0o644)
+	s.tick(base.Add(time.Second))
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	if fired != 0 {
+		t.Errorf("不匹配 *.log 的文件变化不应触发，实际 %d 次", fired)
+	}
+	mu.Unlock()
+
+	os.WriteFile(logFile, []byte("v2 longer"), 0o644)
+	s.tick(base.Add(2 * time.Second))
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if fired != 1 {
+		t.Errorf("匹配文件变化应触发 1 次，实际 %d 次", fired)
+	}
+}
+
 func ptrTime(t time.Time) *time.Time { return &t }

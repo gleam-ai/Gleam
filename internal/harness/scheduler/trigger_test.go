@@ -47,6 +47,51 @@ func TestScheduler_TriggerNow(t *testing.T) {
 	}
 }
 
+func TestScheduler_TriggerNowRejectsOverlap(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	s, err := Open(filepath.Join(t.TempDir(), "s.json"), func(Job) {
+		started <- struct{}{}
+		<-release
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddJob("j1", "", 3600, "g", "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.TriggerNow("j1"); !ok || err != nil {
+		t.Fatalf("TriggerNow = %v, %v", ok, err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("第一轮应启动")
+	}
+	if ok, err := s.TriggerNow("j1"); ok || err == nil {
+		t.Fatal("运行中的任务应拒绝再次触发")
+	}
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		busy := s.inflight["j1"]
+		s.mu.Unlock()
+		if !busy {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if ok, err := s.TriggerNow("j1"); !ok || err != nil {
+		t.Fatalf("上一轮结束后应允许再次触发：%v, %v", ok, err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("第二轮应启动")
+	}
+}
+
 func TestScheduler_TriggerNowErrors(t *testing.T) {
 	s, _ := Open(filepath.Join(t.TempDir(), "s.json"), nil)
 	s.AddJob("j1", "0 9 * * *", 0, "g", "auto")

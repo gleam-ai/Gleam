@@ -32,22 +32,27 @@ type Server struct {
 
 	feedback *feedback.Store
 
+	DisableSelfUpdate bool
+	updateMu          sync.Mutex
+
 	mu        sync.Mutex
+	submitMu  sync.Mutex
 	tasks     map[string]*taskInfo
 	approvals map[string]*approvalWaiter
 	clients   map[chan sseEvent]struct{}
 }
 
 type taskInfo struct {
-	ID       string             `json:"task_id"`
-	Goal     string             `json:"goal"`
-	Mode     string             `json:"mode"`
-	TaskMode string             `json:"task_mode,omitempty"`
-	Status   types.GoalStatus   `json:"status"`
-	Result   *types.GoalResult  `json:"result,omitempty"`
-	Events   []sseEvent         `json:"events,omitempty"`
-	Started  time.Time          `json:"started_at"`
-	Cancel   context.CancelFunc `json:"-"`
+	ID             string             `json:"task_id"`
+	Goal           string             `json:"goal"`
+	Mode           string             `json:"mode"`
+	TaskMode       string             `json:"task_mode,omitempty"`
+	ConversationID string             `json:"conversation_id,omitempty"`
+	Status         types.GoalStatus   `json:"status"`
+	Result         *types.GoalResult  `json:"result,omitempty"`
+	Events         []sseEvent         `json:"events,omitempty"`
+	Started        time.Time          `json:"started_at"`
+	Cancel         context.CancelFunc `json:"-"`
 }
 
 func (t *taskInfo) snapshot() *taskInfo {
@@ -187,11 +192,18 @@ func (s *Server) unsubscribe(ch chan sseEvent) {
 
 func (s *Server) broadcast(ev sseEvent) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	clients := make([]chan sseEvent, 0, len(s.clients))
 	for ch := range s.clients {
+		clients = append(clients, ch)
+	}
+	s.mu.Unlock()
+	// Non-blocking delivery outside the lock: a slow tab may miss events and
+	// resync on reconnect, but it must not hold the global tasks/approvals lock
+	// and slow down task goroutines.
+	for _, ch := range clients {
 		select {
 		case ch <- ev:
-		case <-time.After(50 * time.Millisecond):
+		default:
 		}
 	}
 }

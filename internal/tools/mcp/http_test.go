@@ -175,3 +175,21 @@ func TestRemoteMCPRecordsEgressOnFailure(t *testing.T) {
 		t.Errorf("错误文案里不该回显凭据：%v", err)
 	}
 }
+
+func TestIsLoopbackHost_NoPrefixSpoofing(t *testing.T) {
+	cases := map[string]bool{
+		"localhost":    true,
+		"127.0.0.1":    true,
+		"127.0.0.2":    true,
+		"::1":          true,
+		"[::1]":        true,
+		"127.evil.com": false,
+		"127.0.0.1.io": false,
+		"example.com":  false,
+	}
+	for host, want := range cases {
+		if got := isLoopbackHost(host); got != want {
+			t.Errorf("isLoopbackHost(%q) = %v，应为 %v", host, got, want)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"gleam/internal/harness/conversation"
+	"gleam/pkg/types"
 )
 
 func writeConvoErr(w http.ResponseWriter, err error) {
@@ -110,6 +111,16 @@ func (s *Server) handleConversationDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	id := r.PathValue("id")
+	s.mu.Lock()
+	for _, t := range s.tasks {
+		if t.Status == types.GoalRunning && t.ConversationID == id {
+			goal := types.Shorten(t.Goal, 40)
+			s.mu.Unlock()
+			writeErr(w, 409, "这个对话还有目标在运行（%s），先停止它再删除", goal)
+			return
+		}
+	}
+	s.mu.Unlock()
 	if err := s.Agent.Convos.Delete(id); err != nil {
 		writeConvoErr(w, err)
 		return

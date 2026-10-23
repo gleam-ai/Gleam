@@ -70,7 +70,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 		cmd.Dir = cwd
 	}
 	cmd.Env = sanitizedEnv(os.Environ())
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr limitedBuffer
+	stdout.limit = maxOutput
+	stderr.limit = maxOutput
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.WaitDelay = 5 * time.Second
@@ -113,8 +115,8 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	out := map[string]any{
 		"command":   command,
 		"exit_code": exitCode,
-		"stdout":    truncate(stdout.String()),
-		"stderr":    truncate(stderr.String()),
+		"stdout":    stdout.String(),
+		"stderr":    stderr.String(),
 		"error":     errString(err, exitCode),
 	}
 	if pipeStuck {
@@ -192,9 +194,32 @@ func errString(err error, code int) string {
 	return err.Error()
 }
 
-func truncate(s string) string {
-	if len(s) > maxOutput {
-		return s[:maxOutput] + "\n…（输出已截断）"
+// limitedBuffer drops data as it is written: a command such as `dir /s C:\`
+// must not buffer gigabytes in memory before truncating.
+type limitedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (l *limitedBuffer) Write(p []byte) (int, error) {
+	remain := l.limit - l.buf.Len()
+	if remain > 0 {
+		if len(p) > remain {
+			l.buf.Write(p[:remain])
+			l.truncated = true
+		} else {
+			l.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		l.truncated = true
 	}
-	return s
+	return len(p), nil
+}
+
+func (l *limitedBuffer) String() string {
+	if l.truncated {
+		return l.buf.String() + "\n…（输出已截断）"
+	}
+	return l.buf.String()
 }

@@ -44,6 +44,9 @@ func TestResolveTarget(t *testing.T) {
 	if _, _, p := ResolveTarget("", "", "https://x/v1", "m", ProtocolAnthropic); p != ProtocolAnthropic {
 		t.Errorf("无预设时不该覆盖用户显式选的协议，得到 %s", p)
 	}
+	if _, _, p := ResolveTarget("zhipu", PlanCoding, "", "m", ProtocolAnthropic); p != ProtocolAnthropic {
+		t.Errorf("显式协议应压过套餐默认（zhipu coding 默认 openai_chat），得到 %s", p)
+	}
 }
 
 func TestResolvePreset_ZhipuCoding(t *testing.T) {
@@ -277,5 +280,87 @@ func TestProvidersCatalogExpected(t *testing.T) {
 	}
 	if FindProvider("hunyuan") != nil {
 		t.Error("腾讯混元旧平台已停服（api.hunyuan.cloud.tencent.com），不该再出现在目录里")
+	}
+}
+
+func TestGLMClient_TemperatureZeroIsExplicit(t *testing.T) {
+	var got []float64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if v, ok := req["temperature"].(float64); ok {
+			got = append(got, v)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{"role": "assistant", "content": "ok"},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewGLM(srv.URL, "key", "m", 0.7, 128, 5*time.Second)
+	if _, err := c.Chat(context.Background(), ChatRequest{
+		Messages:    []Message{{Role: RoleUser, Content: "hi"}},
+		Temperature: 0, TemperatureSet: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Chat(context.Background(), ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != 0 || got[1] != 0.7 {
+		t.Fatalf("temperature = %v, 期望 [0 0.7]（显式 0 不能被默认值覆盖）", got)
+	}
+}
+
+func TestGLMClientStreamSurfacesErrorChunk(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"quota exceeded\"}}\n\n"))
+	}))
+	defer srv.Close()
+
+	c := NewGLM(srv.URL, "key", "m", 0.2, 128, 5*time.Second)
+	_, err := c.ChatStream(context.Background(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "quota exceeded") {
+		t.Fatalf("err = %v, 期望带上流内错误信息", err)
+	}
+}
+
+func TestAnthropicClientStreamSurfacesErrorEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"))
+	}))
+	defer srv.Close()
+
+	c := NewAnthropic(srv.URL, "key", "m", 0.2, 128, 5*time.Second)
+	_, err := c.ChatStream(context.Background(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Overloaded") {
+		t.Fatalf("err = %v, 期望带上流内错误信息", err)
+	}
+}
+
+func TestResponsesClientStreamSurfacesFailure(t *testing.T) {
+	for _, tc := range []struct{ name, event, want string }{
+		{"failed", `{"type":"response.failed","response":{"error":{"code":"server_error","message":"boom"}}}`, "boom"},
+		{"incomplete", `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}`, "max_output_tokens"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write([]byte("data: " + tc.event + "\n\n"))
+			}))
+			defer srv.Close()
+
+			c := NewResponses(srv.URL, "key", "m", 0.2, 128, 5*time.Second)
+			_, err := c.ChatStream(context.Background(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, 期望带上 %q", err, tc.want)
+			}
+		})
 	}
 }

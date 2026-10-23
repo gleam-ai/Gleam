@@ -2,7 +2,6 @@ package webui
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"gleam/internal/tools/hardware"
@@ -50,8 +49,11 @@ func (s *Server) handleHardwareConnect(w http.ResponseWriter, r *http.Request) {
 		DeviceID string         `json:"device_id"`
 		Config   map[string]any `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if !requireDeviceID(w, req.DeviceID) {
 		return
 	}
 	if req.Config == nil {
@@ -69,8 +71,11 @@ func (s *Server) handleHardwareDisconnect(w http.ResponseWriter, r *http.Request
 	var req struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if !requireDeviceID(w, req.DeviceID) {
 		return
 	}
 
@@ -87,8 +92,11 @@ func (s *Server) handleHardwareSend(w http.ResponseWriter, r *http.Request) {
 		Command  string `json:"command"`
 		Payload  any    `json:"payload"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if !requireDeviceID(w, req.DeviceID) {
 		return
 	}
 
@@ -110,8 +118,11 @@ func (s *Server) handleHardwareReceive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if !requireDeviceID(w, req.DeviceID) {
 		return
 	}
 
@@ -154,8 +165,11 @@ func (s *Server) handleHardwareScanWiFi(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if !requireDeviceID(w, req.DeviceID) {
 		return
 	}
 
@@ -189,8 +203,15 @@ func (s *Server) handleHardwareConfigureWiFi(w http.ResponseWriter, r *http.Requ
 		SSID     string `json:"ssid"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if !requireDeviceID(w, req.DeviceID) {
+		return
+	}
+	if req.SSID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ssid 不能为空"})
 		return
 	}
 
@@ -215,6 +236,14 @@ func (s *Server) handleHardwareConfigureWiFi(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "configured", "ssid": req.SSID})
+}
+
+func requireDeviceID(w http.ResponseWriter, id string) bool {
+	if id != "" {
+		return true
+	}
+	writeJSON(w, http.StatusBadRequest, map[string]any{"error": "device_id 不能为空"})
+	return false
 }
 
 // registerHardwareRoutes adds hardware API routes to the mux.
