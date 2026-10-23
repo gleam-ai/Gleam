@@ -83,6 +83,38 @@ func TestBindLLMKey_FormAndSwitch(t *testing.T) {
 	}
 }
 
+func TestApplySettingsProviderSwitchBindsResolvedHost(t *testing.T) {
+	for _, explicit := range []string{"", "sk-new-provider"} {
+		t.Run(explicit, func(t *testing.T) {
+			cfg, creds := newKeyEnv(t)
+			cfg.LLM.Provider, cfg.LLM.ProviderID = "glm", "zhipu"
+			cfg.LLM.BaseURL = glmURL
+			if _, err := BindLLMKey(cfg, creds, glmURL, "sk-old-provider", false); err != nil {
+				t.Fatal(err)
+			}
+			a := New(cfg, llm.NewMock(), nil, nil, nil, nil, nil, nil)
+			a.Creds = creds
+			patch := map[string]any{"provider_id": "deepseek", "model": "deepseek-chat"}
+			if explicit != "" {
+				patch["api_key"] = explicit
+			}
+			if _, err := a.ApplySettings(map[string]any{"llm": patch}); err != nil {
+				t.Fatal(err)
+			}
+			client := a.LLM.(*llm.GLMClient)
+			if llm.KeyScope(client.BaseURL) != llm.KeyScope(dsURL) || client.APIKey != explicit {
+				t.Fatalf("client host=%s key=%q", client.BaseURL, client.APIKey)
+			}
+			if key, _ := creds.ResolveLLMAPIKey(llm.KeyScope(glmURL)); key != "sk-old-provider" {
+				t.Fatalf("old provider credential changed: %q", key)
+			}
+			if key, _ := creds.ResolveLLMAPIKey(llm.KeyScope(dsURL)); key != explicit {
+				t.Fatalf("new provider credential=%q", key)
+			}
+		})
+	}
+}
+
 func TestLLMKeyFor_ExplicitWins(t *testing.T) {
 	cfg, creds := newKeyEnv(t)
 	if _, err := BindLLMKey(cfg, creds, glmURL, "sk-glm", false); err != nil {

@@ -173,12 +173,16 @@ func (a *Agent) pruneTasksLocked() {
 // Planner: two copies drift apart sooner or later, and then what is evaluated
 // is no longer the real runtime behavior.
 func (a *Agent) BuildPlanner(req types.GoalRequest) *Planner {
+	return a.buildPlanner(req, a.TierLLM(req.Role), a.FastLLM)
+}
+
+func (a *Agent) buildPlanner(req types.GoalRequest, tier, helper llm.Client) *Planner {
 	taskID := req.TaskID
 	if taskID == "" {
 		taskID = types.NewID()
 	}
 	pl := &Planner{
-		LLM: a.TierLLM(req.Role), Reg: a.Reg,
+		LLM: tier, Reg: a.Reg,
 		MaxSteps:   a.Cfg.Agent.MaxSteps,
 		Style:      a.Cfg.Persona.Style,
 		TaskMode:   string(normalizeTaskMode(req.TaskMode)),
@@ -195,7 +199,7 @@ func (a *Agent) BuildPlanner(req types.GoalRequest) *Planner {
 		// model is really configured -- otherwise screening wastes an extra
 		// main-model call.
 		MaxToolSchemas: a.Cfg.Agent.MaxToolSchemas,
-		Helper:         a.FastLLM,
+		Helper:         helper,
 		// Differences from scenario templates: core tools (always present),
 		// output format and model tier (see buildSystemPrompt / TierLLM).
 		RoleTools: FindRole(req.Role).Tools,

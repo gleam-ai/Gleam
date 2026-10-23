@@ -4,12 +4,15 @@ import (
 	"errors"
 	"net/http"
 
+	"gleam/internal/agent"
 	"gleam/internal/harness/conversation"
 	"gleam/pkg/types"
 )
 
 func writeConvoErr(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, agent.ErrAgentBusy):
+		writeErr(w, 409, "%v", err)
 	case errors.Is(err, conversation.ErrInvalidID):
 		writeErr(w, 400, "%v", err)
 	case errors.Is(err, conversation.ErrNotFound):

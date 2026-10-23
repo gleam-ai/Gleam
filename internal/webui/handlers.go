@@ -42,7 +42,7 @@ func (s *Server) routes() http.Handler {
 		}
 		s.serveIndex(w, r)
 	})
-	mux.Handle("GET /assets/", noCache(http.StripPrefix("/assets/", fileServer)))
+	mux.Handle("GET /assets/", staticHeaders(http.StripPrefix("/assets/", fileServer)))
 
 	mux.HandleFunc("GET /api/info", s.handleInfo)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
@@ -190,9 +190,13 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-func noCache(next http.Handler) http.Handler {
+func staticHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		// Windows registry MIME mappings can report SVG as the invalid image/svg.
+		if strings.HasSuffix(r.URL.Path, ".svg") {
+			w.Header().Set("Content-Type", "image/svg+xml")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -294,39 +298,27 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 	taskID := types.NewID()
 	req.TaskID = taskID
 
-	// Serialize submissions so the single-flight check and memory reload cannot
-	// interleave with another submit.
-	s.submitMu.Lock()
-	s.mu.Lock()
-	for _, running := range s.tasks {
-		if running.Status == types.GoalRunning {
-			goal := types.Shorten(running.Goal, 40)
-			s.mu.Unlock()
-			s.submitMu.Unlock()
-			writeErr(w, 409, "还有目标在运行（%s），等它结束或先停止它再提交", goal)
-			return
-		}
-	}
-	s.mu.Unlock()
-	// A conversation's context must be loaded right before its task starts:
-	// creating another conversation resets rolling memory, and the old code
-	// relied on the tab having called /activate first.
-	if req.ConversationID != "" && s.Agent.Convos != nil {
-		if _, err := s.Agent.LoadConversationContext(req.ConversationID); err != nil {
-			s.submitMu.Unlock()
-			writeErr(w, 400, "对话上下文加载失败：%v", err)
-			return
-		}
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &taskInfo{ID: taskID, Goal: body.Goal, Mode: body.Mode, TaskMode: body.TaskMode, ConversationID: body.ConversationID, Status: types.GoalRunning, Started: time.Now(), Cancel: cancel}
+	// Agent owns admission across all entry points. Keep the UI record lock
+	// only until registration, so early progress cannot overtake this record.
 	s.mu.Lock()
+	done, err := s.Agent.StartGoal(ctx, req)
+	if err != nil {
+		s.mu.Unlock()
+		cancel()
+		status := http.StatusBadRequest
+		if errors.Is(err, agent.ErrAgentBusy) {
+			status = http.StatusConflict
+		}
+		writeErr(w, status, "%v", err)
+		return
+	}
 	s.tasks[taskID] = t
 	s.mu.Unlock()
-	s.submitMu.Unlock()
 
 	go func() {
-		result := s.Agent.RunGoal(ctx, req)
+		result := <-done
 		cancel()
 		if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
 			fmt.Fprintf(os.Stderr, "[gleam] 界面任务未存档：%v\n", err)
@@ -524,8 +516,9 @@ func (s *Server) handleToolsList(w http.ResponseWriter, _ *http.Request) {
 }
 
 type toolCallBody struct {
-	Name string         `json:"name"`
-	Args map[string]any `json:"args"`
+	Name      string         `json:"name"`
+	Args      map[string]any `json:"args"`
+	RequestID string         `json:"request_id,omitempty"`
 }
 
 func (s *Server) handleToolCall(w http.ResponseWriter, r *http.Request) {
@@ -534,7 +527,10 @@ func (s *Server) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "需要 name")
 		return
 	}
-	call, err := s.Agent.DirectToolCall(r.Context(), body.Name, body.Args, s.OnApproval)
+	call, err := s.Agent.DirectToolCall(r.Context(), body.Name, body.Args, func(req types.ApprovalRequest) types.ApprovalResponse {
+		req.RequestID = body.RequestID
+		return s.onApprovalContext(r.Context(), req)
+	})
 	if err != nil {
 		writeErr(w, 400, "%v", err)
 		return

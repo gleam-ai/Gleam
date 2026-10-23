@@ -125,6 +125,27 @@ func TestPlanner_ValidationFailures(t *testing.T) {
 	}
 }
 
+func TestPlanner_RejectsReferenceGraphs(t *testing.T) {
+	for _, tc := range []struct {
+		name, steps, want string
+	}{
+		{"exact self", `[{"id":"s1","tool":"reply","args":{"text":"$ref:s1.text"}}]`, "自身"},
+		{"interpolated self", `[{"tool":"reply","args":{"text":"before {ref:s1.text} after"}}]`, "自身"},
+		{"nested cycle", `[{"id":"s1","tool":"reply","args":{"nested":[{"text":"$ref:s2.text"}]}},{"id":"s2","tool":"reply","args":{"text":"{ref:s1.text}"}}]`, "循环"},
+		{"mixed cycle", `[{"id":"s1","tool":"reply","depends_on":["s2"]},{"id":"s2","tool":"reply","args":{"text":"$ref:s1.text"}}]`, "循环"},
+		{"unknown ref", `[{"id":"s1","tool":"reply","args":{"text":"{ref:missing.text}"}}]`, "不存在"},
+		{"duplicate default", `[{"tool":"reply"},{"id":"s1","tool":"reply"}]`, "重复"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Planner{Reg: newTestRegistry()}
+			_, err := p.validate([]byte(`{"steps":`+tc.steps+`}`), "reference graph")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("validation error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestPlanner_FencedOutput(t *testing.T) {
 	out := "好的，下面是计划：\n```json\n{\"steps\":[{\"id\":\"s1\",\"tool\":\"reply\",\"args\":{\"text\":\"hi\"}}]}\n```\n以上。"
 	p := &Planner{LLM: mockReturning(out), Reg: newTestRegistry()}

@@ -10,9 +10,9 @@ import (
 func TestUsage_CachedTokensAccumulated(t *testing.T) {
 	a := &Agent{Cfg: config.Default()}
 	a.initUsage("t1")
-	a.addUsage("t1", llm.Usage{PromptTokens: 1000, CompletionTokens: 50, CachedTokens: 800})
-	a.addUsage("t1", llm.Usage{PromptTokens: 500, CompletionTokens: 30, CachedTokens: 100})
-	a.addUsage("t1", llm.Usage{PromptTokens: 200, CompletionTokens: 10})
+	a.addUsage("t1", "plan", llm.Usage{PromptTokens: 1000, CompletionTokens: 50, CachedTokens: 800})
+	a.addUsage("t1", "plan", llm.Usage{PromptTokens: 500, CompletionTokens: 30, CachedTokens: 100})
+	a.addUsage("t1", "plan", llm.Usage{PromptTokens: 200, CompletionTokens: 10})
 
 	u := a.usageOf("t1")
 	if u.LLMCalls != 3 || u.PromptTokens != 1700 || u.CompletionTokens != 90 {
@@ -32,7 +32,7 @@ func TestUsage_CachedTokensAccumulated(t *testing.T) {
 func TestUsage_NoCacheDataIsNotZeroPercent(t *testing.T) {
 	a := &Agent{Cfg: config.Default()}
 	a.initUsage("t2")
-	a.addUsage("t2", llm.Usage{PromptTokens: 1000, CompletionTokens: 10, Estimated: true})
+	a.addUsage("t2", "plan", llm.Usage{PromptTokens: 1000, CompletionTokens: 10, Estimated: true})
 
 	u := a.usageOf("t2")
 	if u.CachedTokens != 0 || u.CachedCalls != 0 {
@@ -49,7 +49,7 @@ func TestUsage_NoCacheDataIsNotZeroPercent(t *testing.T) {
 func TestUsage_CacheHitRateClamped(t *testing.T) {
 	a := &Agent{Cfg: config.Default()}
 	a.initUsage("t3")
-	a.addUsage("t3", llm.Usage{PromptTokens: 100, CompletionTokens: 5, CachedTokens: 500})
+	a.addUsage("t3", "plan", llm.Usage{PromptTokens: 100, CompletionTokens: 5, CachedTokens: 500})
 	if rate := a.usageOf("t3").CacheHitRate(); rate != 1 {
 		t.Errorf("命中率应被夹到 1，实际 %v", rate)
 	}

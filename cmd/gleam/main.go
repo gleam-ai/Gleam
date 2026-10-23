@@ -300,13 +300,11 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	hardware.New().RegisterAll(reg)
 	reg.MustRegister(std.NewReply())
 
-	var sched *scheduler.Scheduler
-	if cfg.Scheduler.Enabled {
-		sched, err = scheduler.Open(filepath.Join(cfg.DataDir, "schedules.json"), nil)
-		if err != nil {
-			return nil, fmt.Errorf("打开调度器失败: %w", err)
-		}
+	sched, err := scheduler.Open(filepath.Join(cfg.DataDir, "schedules.json"), nil)
+	if err != nil {
+		return nil, fmt.Errorf("打开调度器失败: %w", err)
 	}
+	sched.SetPaused(!cfg.Scheduler.Enabled)
 
 	gate := safety.New(cfg.Safety.Mode, cfg.Safety.TrustedTools, cfg.Safety.TrustedPaths,
 		wsRoots, time.Duration(cfg.Safety.ApprovalTimeoutSecs)*time.Second)
@@ -338,7 +336,7 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	authMgr.OnEgress = func(host string, nbytes int) { gate.RecordEgress("cloud", host, nbytes) }
 	a.Auth = authMgr
 
-	reg.MustRegister(prompt.NewGenerate(func() llm.Client { return a.LLM }))
+	reg.MustRegister(prompt.NewGenerate(func(ctx context.Context) llm.Client { return a.TaskLLM(ctx) }))
 	reg.MustRegister(std.NewMemSave(&memAdapter{m: mem, scope: a.MemoryScope}))
 	reg.MustRegister(std.NewMemSearch(&memAdapter{m: mem, scope: a.MemoryScope}))
 	reg.MustRegister(std.NewMemDelete(&memAdapter{m: mem, scope: a.MemoryScope}))

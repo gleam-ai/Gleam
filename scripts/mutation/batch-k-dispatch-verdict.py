@@ -8,11 +8,11 @@
   `$ref:s1.output.path` 正是一个非绝对路径字符串。真值可能指向信任范围外。
 - 审计于是写下"操作路径均在信任路径内"——它在替一次没做过的检查作证。
 - 审核模型快筛看到的也是占位符：花钱筛一个假值，真值一次都没被筛过。
+- 审批卡片上如果是占位符，人批的是一个永远不会被执行的路径。
 
-**有一条这里测不了**：把审计留痕的理由从"重算后的那次"换回"占位符那次的"
-（`Reason: final.Reason` → `Reason: dec.Reason`）。两次裁决都自动放行时，
-门控给出的理由字面相同（都是"操作路径均在信任路径内"），没有断言能分辨。
-接线本身由下面第 1、2 条钉住：重算不发生、或重算了不问人，都会立刻响。
+现在的实现只有**一次**裁决，且发生在 `$ref:` 替换之后；旧实现"先按占位符裁决、
+再按真值重算"的中间态已经不存在。所以这里改的是：裁决仍看占位符、裁决结果不执行、
+人工批准后又补记自动放行、真值没进快筛、审批卡片退回占位符——五条都仍然静默。
 
 运行：python scripts/mutation/batch-k-dispatch-verdict.py
 """
@@ -33,8 +33,8 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                "\tif hasRefs(step.Args) {\n",
-                "\tif false && hasRefs(step.Args) {\n",
+                "\tdec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), true)\n",
+                "\tdec := e.adjudicate(ctx, tool, step.Args, preApproved && !hasRefs(step.Args), true)\n",
             )
         ],
         "targets": [AGENT],
@@ -44,8 +44,8 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                "\t\tif final.NeedApproval && !dec.NeedApproval {\n",
-                "\t\tif false && final.NeedApproval && !dec.NeedApproval {\n",
+                "\tif dec.NeedApproval {\n",
+                "\tif false && dec.NeedApproval {\n",
             )
         ],
         "targets": [AGENT],
@@ -55,19 +55,8 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                '\tif !dec.NeedApproval && !final.NeedApproval && final.Risk != "low" && e.Gate != nil {\n',
-                '\tif !final.NeedApproval && final.Risk != "low" && e.Gate != nil {\n',
-            )
-        ],
-        "targets": [AGENT],
-    },
-    {
-        "name": "placeholder_reviewed_too",
-        "file": "internal/agent/executor.go",
-        "edits": [
-            (
-                "\tdec := e.adjudicate(ctx, tool, step.Args, preApproved, !hasRefs(step.Args))\n",
-                "\tdec := e.adjudicate(ctx, tool, step.Args, preApproved, true)\n",
+                '\t} else if dec.Risk != "low" && e.Gate != nil {\n',
+                '\t}\n\tif dec.Risk != "low" && e.Gate != nil {\n',
             )
         ],
         "targets": [AGENT],
@@ -77,8 +66,19 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                "\tfinal = e.adjudicate(ctx, tool, args, preApproved, true)\n",
-                "\tfinal = e.adjudicate(ctx, tool, args, preApproved, false)\n",
+                "\tdec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), true)\n",
+                "\tdec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), !hasRefs(step.Args))\n",
+            )
+        ],
+        "targets": [AGENT],
+    },
+    {
+        "name": "approval_card_shows_placeholder",
+        "file": "internal/agent/executor.go",
+        "edits": [
+            (
+                "\t\tresolved := step\n\t\tresolved.Args = args\n",
+                "\t\tresolved := step\n",
             )
         ],
         "targets": [AGENT],

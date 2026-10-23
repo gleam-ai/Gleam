@@ -117,6 +117,15 @@ type AuditEntry struct {
 
 const auditCap = 200
 
+type modeKey struct{}
+
+func WithMode(ctx context.Context, mode string) context.Context {
+	if mode == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, modeKey{}, mode)
+}
+
 func (g *Gate) Evaluate(t types.Tool, args map[string]any) Decision {
 	return g.evaluate(context.Background(), t, args, false)
 }
@@ -140,6 +149,9 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 	trustedTool := g.TrustedTools[t.Name()] || g.sessionTrusted[t.Name()]
 	mode := g.Mode
 	g.mu.RUnlock()
+	if requested, ok := ctx.Value(modeKey{}).(string); ok {
+		mode = requested
+	}
 
 	risk := "medium"
 	if perm == types.PermissionFullAccess {
@@ -268,6 +280,14 @@ func (g *Gate) SetWorkspaceRoots(roots []string) {
 	}
 	g.WorkspaceRoots = append([]string(nil), roots...)
 	g.TrustedPaths = append(kept, roots...)
+}
+
+// RootSnapshot copies the current boundary so a task can pin it for its whole
+// lifetime; readers must not observe a later workspace switch.
+func (g *Gate) RootSnapshot() []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return append([]string(nil), g.WorkspaceRoots...)
 }
 
 func (g *Gate) ApprovalTimeoutDuration() time.Duration {

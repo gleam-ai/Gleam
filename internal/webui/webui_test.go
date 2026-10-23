@@ -150,6 +150,14 @@ func TestWebUI_InfoAndStatic(t *testing.T) {
 	} else {
 		resp2.Body.Close()
 	}
+	logo, err := http.Get(f.ts.URL + "/assets/gleam-logo.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logo.Body.Close()
+	if logo.StatusCode != http.StatusOK || logo.Header.Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("logo response: status=%d type=%q", logo.StatusCode, logo.Header.Get("Content-Type"))
+	}
 }
 
 func TestTaskInfoSnapshotIsIndependent(t *testing.T) {
@@ -245,6 +253,160 @@ func TestWebUI_GoalFullFlow(t *testing.T) {
 	}
 	if !foundPlan {
 		t.Error("缺少 progress 事件")
+	}
+}
+
+func TestWebUI_DirectToolApprovalCorrelationAndCancellation(t *testing.T) {
+	for _, requestID := range []string{"", "client-correlation-only"} {
+		t.Run("request_id="+requestID, func(t *testing.T) {
+			f := newFixture(t, nil)
+			victim := filepath.Join(f.ws, "keep.txt")
+			if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			events := f.srv.subscribe()
+			defer f.srv.unsubscribe(events)
+			body, _ := json.Marshal(map[string]any{
+				"name": "file.delete", "args": map[string]any{"path": "keep.txt"},
+				"request_id": requestID,
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, "POST", f.ts.URL+"/api/tools/call", bytes.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			done := make(chan error, 1)
+			go func() {
+				resp, err := http.DefaultClient.Do(req)
+				if resp != nil {
+					resp.Body.Close()
+				}
+				done <- err
+			}()
+			var ap map[string]any
+			select {
+			case event := <-events:
+				if event.Type != "approval" {
+					t.Fatalf("event = %s, want approval", event.Type)
+				}
+				if err := json.Unmarshal(event.Data, &ap); err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("direct call did not request approval")
+			}
+			if requestID == "" {
+				if _, present := ap["request_id"]; present {
+					t.Errorf("legacy approval should omit request_id: %v", ap)
+				}
+			} else {
+				if ap["request_id"] != requestID {
+					t.Errorf("SSE request_id = %v, want %s", ap["request_id"], requestID)
+				}
+				listed := f.call("GET", "/api/approvals", nil)["approvals"].([]any)
+				if len(listed) != 1 || listed[0].(map[string]any)["request_id"] != requestID {
+					t.Errorf("pending approvals lost correlation: %v", listed)
+				}
+				resp, err := http.Post(
+					f.ts.URL+"/api/approvals/"+requestID,
+					"application/json",
+					strings.NewReader(`{"approved":true}`),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var rejection map[string]any
+				_ = json.NewDecoder(resp.Body).Decode(&rejection)
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusNotFound || rejection["error"] == nil || f.srv.PendingApprovals() != 1 {
+					t.Fatalf("correlation ID authorized an approval: status=%d body=%v", resp.StatusCode, rejection)
+				}
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Error("cancelled request succeeded")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("cancelled HTTP request did not finish")
+			}
+			deadline := time.Now().Add(time.Second)
+			for f.srv.PendingApprovals() != 0 && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if f.srv.PendingApprovals() != 0 {
+				t.Error("cancelled direct call left a pending approval")
+			}
+			if f.srv.resolve(ap["id"].(string), types.ApprovalResponse{Approved: true}) {
+				t.Error("cancelled approval could still be authorized")
+			}
+			if _, err := os.Stat(victim); err != nil {
+				t.Fatalf("unapproved file was changed: %v", err)
+			}
+		})
+	}
+}
+
+func TestWebUI_ApprovalResolvedBroadcast(t *testing.T) {
+	f := newFixture(t, nil)
+	events := f.srv.subscribe()
+	defer f.srv.unsubscribe(events)
+	body, _ := json.Marshal(map[string]any{
+		"name": "file.delete", "args": map[string]any{"path": "keep.txt"},
+	})
+	req, err := http.NewRequest("POST", f.ts.URL+"/api/tools/call", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	done := make(chan struct{})
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+		close(done)
+	}()
+	var ap map[string]any
+	for ap == nil {
+		select {
+		case event := <-events:
+			if event.Type != "approval" {
+				continue
+			}
+			if err := json.Unmarshal(event.Data, &ap); err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("direct call did not request approval")
+		}
+	}
+	f.call("POST", fmt.Sprintf("/api/approvals/%s", ap["id"]), map[string]any{"approved": false})
+	for {
+		select {
+		case event := <-events:
+			if event.Type != "approval_resolved" {
+				continue
+			}
+			var got map[string]any
+			if err := json.Unmarshal(event.Data, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["id"] != ap["id"] {
+				t.Fatalf("approval_resolved id = %v, want %v", got["id"], ap["id"])
+			}
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("denied direct call did not finish")
+			}
+			return
+		case <-time.After(2 * time.Second):
+			t.Fatal("missing approval_resolved broadcast")
+		}
 	}
 }
 

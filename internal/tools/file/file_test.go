@@ -3,7 +3,9 @@ package file
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -82,10 +84,47 @@ func TestFileTools_RejectsSymlinkEscape(t *testing.T) {
 	outside := t.TempDir()
 	link := filepath.Join(ws, "link")
 	if err := os.Symlink(outside, link); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
+		if runtime.GOOS != "windows" {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		output, junctionErr := exec.Command("cmd.exe", "/c", "mklink", "/J", link, outside).CombinedOutput()
+		if junctionErr != nil {
+			t.Skipf("junction unavailable: %v: %s", junctionErr, output)
+		}
 	}
 	if _, err := (&readTool{tools}).Execute(context.Background(), map[string]any{"path": filepath.Join("link", "secret.txt")}); err == nil {
 		t.Fatal("symlink escape should be rejected")
+	}
+	for _, path := range []string{"link/payload.txt", "link/not-created/nested/payload.txt"} {
+		t.Run(path, func(t *testing.T) {
+			if _, err := (&writeTool{tools}).Execute(context.Background(), map[string]any{"path": path, "content": "escaped"}); err == nil {
+				t.Error("write through an external symlink should be rejected")
+			}
+			if _, err := os.Stat(filepath.Join(ws, filepath.FromSlash(path))); !os.IsNotExist(err) {
+				t.Errorf("rejected write created an external file: %v", err)
+			}
+		})
+	}
+	t.Run("linked missing root", func(t *testing.T) {
+		root := filepath.Join(link, "new-root", "nested")
+		path := filepath.Join(outside, "new-root", "nested", "payload.txt")
+		if _, err := (&writeTool{New(root)}).Execute(context.Background(), map[string]any{"path": path, "content": "allowed"}); err != nil {
+			t.Fatalf("root and target must use the same physical boundary: %v", err)
+		}
+		if b, err := os.ReadFile(path); err != nil || string(b) != "allowed" {
+			t.Fatalf("write through an explicitly allowed linked root = %q, %v", b, err)
+		}
+	})
+}
+
+func TestFileTools_WriteMissingParents(t *testing.T) {
+	tools, ws := newTools(t)
+	path := filepath.Join("new", "nested", "parent", "payload.txt")
+	if _, err := (&writeTool{tools}).Execute(context.Background(), map[string]any{"path": path, "content": "inside"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(ws, path)); err != nil || string(b) != "inside" {
+		t.Fatalf("deep workspace write = %q, %v", b, err)
 	}
 }
 
@@ -177,5 +216,26 @@ func TestFileTools_PathAware(t *testing.T) {
 	}
 	if !strings.HasPrefix(filepath.ToSlash(paths[0]), filepath.ToSlash(ws)) {
 		t.Errorf("路径应解析到工作区内: %v", paths[0])
+	}
+}
+
+func TestFileTools_WriteMissingContentDoesNotTruncate(t *testing.T) {
+	tools, ws := newTools(t)
+	path := filepath.Join(ws, "keep.txt")
+	if err := os.WriteFile(path, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wt := &writeTool{tools}
+	if _, err := wt.Execute(context.Background(), map[string]any{"path": path}); err == nil {
+		t.Fatal("缺少 content 应报错")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "keep" {
+		t.Fatalf("缺参调用截断了文件: %q", b)
+	}
+	if _, err := wt.Execute(context.Background(), map[string]any{"path": path, "content": ""}); err != nil {
+		t.Fatalf("显式空字符串应允许: %v", err)
+	}
+	if b, _ := os.ReadFile(path); len(b) != 0 {
+		t.Fatalf("显式空字符串应清空文件，实际 %q", b)
 	}
 }

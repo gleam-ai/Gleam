@@ -77,3 +77,28 @@ func TestCron_Next(t *testing.T) {
 		t.Errorf("dom/dow 并集语义: %v", got)
 	}
 }
+
+func TestCron_NextFindsLeapDayBeyondOneYear(t *testing.T) {
+	c, err := ParseCron("0 0 29 2 *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := time.Date(2026, 10, 23, 12, 0, 0, 0, loc())
+	want := time.Date(2028, 2, 29, 0, 0, 0, 0, loc())
+	if got := c.Next(from); !got.Equal(want) {
+		t.Fatalf("next = %v, want %v", got, want)
+	}
+}
+
+func TestCron_NextSpansSkippedCenturyLeap(t *testing.T) {
+	c, err := ParseCron("0 0 29 2 *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2100 is not a leap year, so the gap after 2096 is eight years.
+	from := time.Date(2097, 3, 1, 0, 0, 0, 0, loc())
+	want := time.Date(2104, 2, 29, 0, 0, 0, 0, loc())
+	if got := c.Next(from); !got.Equal(want) {
+		t.Fatalf("next = %v, want %v", got, want)
+	}
+}

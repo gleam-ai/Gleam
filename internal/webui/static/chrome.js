@@ -834,10 +834,11 @@ const Terminal = (() => {
     log.scrollTop = log.scrollHeight;
     return d;
   }
-  async function exec(command, dir) {
+  async function exec(command, dir, requestID) {
     const res = await api('POST', '/api/tools/call', {
       name: 'shell.exec',
       args: { command, cwd: dir },
+      request_id: requestID,
     });
     return (res && res.output) || {};
   }
@@ -851,7 +852,7 @@ const Terminal = (() => {
       return;
     }
     line('term-cmd', '$ ' + cmd);
-    busy = { cmd };
+    busy = { requestID: crypto.randomUUID() };
     input.disabled = true;
     const pending = line('term-pending', '运行中…');
     try {
@@ -865,6 +866,7 @@ const Terminal = (() => {
         const out = await exec(
           isWin ? `cd /d ${q} && cd` : `cd ${q} && pwd`,
           cwd,
+          busy.requestID,
         );
         pending.remove();
         if (out.exit_code === 0 && out.stdout)
@@ -872,7 +874,7 @@ const Terminal = (() => {
         else
           line('term-err', (out.stderr || out.error || '目录切换失败').trim());
       } else {
-        const out = await exec(cmd, cwd);
+        const out = await exec(cmd, cwd, busy.requestID);
         pending.remove();
         if (out.stdout) line('term-out', String(out.stdout).replace(/\n$/, ''));
         if (out.stderr) line('term-err', String(out.stderr).replace(/\n$/, ''));
@@ -893,11 +895,15 @@ const Terminal = (() => {
   }
   // 终端发起的 shell.exec 需要批准时，审批就地出现在终端里
   function claimApproval(ap) {
-    if (!busy || panel.hidden) return false;
-    const plan = (ap.plan || []).join(' ');
-    if (!/shell\.exec/.test(plan)) return false;
+    if (!busy || panel.hidden || ap.request_id !== busy.requestID) return false;
+    if (busy.approvalBox?.dataset.approvalId === ap.id) return true;
+    if (busy.approvalBox) busy.approvalBox.remove();
     const box = el('div', 'term-row term-approval');
+    box.dataset.approvalId = ap.id;
     box.innerHTML = `<span>这条命令需要你的批准${ap.reason ? '：' + esc(ap.reason) : ''}</span>`;
+    box.appendChild(
+      el('pre', 'term-approval-plan', (ap.plan || []).join('\n')),
+    );
     const yes = el('button', 'btn btn-primary btn-sm', '批准执行');
     const no = el('button', 'btn btn-secondary btn-sm', '拒绝');
     yes.type = 'button';

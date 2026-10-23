@@ -1,21 +1,25 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 
 	"gleam/internal/harness/conversation"
 	"gleam/pkg/types"
 )
 
-func (a *Agent) appendConvo(convoID string, msg conversation.Message) error {
+func (a *Agent) appendConvo(convoID string, msg conversation.Message) (int, error) {
 	if a.Convos == nil || strings.TrimSpace(convoID) == "" {
-		return nil
+		return 0, nil
 	}
 	if strings.TrimSpace(msg.Content) == "" {
-		return nil
+		return 0, nil
 	}
-	_, err := a.Convos.Append(convoID, msg)
-	return err
+	c, err := a.Convos.Append(convoID, msg)
+	if err != nil {
+		return 0, err
+	}
+	return len(c.Messages), nil
 }
 
 func convoReply(r *types.GoalResult) string {
@@ -35,24 +39,35 @@ func convoReply(r *types.GoalResult) string {
 }
 
 func (a *Agent) LoadConversationContext(convoID string) (*conversation.Conversation, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.idleLocked(); err != nil {
+		return nil, err
+	}
+	return a.loadConversationContextLocked(convoID)
+}
+
+func (a *Agent) loadConversationContextLocked(convoID string) (*conversation.Conversation, error) {
+	if a.Convos == nil {
+		return nil, errors.New("会话存储未启用")
+	}
 	c, err := a.Convos.Get(convoID)
 	if err != nil {
 		return nil, err
 	}
-	// Opening another conversation while a goal is running must not rewrite the
-	// running goal's rolling memory. The next activation after the task ends
-	// reloads the selected conversation normally.
-	if a.RunningTasks() > 0 {
-		return c, nil
-	}
 	if a.Mem != nil {
-		a.Mem.ResetConversation()
-		for _, m := range c.Messages {
+		a.Mem.SwitchConversation(c.ID)
+		start := a.Mem.Cursor()
+		if start < 0 || start > len(c.Messages) {
+			start = 0
+		}
+		for _, m := range c.Messages[start:] {
 			if strings.TrimSpace(m.Content) == "" {
 				continue
 			}
 			a.Mem.AddTurn(m.Role, m.Content)
 		}
+		a.Mem.AdvanceCursor(len(c.Messages))
 	}
 	if a.Spaces != nil {
 		sid := c.SpaceID
@@ -68,6 +83,8 @@ func (a *Agent) LoadConversationContext(convoID string) (*conversation.Conversat
 }
 
 func (a *Agent) NewConversation(spaceIDs ...string) (*conversation.Conversation, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	spaceID := ""
 	if len(spaceIDs) > 0 {
 		spaceID = strings.TrimSpace(spaceIDs[0])
@@ -79,8 +96,8 @@ func (a *Agent) NewConversation(spaceIDs ...string) (*conversation.Conversation,
 	if err != nil {
 		return nil, err
 	}
-	if a.Mem != nil && a.RunningTasks() == 0 {
-		a.Mem.ResetConversation()
+	if a.Mem != nil && a.idleLocked() == nil {
+		a.Mem.SwitchConversation(c.ID)
 	}
 	return c, nil
 }

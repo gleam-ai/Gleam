@@ -90,6 +90,9 @@ function skillCard(sk) {
 function openSkillRunDialog(sk) {
   Modal.open(`运行技能「${esc(sk.name)}」`, (box) => {
     const form = el('form');
+    // Keep direct references: form.elements[p] resolves collection properties
+    // such as `length` before named controls, dropping that parameter.
+    const fields = [];
     (sk.params || []).forEach((p) => {
       const f = el('div', 'field');
       f.innerHTML = `<label class="field-label" for="p-${esc(p)}">${esc(p)}</label>`;
@@ -98,6 +101,7 @@ function openSkillRunDialog(sk) {
       input.name = p;
       f.appendChild(input);
       form.appendChild(f);
+      fields.push([p, input]);
     });
     if (!(sk.params || []).length)
       form.appendChild(el('p', 'field-hint', '该技能无需参数。'));
@@ -115,8 +119,8 @@ function openSkillRunDialog(sk) {
       run.disabled = true;
       run.innerHTML = ICONS.spinner + ' 执行中';
       const params = {};
-      (sk.params || []).forEach((p) => {
-        params[p] = form.elements[p].value;
+      fields.forEach(([name, input]) => {
+        params[name] = input.value;
       });
       try {
         const out = await api(

@@ -23,37 +23,33 @@ var slugStrip = regexp.MustCompile(`[^a-zA-Z0-9_\-\p{Han}]+`)
 // RunGoal runs one goal synchronously; callers may wrap it in a goroutine.
 // A non-empty req.TaskID is reused.
 func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalResult {
-	taskID := req.TaskID
-	if taskID == "" {
-		taskID = types.NewID()
+	if req.TaskID == "" {
+		req.TaskID = types.NewID()
 	}
-	req.TaskID = taskID
-	goal := strings.TrimSpace(req.Goal)
-	mode := normalizeMode(req.Mode)
+	p, err := a.prepareGoal(ctx, req)
+	if err != nil {
+		status := types.GoalFailed
+		if ctx.Err() != nil {
+			status = types.GoalCancelled
+		}
+		return &types.GoalResult{TaskID: req.TaskID, ConversationID: req.ConversationID,
+			Goal: req.Goal, Mode: normalizeMode(req.Mode), TaskMode: normalizeTaskMode(req.TaskMode),
+			Status: status, Error: err.Error(), FinishedAt: time.Now()}
+	}
+	return a.runPreparedGoal(p)
+}
 
-	// Retry detection (P3-4 / site H15): a similar goal resubmitted in the same
-	// conversation within a short window means the user is retrying.
-	// Must run before this user message is appended to the conversation,
-	// otherwise it detects the message it just wrote.
+func (a *Agent) runPreparedGoal(p *preparedGoal) *types.GoalResult {
+	ctx, req, handle := p.ctx, p.req, p.handle
+	defer handle.cancel()
+	taskID, goal, mode := handle.id, handle.goal, handle.mode
+
+	// Detect retries before appending this submission to its own conversation.
 	retried := req.ConversationID != "" && a.Convos != nil && a.Convos.DetectRetry(req.ConversationID, goal)
-
-	handle := &taskHandle{id: taskID, goal: goal, mode: mode, status: types.GoalRunning, started: time.Now()}
-	a.mu.Lock()
-	// A duplicated submission (same reused TaskID) must not append the user
-	// message twice; check before recording, not after.
-	if old, ok := a.tasks[taskID]; ok && old.status == types.GoalRunning {
-		a.mu.Unlock()
-		return a.resultOf(old) // same ID already running: reuse its result
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	handle.cancel = cancel
-	a.tasks[taskID] = handle
-	a.mu.Unlock()
 
 	// Record in the persisted conversation (left sidebar list); the raw user
 	// goal, without the system-injected reference prefix.
-	convoErr := a.appendConvo(req.ConversationID, conversation.Message{
+	_, convoErr := a.appendConvo(req.ConversationID, conversation.Message{
 		Role: "user", Content: goal, TaskID: taskID,
 		Mode: string(normalizeTaskMode(req.TaskMode)), CreatedAt: time.Now(),
 	})
@@ -101,11 +97,20 @@ func (a *Agent) RunGoal(ctx context.Context, req types.GoalRequest) *types.GoalR
 
 	// Record the assistant reply in the same conversation; failures and
 	// cancellations leave a trace too, so history never misses a turn.
-	if err := a.appendConvo(req.ConversationID, conversation.Message{
+	archived := 0
+	if n, err := a.appendConvo(req.ConversationID, conversation.Message{
 		Role: "assistant", Content: convoReply(result), TaskID: taskID,
 		Mode: string(normalizeTaskMode(req.TaskMode)), Status: string(result.Status), CreatedAt: time.Now(),
 	}); err != nil {
 		convoErr = errors.Join(convoErr, err)
+	} else {
+		archived = n
+	}
+	// The archive and the rolling memory must agree on what has been ingested;
+	// otherwise reopening the conversation replays old turns or skips new ones.
+	if archived > 0 && a.Mem != nil {
+		a.Mem.AdvanceCursor(archived)
+		a.Mem.SaveContext()
 	}
 	// Losing the record must not be silent: the answer is still delivered, but
 	// "the history is missing this turn" belongs on the result card, otherwise
@@ -194,6 +199,14 @@ func (p *goalProgress) stamp(res *types.GoalResult) {
 // prog is passed in by the caller and read back, recording "which attempt
 // succeeded, how many reworks" (see goalProgress).
 func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mode string, taskMode types.TaskMode, taskID string, prog *goalProgress) *types.GoalResult {
+	// Memory belongs to the startup workspace, not a later UI selection or
+	// the isolated worktree used for executing this task.
+	memoryScope := a.memoryScopeFor(a.workspaceOf(req))
+	ctx = withMemoryScope(ctx, memoryScope)
+	// Model clients are pinned for the goal's lifetime: a settings save in the
+	// middle of a run must not switch provider between planning and reflection.
+	models := a.snapshotTaskModels(req.Role)
+	ctx = withTaskModels(ctx, models)
 	// Structured references are injected by the Web UI; converted into an
 	// explicit context section before the planning prompt, while the original
 	// goal text is preserved so references do not stay at the UI chip layer.
@@ -234,14 +247,18 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	}
 
 	cwd := a.workspaceOf(req)
+	// The task's file boundary is fixed here: a later workspace hot-switch must
+	// not move the roots under a running plan.
+	roots := []string{cwd}
 	// Isolation: run this task in its own worktree
 	// Timed before planning: the cwd the planner sees and the file boundary at
 	// execution are two sides of one thing; changing only one side yields
 	// "planned against the main workspace, files written into the worktree".
 	if iso := a.isolateForTask(ctx, req, taskID, notify); len(iso.roots) > 0 {
-		ctx = toolutil.WithRoots(ctx, iso.roots)
+		roots = iso.roots
 		cwd = iso.cwd
 	}
+	ctx = toolutil.WithRoots(ctx, roots)
 
 	// Model tier for scenario templates: switch models when the role declares
 	// a tier and config has a matching model, otherwise the main model.
@@ -254,9 +271,9 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	// "independent verification" only meant "independent call + independent
 	// context" while the doer and the scorer were still the same model -- same
 	// blind spots, with nothing to offset self-assessment bias.
-	planner := a.BuildPlanner(req)
+	planner := a.buildPlanner(req, models.tier, models.helper)
 	reflector := &Reflector{
-		LLM:           a.VerifyLLM(req.Role),
+		LLM:           models.verify,
 		DoneThreshold: a.Cfg.Agent.DoneThreshold,
 		TaskID:        taskID,
 	}
@@ -282,7 +299,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// Budget circuit-breaker checkpoint
 		if stop := a.budgetCheckpoint(ctx, taskID, goal, nil); stop != nil {
 			notify("budget", stop.Error, 88, "error")
-			a.finalize(taskID, stop, nil, req.Role)
+			a.finalize(ctx, taskID, stop, nil, req.Role)
 			return stop
 		}
 		// Plan
@@ -303,7 +320,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		}
 		var relevant []memory.Hit
 		if a.Mem != nil && a.Mem.Long != nil {
-			relevant = a.Mem.Relevant(goal, 3)
+			relevant = a.Mem.RelevantScoped(goal, 3, memoryScope)
 		}
 		var summary string
 		if a.Mem != nil {
@@ -379,7 +396,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 					cause = resp.Note
 				}
 				res := &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Error: cause, Score: 0}
-				a.finalize(taskID, res, nil, req.Role)
+				a.finalize(ctx, taskID, res, nil, req.Role)
 				return res
 			}
 			preApproved = true
@@ -418,21 +435,21 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 					Error: "深度扫描未通过：" + reason,
 				}
 				markCancelled(res)
-				a.finalize(taskID, res, &plan, req.Role)
+				a.finalize(ctx, taskID, res, &plan, req.Role)
 				return res
 			}
 		}
 		exec := executor.Execute(ctx, plan, taskID, mode, preApproved)
 		if ctx.Err() != nil && exec.Succeeded == 0 {
 			res := &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Score: 0, Error: "任务已取消", Steps: exec.Steps, ExecutedPlan: &exec.ExecutedPlan}
-			a.finalize(taskID, res, nil, req.Role)
+			a.finalize(ctx, taskID, res, nil, req.Role)
 			return res
 		}
 
 		// Budget circuit-breaker checkpoint (after execute, before reflect)
 		if stop := a.budgetCheckpoint(ctx, taskID, goal, exec.Steps); stop != nil {
 			notify("budget", stop.Error, 92, "error")
-			a.finalize(taskID, stop, &plan, req.Role)
+			a.finalize(ctx, taskID, stop, &plan, req.Role)
 			return stop
 		}
 
@@ -469,7 +486,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 				result.Suggestion = reflection.Suggestion
 			}
 			markCancelled(result)
-			a.finalize(taskID, result, &plan, req.Role)
+			a.finalize(ctx, taskID, result, &plan, req.Role)
 			return result
 		}
 		// ---------- Anti-spin: the same action repeating means running in
@@ -486,7 +503,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			result.Error = stuckMsg + "。继续重规划大概率还是同样结果。"
 			result.Suggestion = "建议把目标说得更具体（例如指定要处理的文件或期望的输出格式），或补充缺少的信息后重试；也可以切换到「对话」模式先对齐需求。"
 			markCancelled(result)
-			a.finalize(taskID, result, &plan, req.Role)
+			a.finalize(ctx, taskID, result, &plan, req.Role)
 			return result
 		}
 		if reflection.Verdict == "failed" || attempt == attempts {
@@ -500,7 +517,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 				result.Suggestion = reflection.Suggestion
 			}
 			markCancelled(result)
-			a.finalize(taskID, result, &plan, req.Role)
+			a.finalize(ctx, taskID, result, &plan, req.Role)
 			return result
 		}
 
@@ -596,7 +613,7 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	onDelta, flush := DeltaThrottle(40, func(text string) {
 		notify("chat", strings.TrimSpace(text), 55, "llm")
 	})
-	text, err := a.TierLLM(role).ChatStream(ctx, llm.ChatRequest{
+	text, err := a.taskTierLLM(ctx, role).ChatStream(ctx, llm.ChatRequest{
 		System:      "你是 " + name + " 的对话管线。" + llm.MarkerChat + "\n\n" + sys,
 		Messages:    msgs,
 		Temperature: 0.6,
@@ -605,20 +622,24 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	flush()
 	if err != nil {
 		if ctx.Err() != nil {
-			return &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Error: "任务已取消"}
+			// Keep whatever streamed before the stop: discarding it leaves the
+			// archive with a cancellation notice while the user already read
+			// most of an answer.
+			res := &types.GoalResult{Goal: goal, Status: types.GoalCancelled, Error: "任务已取消", Summary: strings.TrimSpace(text)}
+			a.finalize(ctx, taskID, res, nil, role)
+			return res
 		}
 		notify("chat", "模型调用失败: "+err.Error(), 100, "error")
 		res := &types.GoalResult{Goal: goal, Status: types.GoalFailed, Score: 0, Error: err.Error()}
-		a.finalize(taskID, res, nil, role)
+		a.finalize(ctx, taskID, res, nil, role)
 		return res
-	}
-	if a.Mem != nil {
-		a.Mem.AddTurn("assistant", text)
 	}
 	// The answer is produced; hand it to the auxiliary model for one
 	// independent verification -- chat mode has no planning stage, so this is
 	// the only place that can stop "the doer grading itself full marks". A
 	// failed verification never blocks the chat.
+	// Memory is written once, by finalize: writing the assistant turn here too
+	// put every chat answer into short-term memory twice.
 	if a.shouldChatCheck(goal, text) {
 		notify("chat", "核对回答是否达成目标…", 95, "info")
 	}
@@ -643,14 +664,14 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 		notify("chat", "对话自检未能完成，本次回答未经核对", 100, "warn")
 	}
 	notify("chat", "已回复", 100, "info")
-	a.finalize(taskID, res, nil, role)
+	a.finalize(ctx, taskID, res, nil, role)
 	return res
 }
 
 // finalize wraps up: write memory, emit proactive suggestions and
 // skill-crystallization proposals; then compress context asynchronously
 // (without blocking the completion event; a no-op when there is no overflow).
-func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Plan, role string) {
+func (a *Agent) finalize(ctx context.Context, taskID string, result *types.GoalResult, plan *types.Plan, role string) {
 	// Correct the status by the acceptance verdict first, then archive and
 	// propose -- otherwise "partially done" is recorded as success in growth stats.
 	var acceptance []string
@@ -679,8 +700,12 @@ func (a *Agent) finalize(taskID string, result *types.GoalResult, plan *types.Pl
 	// Persist the task record into long-term memory (best effort).
 	goal := result.Goal
 	if goal != "" && a.Mem != nil && a.Mem.Long != nil {
+		scope := a.MemoryScope()
+		if frozen, ok := memoryScopeFrom(ctx); ok {
+			scope = frozen
+		}
 		_, err := a.Mem.RememberScoped(fmt.Sprintf("任务记录[%s] 目标：%s 结果：%s（完成度 %d）",
-			result.Status, goal, types.Shorten(result.Summary, 200), result.Score), "task", a.MemoryScope(), []string{"task"})
+			result.Status, goal, types.Shorten(result.Summary, 200), result.Score), "task", scope, []string{"task"})
 		if err == nil {
 			_ = a.Mem.Long.Flush()
 		}
@@ -743,7 +768,7 @@ func (a *Agent) analyzeGEOAsync(taskID, goal, content string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	go func() {
 		defer cancel()
-		suggestion, err := (&geo.Analyzer{LLM: a.HelperLLM(), TaskID: taskID}).Analyze(ctx, content)
+		suggestion, err := (&geo.Analyzer{LLM: a.taskHelperLLM(ctx), TaskID: taskID}).Analyze(ctx, content)
 		if err != nil || suggestion == nil {
 			return
 		}

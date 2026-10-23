@@ -183,7 +183,14 @@ func (t *writeTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	content := toolutil.Str(args, "content")
+	raw, ok := args["content"]
+	if !ok {
+		return nil, fmt.Errorf("缺少必填参数 \"content\"（要清空文件请显式传空字符串）")
+	}
+	content, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("参数 \"content\" 应为字符串")
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return nil, err
 	}

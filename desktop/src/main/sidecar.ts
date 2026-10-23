@@ -88,6 +88,9 @@ export class Sidecar extends EventEmitter {
   }
 
   start(timeoutMs = 15_000): Promise<SidecarReady> {
+    // A restart begins a new lifecycle; an earlier intentional-stop flag must
+    // not keep swallowing unexpected-exit reports for this child.
+    this.stopping = false;
     const repaired = repairOversizedSidecar(this.spec.bin);
     if (repaired)
       console.log(`[sidecar] repaired oversized binary: ${repaired}`);
@@ -127,7 +130,12 @@ export class Sidecar extends EventEmitter {
       detached: process.platform !== 'win32',
     });
     this.child = child;
-    this.exited = new Promise((resolve) => child.once('exit', () => resolve()));
+    this.exited = new Promise((resolve) =>
+      child.once('exit', () => {
+        if (this.child === child) this.ready = null;
+        resolve();
+      }),
+    );
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d: string) => {
@@ -196,7 +204,9 @@ export class Sidecar extends EventEmitter {
     await res.arrayBuffer();
   }
 
-  async stop(graceMs = 5_000): Promise<'graceful' | 'killed' | 'not-running'> {
+  async stop(
+    graceMs = 5_000,
+  ): Promise<'graceful' | 'killed' | 'not-running' | 'stuck'> {
     const child = this.child;
     if (!child || !this.running) return 'not-running';
     this.stopping = true;
@@ -211,6 +221,12 @@ export class Sidecar extends EventEmitter {
     if (!timedOut) return 'graceful';
     this.forceKill();
     await Promise.race([this.exited, new Promise((r) => setTimeout(r, 2_000))]);
+    if (this.running) {
+      // Force-kill did not land. Reporting "killed" here let the installer
+      // overwrite a binary that is still open; say so instead.
+      this.stopping = false;
+      return 'stuck';
+    }
     return 'killed';
   }
 

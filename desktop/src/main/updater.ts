@@ -37,8 +37,12 @@ function fromAppFrame(e: IpcMainInvokeEvent): boolean {
 
 export interface UpdaterHost {
   allowClose: () => void;
-  // Stops the sidecar before the installer overwrites files on disk.
-  quitForUpdate: () => Promise<void>;
+  // Stops the sidecar before the installer overwrites files on disk. Resolves
+  // false when the backend is still running, in which case installing would
+  // overwrite an open binary.
+  quitForUpdate: () => Promise<boolean>;
+  // Starts the backend again when the installer could not be launched.
+  resumeAfterFailedUpdate: () => Promise<void>;
   // The local engine, which proxies the release feed around github.com.
   upstream: () => { addr: string; token: string } | null;
 }
@@ -50,9 +54,12 @@ export function installUpdater(host: UpdaterHost): void {
 
   const push = (status: UpdateStatus) => {
     if (status.kind === 'downloaded') staged = status.version;
-    else if (status.kind === 'available' && staged && status.version !== staged)
+    else if (staged && status.kind === 'available') {
+      // Re-checking the same release must not demote a staged installer back
+      // to "available": the file is on disk and restart would be refused.
+      if (status.version === staged) return;
       staged = null;
-    else if (
+    } else if (
       staged &&
       (status.kind === 'checking' ||
         status.kind === 'not-available' ||
@@ -112,19 +119,32 @@ export function installUpdater(host: UpdaterHost): void {
 
     // Stop the sidecar before launching: the installer overwrites
     // resources/bin/gleam.exe, and an open handle leaves a corrupted file.
-    await host.quitForUpdate();
+    if (!(await host.quitForUpdate())) {
+      log('sidecar did not stop; refusing to start the installer');
+      return { ok: false, error: 'backend still running' };
+    }
     if (process.platform === 'win32') {
       // Keep our own spawn instead of quitAndInstall() (its elevate.exe path
       // corrupted the sidecar on NSIS builds), but pass --updated so NSIS
       // treats this as an in-place update rather than a fresh install.
-      const child = spawn(installerPath, ['--updated'], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: false,
-      });
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(installerPath, ['--updated'], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: false,
+        });
+      } catch (err) {
+        log(`installer spawn failed: ${String(err)}`);
+        await host.resumeAfterFailedUpdate();
+        return { ok: false, error: 'failed to start installer' };
+      }
       child.on('error', (err) => log(`installer spawn failed: ${String(err)}`));
       if (!child.pid) {
         log('failed to start installer');
+        // The sidecar is already down; leaving it down turns a failed update
+        // into a dead app with a working window.
+        await host.resumeAfterFailedUpdate();
         return { ok: false, error: 'failed to start installer' };
       }
       child.unref();

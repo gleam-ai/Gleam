@@ -315,6 +315,8 @@ type Manager struct {
 	carry        int
 	compressing  bool
 	gen          int
+	convoID      string
+	cursor       int
 }
 
 func (m *Manager) CarryTurns() int {
@@ -408,6 +410,8 @@ type contextSnapshot struct {
 	Pinned       []string `json:"pinned,omitempty"`
 	OmittedTurns int      `json:"omitted_turns,omitempty"`
 	OmittedRunes int      `json:"omitted_runes,omitempty"`
+	Carry        int      `json:"carry,omitempty"`
+	Cursor       int      `json:"messages,omitempty"`
 }
 
 func Open(dataDir string, shortCap, dim, maxItems int) (*Manager, error) {
@@ -426,6 +430,8 @@ func Open(dataDir string, shortCap, dim, maxItems int) (*Manager, error) {
 			m.pinned = snap.Pinned
 			m.omittedTurns = snap.OmittedTurns
 			m.omittedRunes = snap.OmittedRunes
+			m.carry = snap.Carry
+			m.cursor = snap.Cursor
 		}
 	}
 	return m, nil
@@ -566,12 +572,12 @@ func (m *Manager) ClearSummary() {
 	m.summary = ""
 	m.savedTok = 0
 	m.pinned = nil
-	if m.dir != "" {
-		_ = os.Remove(filepath.Join(m.dir, contextFile))
-	}
+	m.removeContextLocked()
 	m.mu.Unlock()
 }
 
+// ResetConversation clears the rolling context of the bound conversation while
+// keeping the binding: the next load rebuilds it from the archive.
 func (m *Manager) ResetConversation() {
 	if m.Short != nil {
 		m.Short.Reset()
@@ -579,24 +585,143 @@ func (m *Manager) ResetConversation() {
 	m.ClearSummary()
 	m.mu.Lock()
 	m.carry = CarryFull
+	m.cursor = 0
 	m.mu.Unlock()
+}
+
+// DetachConversation drops the binding without touching saved state, so an
+// anonymous CLI or scheduled goal cannot read or clear the selected Web tab.
+func (m *Manager) DetachConversation() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gen++
+	if m.Short != nil {
+		m.Short.Reset()
+	}
+	m.resetContextLocked()
+	m.convoID = ""
+}
+
+// SwitchConversation binds the rolling context to one conversation. Re-opening
+// the bound conversation is a no-op: it must not reset the summary or the
+// carry setting tightened by earlier turns. Switching saves the old binding and
+// restores the new one (or starts it empty when nothing was saved yet).
+func (m *Manager) SwitchConversation(convoID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.convoID == convoID {
+		return
+	}
+	m.saveContextLocked()
+	m.convoID = convoID
+	m.gen++
+	if st, ok := m.loadContextLocked(convoID); ok {
+		m.overflow = st.Overflow
+		m.summary = st.Summary
+		m.savedTok = st.SavedToken
+		m.pinned = st.Pinned
+		m.omittedTurns = st.OmittedTurns
+		m.omittedRunes = st.OmittedRunes
+		m.carry = st.Carry
+		m.cursor = st.Cursor
+	} else {
+		m.resetContextLocked()
+	}
+	if m.Short != nil {
+		m.Short.Reset()
+	}
+}
+
+// Cursor is how many archived messages are already loaded into rolling
+// context, so switching back only replays what arrived since.
+func (m *Manager) Cursor() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cursor
+}
+
+func (m *Manager) AdvanceCursor(n int) {
+	m.mu.Lock()
+	m.cursor = n
+	m.mu.Unlock()
+}
+
+// SaveContext persists the bound conversation's rolling context.
+func (m *Manager) SaveContext() {
+	m.mu.Lock()
+	m.saveContextLocked()
+	m.mu.Unlock()
+}
+
+func (m *Manager) resetContextLocked() {
+	m.overflow = nil
+	m.summary = ""
+	m.savedTok = 0
+	m.pinned = nil
+	m.omittedTurns = 0
+	m.omittedRunes = 0
+	m.carry = CarryFull
+	m.cursor = 0
+}
+
+func (m *Manager) contextPathLocked() string {
+	return m.contextPath(m.convoID)
+}
+
+func (m *Manager) contextPath(convoID string) string {
+	if convoID == "" {
+		return filepath.Join(m.dir, contextFile)
+	}
+	safe := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		}
+		return -1
+	}, convoID)
+	if safe == "" || safe != convoID {
+		return filepath.Join(m.dir, contextFile)
+	}
+	return filepath.Join(m.dir, "conversations", safe+".json")
+}
+
+func (m *Manager) loadContextLocked(convoID string) (contextSnapshot, bool) {
+	if m.dir == "" {
+		return contextSnapshot{}, false
+	}
+	data, err := os.ReadFile(m.contextPath(convoID))
+	if err != nil {
+		return contextSnapshot{}, false
+	}
+	var snap contextSnapshot
+	if json.Unmarshal(data, &snap) != nil {
+		return contextSnapshot{}, false
+	}
+	return snap, true
+}
+
+func (m *Manager) removeContextLocked() {
+	if m.dir != "" {
+		_ = os.Remove(m.contextPathLocked())
+	}
 }
 
 func (m *Manager) saveContextLocked() {
 	if m.dir == "" {
 		return
 	}
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+	path := m.contextPathLocked()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
 	data, err := json.Marshal(contextSnapshot{
 		Overflow: m.overflow, Summary: m.summary, SavedToken: m.savedTok,
 		Pinned: m.pinned, OmittedTurns: m.omittedTurns, OmittedRunes: m.omittedRunes,
+		Carry: m.carry, Cursor: m.cursor,
 	})
 	if err != nil {
 		return
 	}
-	path := filepath.Join(m.dir, contextFile)
 	_ = atomicfile.Write(path, data, 0o644)
 }
 

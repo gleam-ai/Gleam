@@ -193,6 +193,20 @@ func TestStore_Validate(t *testing.T) {
 	}
 }
 
+func TestStore_RejectsReferenceCycle(t *testing.T) {
+	st := newTestStore(t)
+	s := Skill{Name: "ref-cycle", Steps: []types.Step{
+		{ID: "s1", Tool: "reply", Args: map[string]any{"text": "$ref:s2.text"}},
+		{ID: "s2", Tool: "reply", Args: map[string]any{"text": "{ref:s1.text}"}},
+	}}
+	if _, err := st.Save(s); err == nil {
+		t.Fatal("Save accepted a reference cycle")
+	}
+	if _, err := st.Get(s.Name); err == nil {
+		t.Fatal("invalid skill was persisted")
+	}
+}
+
 func TestSubstituteParams(t *testing.T) {
 	args := map[string]any{
 		"path": "{{dir}}/out.txt",

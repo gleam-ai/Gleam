@@ -49,20 +49,19 @@ func (s *Skill) Validate() error {
 	if len(s.Steps) == 0 {
 		return fmt.Errorf("技能至少需要一个步骤")
 	}
-	ids := map[string]bool{}
-	for i, st := range s.Steps {
-		if st.Tool == "" {
+	steps := append([]types.Step(nil), s.Steps...)
+	for i := range steps {
+		if steps[i].Tool == "" {
 			return fmt.Errorf("步骤 %d 缺少 tool", i+1)
 		}
-		id := st.ID
-		if id == "" {
-			id = fmt.Sprintf("s%d", i+1)
+		if steps[i].ID == "" {
+			steps[i].ID = fmt.Sprintf("s%d", i+1)
 		}
-		if ids[id] {
-			return fmt.Errorf("步骤 ID 重复: %s", id)
-		}
-		ids[id] = true
 	}
+	if err := types.ValidateStepGraph(steps); err != nil {
+		return err
+	}
+	s.Steps = steps
 	return nil
 }
 
@@ -325,9 +324,6 @@ func unmarshalSkill(data []byte) (*Skill, error) {
 				ID:          asStr(sm["id"]),
 				Tool:        asStr(sm["tool"]),
 				Description: asStr(sm["description"]),
-			}
-			if stp.ID == "" {
-				stp.ID = fmt.Sprintf("s%d", i+1)
 			}
 			if args, ok := sm["args"].(map[string]any); ok {
 				stp.Args = args

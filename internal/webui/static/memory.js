@@ -13,7 +13,11 @@ function initMemoryOnce() {
     btn.disabled = true;
     try {
       await api('POST', '/api/memory', { content });
-      $('#memory-content').value = '';
+      // The user may have started typing the next memory while this request
+      // was in flight; only clear the text that was actually saved.
+      if ($('#memory-content').value.trim() === content) {
+        $('#memory-content').value = '';
+      }
       toast('已写入长期记忆', 'success');
       searchMemory();
     } catch (err) {

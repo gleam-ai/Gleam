@@ -3,6 +3,7 @@ package scheduler
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,9 @@ import (
 
 	"gleam/internal/atomicfile"
 )
+
+// Largest interval whose conversion to time.Duration does not overflow.
+const maxIntervalSeconds = int64(math.MaxInt64 / int64(time.Second))
 
 var JobNamePattern = regexp.MustCompile(`^[\w\p{Han}\-. ]{1,64}$`)
 
@@ -72,6 +76,7 @@ type Scheduler struct {
 	fire    FireFunc
 	stop    chan struct{}
 	running bool
+	paused  bool
 
 	watch    map[string]watchSnap
 	lastFire map[string]time.Time
@@ -123,6 +128,12 @@ func (s *Scheduler) SetFire(f FireFunc) {
 	s.fire = f
 }
 
+func (s *Scheduler) SetPaused(paused bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.paused = paused
+}
+
 func (s *Scheduler) Start() {
 	s.mu.Lock()
 	if s.running {
@@ -160,6 +171,10 @@ func (s *Scheduler) loop() {
 func (s *Scheduler) tick(now time.Time) {
 	var due []*Job
 	s.mu.Lock()
+	if s.paused {
+		s.mu.Unlock()
+		return
+	}
 	fire := s.fire
 	for _, j := range s.jobs {
 		if !j.Enabled {
@@ -206,7 +221,7 @@ func (s *Scheduler) start(name string, fire FireFunc, j Job) {
 func (s *Scheduler) reserve(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.inflight[name] {
+	if s.paused || s.inflight[name] {
 		return false
 	}
 	s.inflight[name] = true
@@ -292,8 +307,12 @@ func (s *Scheduler) recomputeNext(j *Job, now time.Time) {
 			}
 		}
 	case j.IntervalSec > 0:
-		next := now.Add(time.Duration(j.IntervalSec) * time.Second)
-		j.NextRun = &next
+		// Never let a huge (or hand-edited) interval overflow into a negative
+		// duration: now.Add would put NextRun in the past and fire immediately.
+		if int64(j.IntervalSec) <= maxIntervalSeconds {
+			next := now.Add(time.Duration(j.IntervalSec) * time.Second)
+			j.NextRun = &next
+		}
 	case j.WatchPath != "":
 		// Watch jobs are triggered by file changes and have no fixed next run.
 	}
@@ -325,6 +344,9 @@ func (s *Scheduler) AddJobDetailed(name, cron string, intervalSec int, goal, mod
 	if intervalSec > 0 && intervalSec < 5 {
 		return Job{}, fmt.Errorf("间隔最小为 5 秒")
 	}
+	if int64(intervalSec) > maxIntervalSeconds {
+		return Job{}, fmt.Errorf("间隔最大为 %d 秒", maxIntervalSeconds)
+	}
 	if mode != "" && mode != "auto" && mode != "plan_first" && mode != "interactive" {
 		return Job{}, fmt.Errorf("非法执行模式 %q", mode)
 	}
@@ -340,7 +362,12 @@ func (s *Scheduler) AddJobDetailed(name, cron string, intervalSec int, goal, mod
 	s.recomputeNext(job, time.Now())
 	s.jobs[name] = job
 	if err := s.saveLocked(); err != nil {
-		return *job, err
+		// A job that was never persisted must not stay runnable in memory:
+		// the caller reported failure, so the scheduler must not fire it.
+		delete(s.jobs, name)
+		delete(s.watch, name)
+		delete(s.lastFire, name)
+		return Job{}, err
 	}
 	return *job, nil
 }

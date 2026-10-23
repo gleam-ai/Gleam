@@ -1,12 +1,50 @@
 package agent
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"gleam/internal/config"
 	"gleam/internal/harness/scheduler"
+	"gleam/internal/llm"
 )
+
+func TestApplySettingsPausesScheduler(t *testing.T) {
+	cfg := config.Default()
+	cfg.DataDir, cfg.LLM.Provider = t.TempDir(), "mock"
+	fired := make(chan scheduler.Job, 2)
+	sched, err := scheduler.Open(filepath.Join(cfg.DataDir, "schedules.json"), func(j scheduler.Job) { fired <- j })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.AddJob("pause-test", "", 5, "test goal", "auto"); err != nil {
+		t.Fatal(err)
+	}
+	a := New(cfg, llm.NewMock(), nil, nil, nil, nil, sched, nil)
+	sched.Start()
+	defer sched.Stop()
+	if _, err := a.ApplySettings(map[string]any{"scheduler": map[string]any{"enabled": false}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fired:
+		t.Fatal("disabled scheduler fired")
+	case <-time.After(6 * time.Second):
+	}
+	if sched.ListJobs()[0].LastRun != nil {
+		t.Fatal("disabled scheduler consumed a pending run")
+	}
+	if _, err := a.ApplySettings(map[string]any{"scheduler": map[string]any{"enabled": true}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fired:
+	case <-time.After(3 * time.Second):
+		t.Fatal("re-enabled scheduler did not resume")
+	}
+}
 
 func TestJobToScheduleView_PrintsEffectivePolicy(t *testing.T) {
 	cases := []struct {

@@ -14,26 +14,31 @@ import (
 	"unsafe"
 )
 
+type windowProc interface {
+	Call(...uintptr) (uintptr, uintptr, error)
+}
+
 var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
 
-	pEnumWindows              = user32.NewProc("EnumWindows")
-	pGetWindowTextW           = user32.NewProc("GetWindowTextW")
-	pGetWindowTextLengthW     = user32.NewProc("GetWindowTextLengthW")
-	pIsWindow                 = user32.NewProc("IsWindow")
-	pIsWindowVisible          = user32.NewProc("IsWindowVisible")
-	pIsIconic                 = user32.NewProc("IsIconic")
-	pGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
-	pGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
-	pAttachThreadInput        = user32.NewProc("AttachThreadInput")
-	pSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
-	pShowWindow               = user32.NewProc("ShowWindow")
-	pBringWindowToTop         = user32.NewProc("BringWindowToTop")
-	pPostMessageW             = user32.NewProc("PostMessageW")
-	pGetCurrentThreadId       = kernel32.NewProc("GetCurrentThreadId")
-	pDwmSetWindowAttribute    = dwmapi.NewProc("DwmSetWindowAttribute")
+	pEnumWindows              windowProc = user32.NewProc("EnumWindows")
+	pFindWindowExW            windowProc = user32.NewProc("FindWindowExW")
+	pGetWindowTextW           windowProc = user32.NewProc("GetWindowTextW")
+	pGetWindowTextLengthW     windowProc = user32.NewProc("GetWindowTextLengthW")
+	pIsWindow                 windowProc = user32.NewProc("IsWindow")
+	pIsWindowVisible          windowProc = user32.NewProc("IsWindowVisible")
+	pIsIconic                 windowProc = user32.NewProc("IsIconic")
+	pGetWindowThreadProcessId windowProc = user32.NewProc("GetWindowThreadProcessId")
+	pGetForegroundWindow      windowProc = user32.NewProc("GetForegroundWindow")
+	pAttachThreadInput        windowProc = user32.NewProc("AttachThreadInput")
+	pSetForegroundWindow      windowProc = user32.NewProc("SetForegroundWindow")
+	pShowWindow               windowProc = user32.NewProc("ShowWindow")
+	pBringWindowToTop         windowProc = user32.NewProc("BringWindowToTop")
+	pPostMessageW             windowProc = user32.NewProc("PostMessageW")
+	pGetCurrentThreadId       windowProc = kernel32.NewProc("GetCurrentThreadId")
+	pDwmSetWindowAttribute    windowProc = dwmapi.NewProc("DwmSetWindowAttribute")
 )
 
 const (
@@ -57,7 +62,38 @@ var (
 	mu        sync.Mutex
 	procs     []*exec.Cmd
 	launching bool
+
+	waitForWindow = waitUntil
+	runTaskkill   = func(cmd *exec.Cmd) error { return cmd.Run() }
+	startBrowser  = func(cmd *exec.Cmd) error { return cmd.Start() }
+	waitBrowser   = func(cmd *exec.Cmd) error { return cmd.Wait() }
+	stopBrowser   = func(cmd *exec.Cmd) { _ = cmd.Process.Kill() }
+	clearLocks    = removeStaleProfileLocks
+
+	readWindowTitle = windowTitleOf
+	readWindowPID   = windowPIDOf
 )
+
+func windowTitleOf(hwnd uintptr) string {
+	n, _, _ := pGetWindowTextLengthW.Call(hwnd)
+	if n <= 0 {
+		return ""
+	}
+	buf := make([]uint16, n+1)
+	got, _, _ := pGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if got <= 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:got])
+}
+
+func windowPIDOf(hwnd uintptr) uint32 {
+	var pid uint32
+	if tid, _, _ := pGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid))); tid == 0 {
+		return 0
+	}
+	return pid
+}
 
 func browserPaths() []string {
 	if env := os.Getenv("GLEAM_BROWSER"); env != "" {
@@ -80,6 +116,45 @@ func browserPaths() []string {
 }
 
 func profileDir() string { return profileDirPath() }
+
+func profileBrowserPID(profile string) uint32 {
+	if profile == "" {
+		return 0
+	}
+	name, err := syscall.UTF16PtrFromString(profile)
+	if err != nil {
+		return 0
+	}
+	// Chromium's ProcessSingleton names its message-only window after user-data-dir.
+	class, _ := syscall.UTF16PtrFromString("Chrome_MessageWindow")
+	hwnd, _, _ := pFindWindowExW.Call(^uintptr(2), 0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(name)))
+	if hwnd == 0 {
+		return 0
+	}
+	return readWindowPID(hwnd)
+}
+
+func ownsBrowserPID(pid uint32) bool {
+	if pid == 0 {
+		return false
+	}
+	primary := profileDir()
+	return pid == profileBrowserPID(primary) || pid == profileBrowserPID(alternateProfileDir(primary))
+}
+
+func gleamWindowPID(hwnd uintptr) uint32 {
+	pid := readWindowPID(hwnd)
+	if !ownsBrowserPID(pid) {
+		return 0
+	}
+	return pid
+}
+
+func clearUnusedProfileLocks(profile string) {
+	if profileBrowserPID(profile) == 0 {
+		clearLocks(profile)
+	}
+}
 
 func resolveBrowserExe() string {
 	for _, p := range browserPaths() {
@@ -115,7 +190,7 @@ func openWindowPlatform(target string, onClose func()) bool {
 	_ = os.MkdirAll(profile, 0o755)
 
 	if anyProfileLockPresent(profile) {
-		if !waitUntil(2*time.Second, pollInterval, func() bool {
+		if !waitForWindow(2*time.Second, pollInterval, func() bool {
 			return !anyProfileLockPresent(profile) || len(findGleamWindows()) > 0
 		}) {
 			if hwnds := findGleamWindows(); len(hwnds) > 0 {
@@ -133,9 +208,7 @@ func openWindowPlatform(target string, onClose func()) bool {
 			clearLaunching()
 			return true
 		}
-		if !anyProfileLockPresent(profile) || len(findGleamWindows()) == 0 {
-			removeStaleProfileLocks(profile)
-		}
+		clearUnusedProfileLocks(profile)
 	}
 
 	exe := resolveBrowserExe()
@@ -146,7 +219,7 @@ func openWindowPlatform(target string, onClose func()) bool {
 
 	ok, pid := launchAppAttempt(exe, chromeAppArgs(target, profile, windowTitle), onClose)
 	if ok {
-		ready := waitUntil(appLaunchReadyTimeout, pollInterval, func() bool {
+		ready := waitForWindow(appLaunchReadyTimeout, pollInterval, func() bool {
 			return len(findGleamWindows()) > 0
 		})
 		hwnds := findGleamWindows()
@@ -165,13 +238,13 @@ func openWindowPlatform(target string, onClose func()) bool {
 
 	alt := alternateProfileDir(profile)
 	_ = os.MkdirAll(alt, 0o755)
-	removeStaleProfileLocks(alt)
+	clearUnusedProfileLocks(alt)
 	ok, pid = launchAppAttempt(exe, chromeAppArgsWithGPUFallback(target, alt, windowTitle), onClose)
 	if !ok {
 		clearLaunching()
 		return false
 	}
-	ready := waitUntil(appLaunchReadyTimeout, pollInterval, func() bool {
+	ready := waitForWindow(appLaunchReadyTimeout, pollInterval, func() bool {
 		return len(findGleamWindows()) > 0
 	})
 	hwnds := findGleamWindows()
@@ -187,7 +260,7 @@ func openWindowPlatform(target string, onClose func()) bool {
 func launchAppAttempt(exe string, args []string, onClose func()) (bool, int) {
 	cmd := exec.Command(exe, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	if err := cmd.Start(); err != nil {
+	if err := startBrowser(cmd); err != nil {
 		return false, 0
 	}
 	mu.Lock()
@@ -195,56 +268,61 @@ func launchAppAttempt(exe string, args []string, onClose func()) (bool, int) {
 	pid := cmd.Process.Pid
 	mu.Unlock()
 
-	go func() {
-		_ = cmd.Wait()
-		mu.Lock()
-		for i, p := range procs {
-			if p.Process != nil && p.Process.Pid == pid {
-				procs = append(procs[:i], procs[i+1:]...)
-				break
-			}
-		}
-		launching = false
-		mu.Unlock()
-		if onClose != nil {
-			go onClose()
-		}
-	}()
+	go reapAppProcess(cmd, onClose)
 	return true, pid
 }
 
-func teardownAppSpawn(pid int, profile string) {
-	if pid > 0 {
-		killProcessTree(uint32(pid))
-	}
+func reapAppProcess(cmd *exec.Cmd, onClose func()) {
+	_ = waitBrowser(cmd)
 	mu.Lock()
 	for i, p := range procs {
-		if p.Process != nil && p.Process.Pid == pid {
+		if p == cmd {
 			procs = append(procs[:i], procs[i+1:]...)
 			break
 		}
 	}
 	mu.Unlock()
-	removeStaleProfileLocks(profile)
+	if onClose != nil {
+		for windowOpenPlatform() {
+			time.Sleep(pollInterval)
+		}
+		onClose()
+	}
+}
+
+func teardownAppSpawn(pid int, profile string) {
+	mu.Lock()
+	var target *exec.Cmd
+	for i, p := range procs {
+		if p.Process != nil && p.Process.Pid == pid {
+			target = p
+			procs = append(procs[:i], procs[i+1:]...)
+			break
+		}
+	}
+	mu.Unlock()
+	if target != nil {
+		stopBrowser(target)
+	}
+	killProcessTree(profileBrowserPID(profile))
+	clearUnusedProfileLocks(profile)
 }
 
 func closeWindowPlatform() {
 	hwnds := findGleamWindows()
 	for _, h := range hwnds {
-		pPostMessageW.Call(h, wmClose, 0, 0)
+		if gleamWindowPID(h) != 0 {
+			pPostMessageW.Call(h, wmClose, 0, 0)
+		}
 	}
 
-	_ = waitUntil(appCloseWaitTimeout, pollInterval, func() bool {
+	_ = waitForWindow(appCloseWaitTimeout, pollInterval, func() bool {
 		return len(findGleamWindows()) == 0
 	})
 
-	for _, h := range findGleamWindows() {
-		var pid uint32
-		pGetWindowThreadProcessId.Call(h, uintptr(unsafe.Pointer(&pid)))
-		if pid > 0 {
-			killProcessTree(pid)
-		}
-	}
+	primary := profileDir()
+	killProcessTree(profileBrowserPID(primary))
+	killProcessTree(profileBrowserPID(alternateProfileDir(primary)))
 
 	mu.Lock()
 	targets := append([]*exec.Cmd(nil), procs...)
@@ -253,37 +331,38 @@ func closeWindowPlatform() {
 	mu.Unlock()
 	for _, c := range targets {
 		if c.Process != nil {
-			killProcessTree(uint32(c.Process.Pid))
+			// Use the launch handle, not a PID that may have been reused after handoff.
+			stopBrowser(c)
 		}
 	}
 
-	_ = waitUntil(2*time.Second, pollInterval, func() bool {
+	_ = waitForWindow(2*time.Second, pollInterval, func() bool {
 		return len(findGleamWindows()) == 0
 	})
 
 	if len(findGleamWindows()) == 0 {
-		primary := profileDir()
-		removeStaleProfileLocks(primary)
-		removeStaleProfileLocks(alternateProfileDir(primary))
+		clearUnusedProfileLocks(primary)
+		clearUnusedProfileLocks(alternateProfileDir(primary))
 	}
 }
 
 func killProcessTree(pid uint32) {
-	if pid == 0 {
+	if !ownsBrowserPID(pid) {
 		return
 	}
 	cmd := exec.Command("taskkill", "/T", "/F", "/PID", fmt.Sprint(pid))
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	_ = cmd.Run()
+	_ = runTaskkill(cmd)
 }
 
 func windowOpenPlatform() bool {
-	if len(findGleamWindows()) > 0 {
+	primary := profileDir()
+	if profileBrowserPID(primary) != 0 || profileBrowserPID(alternateProfileDir(primary)) != 0 {
 		return true
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	return len(procs) > 0
+	return launching || len(procs) > 0
 }
 
 var (
@@ -304,20 +383,11 @@ func findGleamWindows() []uintptr {
 
 func enumProc(hwnd uintptr, _ uintptr) uintptr {
 	alive, _, _ := pIsWindow.Call(hwnd)
-	if alive == 0 {
+	if alive == 0 || gleamWindowPID(hwnd) == 0 {
 		return 1
 	}
-	n, _, _ := pGetWindowTextLengthW.Call(hwnd)
-	if n <= 0 {
-		return 1
-	}
-	buf := make([]uint16, n+1)
-	got, _, _ := pGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-	if got <= 0 {
-		return 1
-	}
-	title := syscall.UTF16ToString(buf[:got])
-	if !strings.Contains(title, windowTitle) {
+	title := readWindowTitle(hwnd)
+	if title == "" || !strings.Contains(title, windowTitle) {
 		return 1
 	}
 	vis, _, _ := pIsWindowVisible.Call(hwnd)
@@ -346,6 +416,9 @@ func applyDarkTitlebar(hwnd uintptr) {
 }
 
 func activateWindow(hwnd uintptr) {
+	if gleamWindowPID(hwnd) == 0 {
+		return
+	}
 	pShowWindow.Call(hwnd, swRestore)
 	pShowWindow.Call(hwnd, swShow)
 

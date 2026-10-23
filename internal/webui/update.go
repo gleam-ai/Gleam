@@ -486,6 +486,38 @@ var desktopUpdateClient = func() *http.Client {
 	return &http.Client{Transport: t}
 }()
 
+// A release pin only exists to keep one check+download cycle on one release.
+// latest.yml refreshes it on every check, so the TTL only bounds a stale
+// direct asset request.
+const desktopReleasePinTTL = 2 * time.Hour
+
+func isDesktopUpdateMetadata(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "latest") &&
+		(strings.HasSuffix(lower, ".yml") || strings.HasSuffix(lower, ".yaml"))
+}
+
+func (s *Server) pinDesktopRelease(rel releaseInfo) {
+	s.desktopPinMu.Lock()
+	s.desktopPin = &rel
+	s.desktopPinAt = time.Now()
+	s.desktopPinMu.Unlock()
+}
+
+func (s *Server) pinnedDesktopAsset(name string) (releaseAsset, bool) {
+	s.desktopPinMu.Lock()
+	defer s.desktopPinMu.Unlock()
+	if s.desktopPin == nil || time.Since(s.desktopPinAt) > desktopReleasePinTTL {
+		return releaseAsset{}, false
+	}
+	for _, a := range s.desktopPin.Assets {
+		if strings.EqualFold(a.Name, name) {
+			return a, true
+		}
+	}
+	return releaseAsset{}, false
+}
+
 // handleDesktopUpdateAsset serves a release asset to the Electron updater.
 // electron-updater's GitHub provider talks to github.com, which some networks
 // keep resetting; the shell now points its generic feed here and this handler
@@ -498,25 +530,36 @@ func (s *Server) handleDesktopUpdateAsset(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, "没有这个更新文件")
 		return
 	}
-	rel, status, err := fetchLatestRelease(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "连不上更新源：%v", err)
-		return
-	}
-	if status != http.StatusOK {
-		writeErr(w, http.StatusBadGateway, "更新源返回 %d", status)
-		return
-	}
+	// The updater reads latest.yml first and then downloads by asset name. Pin
+	// that release for the rest of the download: resolving "latest" again per
+	// asset lets a release published mid-download swap the installer under the
+	// SHA512 the updater already accepted, wasting the whole transfer.
 	var asset releaseAsset
-	for _, a := range rel.Assets {
-		if a.Name == name {
-			asset = a
-			break
-		}
+	meta := isDesktopUpdateMetadata(name)
+	if !meta {
+		asset, _ = s.pinnedDesktopAsset(name)
 	}
 	if asset.Name == "" {
-		writeErr(w, http.StatusNotFound, "最新版里没有 %s", name)
-		return
+		rel, status, err := fetchLatestRelease(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, "连不上更新源：%v", err)
+			return
+		}
+		if status != http.StatusOK {
+			writeErr(w, http.StatusBadGateway, "更新源返回 %d", status)
+			return
+		}
+		for _, a := range rel.Assets {
+			if a.Name == name {
+				asset = a
+				break
+			}
+		}
+		if asset.Name == "" {
+			writeErr(w, http.StatusNotFound, "最新版里没有 %s", name)
+			return
+		}
+		s.pinDesktopRelease(rel)
 	}
 	src := asset.downloadURL()
 	if src == "" {

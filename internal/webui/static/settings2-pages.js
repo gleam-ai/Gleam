@@ -127,7 +127,7 @@
     const tabs = [
       ['mcp', '插件', 'MCP 服务器'],
       ['skills', '技能', ''],
-      ['roles', '智能体', '专家角色'],
+      ['roles', '内置角色', '专家角色'],
     ];
     const market = btn(
       '',
@@ -164,18 +164,11 @@
         ),
       ),
     );
-    const addBtn = btn(
-      '',
-      () =>
-        extTab === 'roles'
-          ? toast(
-              '自定义智能体暂不支持，可在任务输入框里选择内置专家角色',
-              'info',
-            )
-          : showView('market'),
-      'btn btn-secondary btn-sm',
-    );
-    addBtn.innerHTML = ico('plus', 14) + '<span>添加</span>';
+    const addBtn =
+      extTab === 'roles'
+        ? null
+        : btn('', () => showView('market'), 'btn btn-secondary btn-sm');
+    if (addBtn) addBtn.innerHTML = ico('plus', 14) + '<span>添加</span>';
     function paintList() {
       const q = extQ.trim().toLowerCase();
       const items = data[extTab].filter(
@@ -195,7 +188,7 @@
                 ? '还没有安装插件'
                 : extTab === 'skills'
                   ? '还没有技能'
-                  : '没有智能体',
+                  : '没有内置角色',
             q
               ? ''
               : extTab === 'roles'
@@ -271,7 +264,7 @@
     root.replaceChildren(
       head(
         '扩展管理',
-        '插件（MCP 服务器）、技能和智能体角色。安装与发现在市场里完成。',
+        '管理插件（MCP 服务器）、技能和内置角色。插件与技能可从市场安装。',
         market,
       ),
       h(
@@ -393,14 +386,7 @@
   ];
   function globalShortcutRow() {
     const desk = window.gleamDesktop;
-    if (!desk || typeof desk.globalShortcut !== 'function') {
-      return row({
-        icon: 'shortcuts',
-        title: '全局唤起快捷键',
-        desc: '在任何应用里按快捷键唤出 Gleam（只在桌面版可用）。',
-        disabled: true,
-      });
-    }
+    if (!desk || typeof desk.globalShortcut !== 'function') return null;
     let cur = '';
     const val = h('span', { class: 's2-keys' });
     const paint = () => {
@@ -505,6 +491,7 @@
       tools: [],
     }));
     const desk = tools.filter((t) => t.name.startsWith('desktop.'));
+    const shortcut = globalShortcutRow();
     root.replaceChildren(
       head(
         '电脑操控',
@@ -545,22 +532,7 @@
             ),
           )
         : card(empty('computer', '这台电脑没有可用的桌面工具', '')),
-      label('更多操控'),
-      card(
-        row({
-          icon: 'globe',
-          title: '浏览器操控',
-          desc: '让 Gleam 驱动浏览器打开网页、点击和填写表单。',
-          disabled: true,
-        }),
-        row({
-          icon: 'mouse',
-          title: '鼠标与键盘操控',
-          desc: '模拟点击与键盘输入来操作其他应用。',
-          disabled: true,
-        }),
-        globalShortcutRow(),
-      ),
+      ...(shortcut ? [label('快捷键'), card(shortcut)] : []),
     );
   });
   const KEYBOARD_SVG = `<svg viewBox="0 0 400 150" width="100%" height="150" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -774,271 +746,16 @@
     S2.show('worktrees');
   }
 
-  S2.register('index', async () => {
-    const { spaces = [] } = await api('GET', '/api/spaces').catch(() => ({
-      spaces: [],
-    }));
-    const ws = spaces.filter((s) => s.path || s.workspace);
-    $('#s2-index').replaceChildren(
-      head(
-        '工作区索引',
-        'Gleam 不预先给代码建索引：需要时用 file.search / file.list 在当前工作区里现查，所以没有索引要等、也没有索引要清。',
-      ),
-      h(
-        'div',
-        { class: 's2-card s2-index-empty' },
-        h('div', {
-          class: 's2-illus s2-illus--sm',
-          'aria-hidden': 'true',
-          html: INDEX_SVG,
-        }),
-        h('strong', { text: '无需建立索引' }),
-        h('small', {
-          text: '打开工作区后即可在任务里引用其中的文件（输入 @）。',
-        }),
-      ),
-      ws.length ? label('已打开的工作区') : null,
-      ws.length
-        ? h(
-            'div',
-            { class: 's2-card s2-card--list' },
-            ...ws.map((s) =>
-              row({
-                icon: 'folder',
-                title: s.name || s.title || '工作区',
-                desc: s.path || s.workspace,
-                control: badge('按需检索', 'muted'),
-              }),
-            ),
-          )
-        : null,
-    );
-  });
-  const INDEX_SVG = `<svg viewBox="0 0 220 110" width="220" height="110" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="80" cy="30" rx="44" ry="13" fill="var(--panel)" stroke="var(--color-fg-faint)" stroke-width="1.5"/>
-    <path d="M36 30v44c0 7 20 13 44 13s44-6 44-13V30" stroke="var(--color-fg-faint)" stroke-width="1.5"/>
-    <path d="M36 52c0 7 20 13 44 13s44-6 44-13" stroke="var(--color-fg-faint)" stroke-width="1.5" stroke-dasharray="3 4"/>
-    <circle cx="158" cy="62" r="20" fill="var(--panel)" stroke="var(--color-accent)" stroke-width="2"/>
-    <path d="m172 76 16 16" stroke="var(--color-accent)" stroke-width="3"/>
-    <path d="M150 62h16M158 54v16" stroke="var(--accent-fill)" stroke-width="2.5"/>
-  </svg>`;
-
   S2.register('conn', async () => {
     const root = $('#s2-conn');
-    const hosts = UIPrefs.get().sshHosts || [];
-    const addBtn = btn('', () => sshDialog(), 'btn btn-secondary btn-sm');
-    addBtn.innerHTML = ico('plus', 14) + '<span>添加</span>';
-    const sshCard = hosts.length
-      ? h(
-          'div',
-          { class: 's2-card s2-card--list' },
-          ...hosts.map((n) =>
-            row({
-              icon: 'server',
-              title: n,
-              desc: '来自 ~/.ssh/config',
-              control: h('button', {
-                type: 'button',
-                class: 's2-icon-btn s2-icon-btn--danger',
-                title: '移除',
-                'aria-label': `移除 ${n}`,
-                html: ico('trash', 15),
-                onclick: () => {
-                  UIPrefs.set({
-                    sshHosts: (UIPrefs.get().sshHosts || []).filter(
-                      (x) => x !== n,
-                    ),
-                  });
-                  S2.show('conn');
-                },
-              }),
-            }),
-          ),
-        )
-      : card(
-          empty(
-            'server',
-            '暂无 SSH 连接',
-            '从 ~/.ssh/config 里挑选主机，记在这里。',
-            btn('添加', () => sshDialog(), 'btn btn-primary btn-sm'),
-          ),
-        );
-    const kids = [
-      head('连接', '远程主机与 Gleam 的出网边界。'),
-      h(
-        'div',
-        { class: 's2-label-row' },
-        label('SSH'),
-        hosts.length ? addBtn : null,
-      ),
-      sshCard,
-      h('p', {
-        class: 's2-foot',
-        text: '远程 SSH 工作区暂不支持：这里只保存主机别名，Gleam 不会连接这些主机，也不会读取任何密钥文件。',
-      }),
+    root.replaceChildren(
+      head('连接', '已有连接与 Gleam 的出网边界。'),
       label('连接与出网'),
-    ];
-    root.replaceChildren(...kids);
+    );
     try {
       loadConnections();
     } catch {}
   });
-  async function sshDialog() {
-    const overlay = h('div', { class: 's2-dialog-overlay' });
-    const dlg = h('div', {
-      class: 's2-dialog',
-      role: 'dialog',
-      'aria-modal': 'true',
-      'aria-labelledby': 's2-ssh-t',
-    });
-    overlay.append(dlg);
-    const list = h('div', { class: 's2-ssh-list' });
-    const all = h('input', { type: 'checkbox', id: 's2-ssh-all' });
-    const add = h('button', {
-      type: 'button',
-      class: 'btn btn-primary btn-sm',
-      text: '添加',
-      disabled: true,
-    });
-    const pathNote = h('small', { class: 's2-field-hint' });
-    const close = () => {
-      overlay.remove();
-      document.removeEventListener('keydown', onKey, true);
-    };
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        close();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    overlay.addEventListener('mousedown', (e) => {
-      if (e.target === overlay) close();
-    });
-    const saved = new Set(UIPrefs.get().sshHosts || []);
-    function sync() {
-      const boxes = [
-        ...list.querySelectorAll('input[type=checkbox]:not(:disabled)'),
-      ];
-      const n = boxes.filter((b) => b.checked).length;
-      add.disabled = n === 0;
-      add.textContent = n ? `添加（${n}）` : '添加';
-      all.checked = boxes.length > 0 && n === boxes.length;
-      all.indeterminate = n > 0 && n < boxes.length;
-    }
-    async function load() {
-      list.replaceChildren(
-        h('div', { class: 's2-field-hint', text: '正在读取…' }),
-      );
-      const r = await api('GET', '/api/ssh/hosts').catch((e) => ({
-        error: e.message,
-        hosts: [],
-      }));
-      pathNote.textContent = r.path
-        ? `读取自 ${r.path}（只解析 Host 名称）`
-        : '';
-      if (!r.hosts.length) {
-        list.replaceChildren(
-          empty(
-            'server',
-            r.exists ? '配置文件里没有具体的 Host' : '没有找到 SSH 配置文件',
-            r.exists
-              ? '通配符（* ?）条目不会列出。'
-              : `在 ${r.path || '~/.ssh/config'} 写好 Host 后点「重新读取」。`,
-          ),
-        );
-      } else {
-        list.replaceChildren(
-          ...r.hosts.map((n) => {
-            const cb = h('input', {
-              type: 'checkbox',
-              value: n,
-              disabled: saved.has(n) ? true : null,
-            });
-            if (saved.has(n)) cb.checked = true;
-            cb.addEventListener('change', sync);
-            return h(
-              'label',
-              { class: 's2-ssh-item' },
-              cb,
-              h('span', { class: 's2-glyph', text: n[0].toUpperCase() }),
-              h('span', { class: 's2-ssh-name', text: n }),
-              saved.has(n) ? badge('已添加', 'muted') : null,
-            );
-          }),
-        );
-      }
-      sync();
-    }
-    all.addEventListener('change', () => {
-      list
-        .querySelectorAll('input[type=checkbox]:not(:disabled)')
-        .forEach((b) => {
-          b.checked = all.checked;
-        });
-      sync();
-    });
-    add.addEventListener('click', () => {
-      const pick = [
-        ...list.querySelectorAll('input[type=checkbox]:checked:not(:disabled)'),
-      ].map((b) => b.value);
-      UIPrefs.set({ sshHosts: [...saved, ...pick] });
-      close();
-      toast(`已记下 ${pick.length} 台主机`, 'success', 1800);
-      S2.show('conn');
-    });
-    const reload = h(
-      'button',
-      { type: 'button', class: 's2-link' },
-      h('span', { html: ico('refresh', 12) }),
-      '重新读取',
-    );
-    reload.addEventListener('click', load);
-    dlg.append(
-      h(
-        'div',
-        { class: 's2-dialog-head' },
-        h('strong', { id: 's2-ssh-t', text: '添加 SSH 连接' }),
-        h('button', {
-          type: 'button',
-          class: 's2-icon-btn',
-          'aria-label': '关闭',
-          title: '关闭',
-          html: ico('x', 15),
-          onclick: close,
-        }),
-      ),
-      h(
-        'div',
-        { class: 's2-dialog-body' },
-        h('p', {
-          class: 's2-dialog-desc',
-          text: '从你的 SSH 配置里挑选主机。Gleam 只读 Host 名称，不读取 HostName、用户名或任何密钥。',
-        }),
-        h(
-          'div',
-          { class: 's2-ssh-tools' },
-          h('label', { class: 's2-ssh-all' }, all, '全选'),
-          reload,
-        ),
-        list,
-        pathNote,
-      ),
-      h(
-        'div',
-        { class: 's2-dialog-foot' },
-        h('button', {
-          type: 'button',
-          class: 'btn btn-ghost btn-sm',
-          text: '取消',
-          onclick: close,
-        }),
-        add,
-      ),
-    );
-    document.body.append(overlay);
-    load();
-  }
 
   S2.register('safety', async () => {
     const pre = prelude(
@@ -1416,6 +1133,10 @@
       'aria-label': '代理地址',
       value: net.proxy_url || '',
     });
+    let proxyDirty = false;
+    urlIn.addEventListener('input', () => {
+      proxyDirty = true;
+    });
     urlIn.hidden = curMode !== 'manual';
     modeSel.addEventListener('change', async () => {
       const v = modeSel.value;
@@ -1432,6 +1153,12 @@
       if (!raw) {
         toast('先填代理地址，例如 http://127.0.0.1:7890', 'info');
         urlIn.focus();
+        return;
+      }
+      // The displayed URL has its password redacted. Submitting it unchanged
+      // would replace the real credential with the placeholder.
+      if (!proxyDirty) {
+        toast('代理地址没有改动', 'info');
         return;
       }
       try {

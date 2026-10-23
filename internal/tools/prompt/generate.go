@@ -10,7 +10,7 @@ import (
 	"gleam/pkg/types"
 )
 
-type ClientProvider func() llm.Client
+type ClientProvider func(context.Context) llm.Client
 
 type GenerateTool struct {
 	provider ClientProvider
@@ -46,7 +46,7 @@ func (t *GenerateTool) Execute(ctx context.Context, args map[string]any) (any, e
 	if t.provider == nil {
 		return nil, fmt.Errorf("提示词步骤没接上模型客户端")
 	}
-	client := t.provider()
+	client := t.provider(ctx)
 	if client == nil {
 		return nil, fmt.Errorf("当前没有可用的模型：请先在「设置 → 模型」里接入一个")
 	}

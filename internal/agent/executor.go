@@ -12,6 +12,7 @@ import (
 
 	"gleam/internal/harness/registry"
 	"gleam/internal/harness/safety"
+	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
 )
 
@@ -194,12 +195,16 @@ func (s *execState) failedStore(fp, errMsg string) {
 	s.mu.Unlock()
 }
 
-func (s *execState) resultOf(id string) (*types.StepResult, bool) {
+func (s *execState) resultOf(ctx context.Context, id string) (*types.StepResult, bool) {
 	i, ok := s.idxOf[id]
 	if !ok {
 		return nil, false
 	}
-	<-s.finished[i]
+	select {
+	case <-s.finished[i]:
+	case <-ctx.Done():
+		return nil, false
+	}
 	return &s.results[i], true
 }
 
@@ -216,6 +221,20 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 		return res
 	}
 	res.ExecutedPlan = types.Plan{Goal: plan.Goal, EstimatedTime: plan.EstimatedTime}
+	if err := types.ValidateStepGraph(plan.Steps); err != nil {
+		now := time.Now()
+		for _, st := range plan.Steps {
+			r := types.StepResult{
+				StepID: st.ID, Tool: st.Tool, Status: types.StepFailed,
+				Error: fmt.Sprintf("计划依赖不合法: %v", err), ErrorKind: types.ErrParam,
+				StartedAt: now, FinishedAt: now,
+			}
+			res.Steps = append(res.Steps, r)
+			res.ByID[r.StepID] = &res.Steps[len(res.Steps)-1]
+			res.Failed++
+		}
+		return res
+	}
 
 	state := &execState{
 		plan:     plan,
@@ -289,7 +308,11 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 				if _, exists := state.idxOf[dep]; !exists {
 					continue
 				}
-				dr, _ := state.resultOf(dep)
+				dr, _ := state.resultOf(ctx, dep)
+				if ctx.Err() != nil {
+					depFailed = append(depFailed, dep)
+					break
+				}
 				if dr == nil || dr.Status != types.StepSucceeded {
 					depFailed = append(depFailed, dep)
 				}
@@ -446,9 +469,14 @@ func (e *Executor) adjudicate(ctx context.Context, tool types.Tool, args map[str
 }
 
 func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskID string, step types.Step, dec safety.Decision) (approved, cancelled bool) {
+	args, err := json.Marshal(step.Args)
+	if err != nil {
+		r.Status, r.ErrorKind, r.Error = types.StepFailed, types.ErrParam, err.Error()
+		return false, false
+	}
 	req := types.ApprovalRequest{
 		TaskID: taskID,
-		Plan:   []string{step.Describe()},
+		Plan:   []string{fmt.Sprintf("%s: %s", step.Tool, args)},
 		Risk:   dec.Risk,
 		Reason: dec.Reason,
 		StepID: step.ID,
@@ -516,6 +544,11 @@ func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskI
 
 func (e *Executor) runStep(ctx context.Context, state *execState, step types.Step, taskID, mode string, preApproved bool, timeout time.Duration, sem chan struct{}) types.StepResult {
 	start := time.Now()
+	if toolutil.RootsFrom(ctx, nil) == nil && e.Gate != nil {
+		// Pin the approval boundary at dispatch: the step may wait for its
+		// semaphore slot while a workspace switch rewrites the live roots.
+		ctx = toolutil.WithRoots(ctx, e.Gate.RootSnapshot())
+	}
 	r := types.StepResult{StepID: step.ID, Tool: step.Tool, Status: types.StepRunning, StartedAt: start}
 	dispatched := false
 	finalize := func() types.StepResult {
@@ -535,17 +568,14 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		return finalize()
 	}
 
-	dec := e.adjudicate(ctx, tool, step.Args, preApproved, !hasRefs(step.Args))
-	if dec.NeedApproval {
-		if approved, cancelled := e.awaitApproval(ctx, &r, taskID, step, dec); cancelled || !approved {
-			return finalize()
-		}
-	}
-
+	ctx = safety.WithMode(ctx, mode)
 	args, err := substituteArgs(step.Args, func(ref string) (any, bool, error) {
 		id, path := splitRef(ref)
-		dep, ok := state.resultOf(id)
+		dep, ok := state.resultOf(ctx, id)
 		if !ok {
+			if ctx.Err() != nil {
+				return nil, false, fmt.Errorf("任务已取消")
+			}
 			return nil, false, fmt.Errorf("引用的步骤 %q 不存在", id)
 		}
 		if dep.Status != types.StepSucceeded {
@@ -564,19 +594,23 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		return finalize()
 	}
 	r.FinalArgs = args
-
-	final := dec
-	if hasRefs(step.Args) {
-		final = e.adjudicate(ctx, tool, args, preApproved, true)
-		if final.NeedApproval && !dec.NeedApproval {
-			if approved, cancelled := e.awaitApproval(ctx, &r, taskID, step, final); cancelled || !approved {
-				return finalize()
-			}
-		}
+	if err := toolutil.ValidateArgs(tool, args); err != nil {
+		r.Status = types.StepFailed
+		r.Error = fmt.Sprintf("工具 %s 参数不合法: %v", tool.Name(), err)
+		r.ErrorKind = types.ErrParam
+		return finalize()
 	}
-	if !dec.NeedApproval && !final.NeedApproval && final.Risk != "low" && e.Gate != nil {
+
+	dec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), true)
+	if dec.NeedApproval {
+		resolved := step
+		resolved.Args = args
+		if approved, cancelled := e.awaitApproval(ctx, &r, taskID, resolved, dec); cancelled || !approved {
+			return finalize()
+		}
+	} else if dec.Risk != "low" && e.Gate != nil {
 		e.Gate.Record(safety.AuditEntry{
-			Tool: step.Tool, Risk: final.Risk, Action: "auto", Reason: final.Reason,
+			Tool: step.Tool, Risk: dec.Risk, Action: "auto", Reason: dec.Reason,
 		})
 	}
 
@@ -653,8 +687,19 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		StartedAt: start,
 	})
 
-	sem <- struct{}{}
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		r.Status = types.StepSkipped
+		r.Error = "任务已取消"
+		return finalize()
+	}
 	defer func() { <-sem }()
+	if ctx.Err() != nil {
+		r.Status = types.StepSkipped
+		r.Error = "任务已取消"
+		return finalize()
+	}
 	attempts := 1 + e.StepRetries
 	if attempts < 1 {
 		attempts = 1

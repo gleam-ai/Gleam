@@ -118,3 +118,78 @@ func Schema(desc string, required []string, props map[string]any) map[string]any
 		"required":    required,
 	}
 }
+
+// ValidateArgs checks required fields and declared property types. It is the
+// single boundary check shared by planning, task execution and direct calls.
+func ValidateArgs(t types.Tool, args map[string]any) error {
+	schema := t.Schema()
+	props, _ := schema["properties"].(map[string]any)
+	for _, key := range requiredKeys(schema["required"]) {
+		v, present := args[key]
+		if s, isStr := v.(string); isStr {
+			if !present || strings.TrimSpace(s) == "" {
+				return fmt.Errorf("缺少必填参数 %q", key)
+			}
+			continue
+		}
+		if !present || v == nil {
+			return fmt.Errorf("缺少必填参数 %q", key)
+		}
+	}
+	for k, v := range args {
+		prop, ok := props[k].(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := prop["type"].(string)
+		if err := checkType(k, v, typ); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requiredKeys(v any) []string {
+	switch req := v.(type) {
+	case []string:
+		return req
+	case []any:
+		out := make([]string, 0, len(req))
+		for _, r := range req {
+			if key, ok := r.(string); ok {
+				out = append(out, key)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func checkType(key string, v any, typ string) error {
+	switch typ {
+	case "string":
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("参数 %q 应为字符串", key)
+		}
+	case "number", "integer":
+		switch v.(type) {
+		case float64, int64, int:
+		default:
+			return fmt.Errorf("参数 %q 应为数字", key)
+		}
+	case "boolean":
+		if _, ok := v.(bool); !ok {
+			return fmt.Errorf("参数 %q 应为布尔值", key)
+		}
+	case "array":
+		if _, ok := v.([]any); !ok {
+			return fmt.Errorf("参数 %q 应为数组", key)
+		}
+	case "object":
+		if _, ok := v.(map[string]any); !ok {
+			return fmt.Errorf("参数 %q 应为对象", key)
+		}
+	}
+	return nil
+}

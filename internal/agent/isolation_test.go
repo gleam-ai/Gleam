@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"gleam/internal/config"
 	"gleam/internal/harness/registry"
 	"gleam/internal/harness/safety"
+	"gleam/internal/llm"
 	"gleam/internal/tools/file"
 	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
@@ -182,6 +184,128 @@ func TestExecutorWritesInsideTaskRoots(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("写前快照应当记副本里的绝对路径，实际 %+v", recs)
+	}
+}
+
+type queuedToolNotifier struct {
+	NopNotifier
+	queued chan struct{}
+}
+
+func (n *queuedToolNotifier) OnTool(ev types.ToolEvent) {
+	if ev.Phase == types.ToolStart {
+		n.queued <- struct{}{}
+	}
+}
+
+func TestWorkspaceSwitchMustNotRetargetApprovedStep(t *testing.T) {
+	for _, pinned := range []bool{false, true} {
+		t.Run(map[bool]string{false: "gate roots", true: "context roots"}[pinned], func(t *testing.T) {
+			first, second, data := t.TempDir(), t.TempDir(), t.TempDir()
+			reg := registry.New()
+			ft := file.New(first)
+			ft.RegisterAll(reg)
+			gate := safety.New("auto", nil, nil, []string{first}, time.Second)
+			cfg := config.Default()
+			cfg.Workspace, cfg.DataDir = first, data
+			a := &Agent{Cfg: cfg, FileTools: ft, Gate: gate}
+			n := &queuedToolNotifier{queued: make(chan struct{}, 1)}
+			e := &Executor{Reg: reg, Gate: gate, Notifier: n, DataDir: data}
+			state := &execState{snap: newSnapshotter(data, "switch")}
+			sem := make(chan struct{}, 1)
+			sem <- struct{}{}
+			ctx := context.Background()
+			wantRoot := first
+			if pinned {
+				wantRoot = t.TempDir()
+				ctx = toolutil.WithRoots(ctx, []string{wantRoot})
+			}
+			done := make(chan types.StepResult, 1)
+			go func() {
+				done <- e.runStepGuarded(ctx, state, types.Step{ID: "s1", Tool: "file.write", Args: map[string]any{"path": "target.txt", "content": "original workspace"}}, "switch", "auto", false, time.Second, sem)
+			}()
+			select {
+			case <-n.queued:
+			case <-time.After(5 * time.Second):
+				<-sem
+				t.Fatal("step did not reach dispatch")
+			}
+			switchErr := a.applyWorkspace(second)
+			<-sem
+			r := <-done
+			if switchErr != nil {
+				t.Fatal(switchErr)
+			}
+			if r.Status != types.StepSucceeded {
+				t.Fatalf("step failed: %+v", r)
+			}
+			if b, err := os.ReadFile(filepath.Join(wantRoot, "target.txt")); err != nil || string(b) != "original workspace" {
+				t.Errorf("original workspace write = %q, %v", b, err)
+			}
+			if _, err := os.Stat(filepath.Join(second, "target.txt")); !os.IsNotExist(err) {
+				t.Errorf("queued step was retargeted to the new workspace: %v", err)
+			}
+			recs := state.snap.records()
+			if len(recs) != 1 || recs[0].Path != filepath.Join(wantRoot, "target.txt") {
+				t.Errorf("snapshot and execution roots diverged: %+v", recs)
+			}
+		})
+	}
+}
+
+func TestRunGoalWorkspaceRootsFrozenBeforePlanning(t *testing.T) {
+	f := newFixture(t, nil)
+	second := t.TempDir()
+	f.a.FileTools = file.New(f.ws)
+	f.a.Reg = newTestRegistry()
+	f.a.FileTools.RegisterAll(f.a.Reg)
+	switched := false
+	f.llm.SetHandler(func(req llm.ChatRequest) string {
+		if !switched {
+			switched = true
+			if err := f.a.applyWorkspace(second); err != nil {
+				t.Error(err)
+			}
+			return `{"steps":[{"id":"s1","tool":"file.write","args":{"path":"target.txt","content":"original workspace"}}]}`
+		}
+		return `{"score":95,"verdict":"done","reason":"written"}`
+	})
+	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "write target.txt", Mode: "auto"})
+	if !switched || len(res.Steps) != 1 || res.Steps[0].Status != types.StepSucceeded {
+		t.Fatalf("workspace switch test did not execute the write: %+v", res)
+	}
+	if b, err := os.ReadFile(filepath.Join(f.ws, "target.txt")); err != nil || string(b) != "original workspace" {
+		t.Errorf("task lost its original roots: %q, %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(second, "target.txt")); !os.IsNotExist(err) {
+		t.Errorf("task wrote in the new workspace: %v", err)
+	}
+}
+
+func TestDirectToolCallWorkspaceRootsFrozenBeforeApproval(t *testing.T) {
+	first, second, data := t.TempDir(), t.TempDir(), t.TempDir()
+	reg := registry.New()
+	ft := file.New(first)
+	ft.RegisterAll(reg)
+	cfg := config.Default()
+	cfg.Workspace, cfg.DataDir = first, data
+	a := &Agent{Cfg: cfg, FileTools: ft, Reg: reg, Gate: safety.New("interactive", nil, nil, []string{first}, time.Second)}
+	approved := false
+	_, err := a.DirectToolCall(context.Background(), "file.write", map[string]any{"path": "target.txt", "content": "original workspace"}, func(types.ApprovalRequest) types.ApprovalResponse {
+		approved = true
+		if err := a.applyWorkspace(second); err != nil {
+			t.Error(err)
+		}
+		return types.ApprovalResponse{Approved: true}
+	})
+	if err != nil || !approved {
+		t.Fatalf("direct call: approved=%v, error=%v", approved, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(first, "target.txt")); err != nil || string(b) != "original workspace" {
+		t.Errorf("direct call lost its original roots: %q, %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(second, "target.txt")); !os.IsNotExist(err) {
+		t.Errorf("direct call wrote in the new workspace: %v", err)
 	}
 }
 

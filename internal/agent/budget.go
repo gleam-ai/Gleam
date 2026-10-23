@@ -257,17 +257,22 @@ func (a *Agent) budgetCheckpoint(ctx context.Context, taskID, goal string, steps
 func (a *Agent) installUsageHook() {
 	a.hookOnce.Do(func() {
 		llm.AddUsageHook(func(taskID, kind string, req llm.ChatRequest, text string, u llm.Usage) {
-			a.addUsage(taskID, u)
+			a.addUsage(taskID, kind, u)
 		})
 	})
 }
 
 // addUsage accumulates one model call's usage; tasks not belonging to this
 // engine (unregistered taskID) are ignored.
-func (a *Agent) addUsage(taskID string, u llm.Usage) {
-	// Record the window reading first, then look at taskID: it answers "how
-	// big is the current context", which is independent of any task.
-	a.notePromptSize(u)
+func (a *Agent) addUsage(taskID, kind string, u llm.Usage) {
+	// Only planning and chat carry the conversation's context. Auxiliary calls
+	// (verification, compression, connection tests) report a much smaller
+	// prompt; letting them update the watermark made a 97% conversation read as
+	// 10% and skipped the compaction it needed.
+	switch kind {
+	case "plan", "chat_mode":
+		a.notePromptSize(u)
+	}
 	if taskID == "" {
 		return
 	}

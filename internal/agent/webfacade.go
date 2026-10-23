@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,10 +95,23 @@ func (a *Agent) DirectToolCall(ctx context.Context, name string, args map[string
 	if !ok {
 		return nil, fmt.Errorf("工具 %q 不存在", name)
 	}
-	dec := a.Gate.Evaluate(tool, args)
+	if args == nil {
+		args = map[string]any{}
+	}
+	if err := toolutil.ValidateArgs(tool, args); err != nil {
+		return nil, fmt.Errorf("工具 %s 参数不合法: %w", tool.Name(), err)
+	}
+	// Pin the roots for this call so a concurrent workspace switch cannot move
+	// the boundary between approval and execution.
+	ctx = toolutil.WithRoots(ctx, a.workspaceRoots())
+	dec := a.Gate.EvaluateStepIn(ctx, tool, args, false)
 	if dec.NeedApproval {
+		detail, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("参数无法序列化: %w", err)
+		}
 		resp := approve(types.ApprovalRequest{
-			Plan:   []string{fmt.Sprintf("直接调用工具 %s", tool.Name())},
+			Plan:   []string{fmt.Sprintf("%s: %s", tool.Name(), detail)},
 			Risk:   dec.Risk,
 			Reason: dec.Reason,
 		})
@@ -145,10 +160,17 @@ func (a *Agent) MemorySave(content string, tags []string) (string, error) {
 }
 
 func (a *Agent) MemoryScope() string {
+	if a.Cfg == nil {
+		return ""
+	}
+	return a.memoryScopeFor(a.Cfg.Workspace)
+}
+
+func (a *Agent) memoryScopeFor(workspace string) string {
 	if a.Cfg == nil || !a.Cfg.Memory.ProjectScope {
 		return ""
 	}
-	return strings.TrimSpace(a.Cfg.Workspace)
+	return strings.TrimSpace(workspace)
 }
 
 func (a *Agent) SkillList() []skill.Skill { return a.Skills.List() }
@@ -533,6 +555,7 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 	if entry.IsDefault || !a.hasDefaultModel() {
+		a.dropStaleTiersFor(entry)
 		a.setDefaultFlag(entry.ID)
 		entry.IsDefault = true
 	}
@@ -580,6 +603,7 @@ func (a *Agent) ModelUpdate(id string, raw map[string]any) (map[string]any, erro
 		return nil, err
 	}
 	if entry.IsDefault {
+		a.dropStaleTiersFor(entry)
 		a.setDefaultFlag(id)
 	}
 	if entry.IsFast {
@@ -599,7 +623,13 @@ func (a *Agent) ModelDelete(id string) (map[string]any, error) {
 	if idx < 0 {
 		return nil, fmt.Errorf("模型 %q 不存在", id)
 	}
+	wasDefault := a.Cfg.LLM.Models[idx].IsDefault
 	a.Cfg.LLM.Models = append(a.Cfg.LLM.Models[:idx], a.Cfg.LLM.Models[idx+1:]...)
+	if wasDefault {
+		if entry := a.defaultModelEntry(); entry != nil {
+			a.dropStaleTiersFor(*entry)
+		}
+	}
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
@@ -612,6 +642,7 @@ func (a *Agent) ModelSetDefault(id string) (map[string]any, error) {
 	if idx < 0 {
 		return nil, fmt.Errorf("模型 %q 不存在", id)
 	}
+	a.dropStaleTiersFor(a.Cfg.LLM.Models[idx])
 	a.setDefaultFlag(id)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
@@ -625,6 +656,7 @@ func (a *Agent) SetActiveModel(id string) (map[string]any, error) {
 	if idx < 0 {
 		return nil, fmt.Errorf("模型 %q 不存在", id)
 	}
+	a.dropStaleTiersFor(a.Cfg.LLM.Models[idx])
 	a.setDefaultFlag(id)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
@@ -639,6 +671,23 @@ func (a *Agent) ActiveModel() map[string]any {
 		return nil
 	}
 	return a.modelEntryView(*entry)
+}
+
+// dropStaleTiersFor forgets tier and legacy auxiliary model names when the
+// connection host changes. Those names belong to the previous vendor and would
+// otherwise be requested from the new endpoint.
+func (a *Agent) dropStaleTiersFor(entry config.ModelEntry) {
+	if a == nil || a.Cfg == nil {
+		return
+	}
+	baseURL, _, _ := llm.ResolveTarget(entry.ProviderID, entry.Plan, entry.BaseURL, entry.Model, entry.Protocol)
+	oldScope, nextScope := llm.KeyScope(a.Cfg.LLM.BaseURL), llm.KeyScope(baseURL)
+	if oldScope == "" || nextScope == "" || oldScope == nextScope {
+		return
+	}
+	a.Cfg.LLM.FastModel = ""
+	a.Cfg.LLM.Tiers = nil
+	a.clearFastFlag()
 }
 
 func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
@@ -657,6 +706,12 @@ func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
 	a.Cfg.LLM.Protocol = protocol
 	a.Cfg.LLM.APIKey = key
 	a.Cfg.LLM.APIKeyScope = llm.KeyScope(baseURL)
+	if entry.ProviderID != "" {
+		a.Cfg.LLM.ProviderID = entry.ProviderID
+	}
+	if entry.Plan != "" {
+		a.Cfg.LLM.Plan = entry.Plan
+	}
 	return nil
 }
 
@@ -678,6 +733,15 @@ func (a *Agent) saveModelsOverlay() error {
 		return fmt.Errorf("已生效但保存失败: %w", err)
 	}
 	return nil
+}
+
+// hasRedactedProxyUser detects the placeholder the network view shows in place
+// of real proxy credentials. Saving it would overwrite the password with ***.
+func hasRedactedProxyUser(raw string) bool {
+	if u, err := url.Parse(raw); err == nil && u.User != nil {
+		return u.User.Username() == "***"
+	}
+	return strings.HasPrefix(raw, "***@")
 }
 
 func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
@@ -922,7 +986,11 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 			}
 		}
 		if raw, ok := v["proxy_url"].(string); ok {
-			sub("network")["proxy_url"] = strings.TrimSpace(raw)
+			raw = strings.TrimSpace(raw)
+			if hasRedactedProxyUser(raw) {
+				return a.SettingsView(), fmt.Errorf("代理地址里的 *** 只是显示占位符，请重新输入完整地址（含账号密码）后再保存")
+			}
+			sub("network")["proxy_url"] = raw
 		}
 		if m := sub("network"); m["proxy_mode"] == "manual" {
 			raw, _ := m["proxy_url"].(string)
@@ -938,19 +1006,21 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		return a.SettingsView(), fmt.Errorf("没有可应用的有效设置")
 	}
 
-	if lm, ok := sanitized["llm"].(map[string]any); ok && a.Cfg.LLM.Provider != "mock" {
-		// Resolve the post-apply target first: without a model, do not write
-		// the config, or the runtime sends requests with an empty model and the
-		// error points far from the real cause. Base URL may be cleared first.
-		_, model, _, _ := a.llmFormTarget(lm)
-		if strings.TrimSpace(model) == "" {
+	var targetBase, targetModel, targetProtocol string
+	if lm, ok := sanitized["llm"].(map[string]any); ok {
+		targetBase, targetModel, targetProtocol, _ = a.llmFormTarget(lm)
+		if a.Cfg.LLM.Provider != "mock" && strings.TrimSpace(targetModel) == "" {
 			return a.SettingsView(), fmt.Errorf("模型 ID 不能为空：选择厂商后请填写要使用的模型")
 		}
 	}
 
 	prevProviderID := a.Cfg.LLM.ProviderID
 	prevPlan := a.Cfg.LLM.Plan
+	prevBaseScope := llm.KeyScope(a.Cfg.LLM.BaseURL)
 	a.Cfg.Apply(sanitized)
+	if _, changed := sanitized["scheduler"]; changed && a.Sched != nil {
+		a.Sched.SetPaused(!a.Cfg.Scheduler.Enabled)
+	}
 
 	if lm, ok := sanitized["llm"].(map[string]any); ok {
 		pid, _ := lm["provider_id"].(string)
@@ -968,6 +1038,12 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 			a.Cfg.LLM.FastModel = ""
 			a.Cfg.LLM.Tiers = nil
 			a.clearFastFlag()
+		} else if nextScope := llm.KeyScope(targetBase); prevBaseScope != "" && nextScope != "" && nextScope != prevBaseScope {
+			// The provider preset stayed the same but the endpoint moved: tier
+			// names are just as vendor-specific.
+			a.Cfg.LLM.FastModel = ""
+			a.Cfg.LLM.Tiers = nil
+			a.clearFastFlag()
 		} else if v, has := lm["fast_model"].(string); has {
 			// The advanced settings field is the legacy entry: when it is
 			// explicitly cleared or changed, a checkbox in the model list must
@@ -982,33 +1058,34 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 	if lm, ok := sanitized["llm"].(map[string]any); ok {
 		formKey, _ := lm["api_key"].(string)
 		clearKey, _ := lm["clear_api_key"].(bool)
-		bindBase, _, _, _ := a.llmFormTarget(lm)
-		if _, err := BindLLMKey(a.Cfg, a.Creds, bindBase, formKey, clearKey); err != nil {
+		if _, err := BindLLMKey(a.Cfg, a.Creds, targetBase, formKey, clearKey); err != nil {
 			return a.SettingsView(), err
 		}
 	}
 
 	if a.Cfg.LLM.Provider != "mock" {
 		if _, hasLLM := sanitized["llm"]; hasLLM {
-			if lm, ok := sanitized["llm"].(map[string]any); ok {
-				_, hasBaseURL := lm["base_url"]
-				_, hasModel := lm["model"]
-				providerIDInPatch, _ := lm["provider_id"].(string)
-				if providerIDInPatch != "" && providerIDInPatch != prevProviderID {
-					if !hasBaseURL {
-						a.Cfg.LLM.BaseURL = ""
-					}
-					if !hasModel {
-						a.Cfg.LLM.Model = ""
-					}
-				}
-			}
-			baseURL, model, protocol := llm.ResolveTarget(a.Cfg.LLM.ProviderID, a.Cfg.LLM.Plan, a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol)
-			a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol = baseURL, model, protocol
-			a.LLM = llm.New(protocol, baseURL, a.Cfg.LLM.APIKey, model,
+			a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol = targetBase, targetModel, targetProtocol
+			a.LLM = llm.New(targetProtocol, targetBase, a.Cfg.LLM.APIKey, targetModel,
 				a.Cfg.LLM.Temperature, a.Cfg.LLM.MaxTokens, a.Cfg.LLM.TimeoutSecs)
 			a.RebuildFastClient()
 			a.RebuildTierClients()
+			// The default entry drives the runtime at startup; leaving its old
+			// connection here made the next launch restore the previous model.
+			if entry := a.defaultModelEntry(); entry != nil {
+				entry.ProviderID = a.Cfg.LLM.ProviderID
+				entry.Plan = a.Cfg.LLM.Plan
+				entry.BaseURL = targetBase
+				entry.Model = targetModel
+				entry.Protocol = targetProtocol
+				if lm, ok := sanitized["llm"].(map[string]any); ok {
+					formKey, _ := lm["api_key"].(string)
+					clearKey, _ := lm["clear_api_key"].(bool)
+					if strings.TrimSpace(formKey) != "" || clearKey {
+						entry.APIKey = ""
+					}
+				}
+			}
 		}
 	}
 	if a.Gate != nil {
@@ -1046,7 +1123,10 @@ func (a *Agent) llmFormTarget(override map[string]any) (base, model, protocol, k
 	if _, ok := override["model"].(string); !ok && !providerChanged {
 		model = a.Cfg.LLM.Model
 	}
-	protocol = firstNonEmpty(str("protocol"), a.Cfg.LLM.Protocol)
+	protocol = str("protocol")
+	if _, explicit := override["protocol"]; !explicit && !providerChanged && plan == a.Cfg.LLM.Plan {
+		protocol = a.Cfg.LLM.Protocol
+	}
 	base, model, protocol = llm.ResolveTarget(pid, plan, base, model, protocol)
 	key, _ = a.llmKeyFor(base, str("api_key"))
 	return
@@ -1187,7 +1267,9 @@ func (a *Agent) ContextView() map[string]any {
 }
 
 func (a *Agent) ResetConversation() {
-	if a.Mem != nil {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Mem != nil && a.idleLocked() == nil {
 		a.Mem.ResetConversation()
 	}
 }

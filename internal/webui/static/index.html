@@ -20,7 +20,6 @@
     <link rel="stylesheet" href="/assets/06-features.css" />
     <link rel="stylesheet" href="/assets/chrome.css" />
     <link rel="stylesheet" href="/assets/settings2.css" />
-    <link rel="stylesheet" href="/assets/hardware.css" />
     <!-- IA 重构层：放在最后，同选择器后来者赢，不改旧层 -->
     <link rel="stylesheet" href="/assets/08-ia.css" />
     <link rel="stylesheet" href="/assets/09-visual.css" />
@@ -93,6 +92,23 @@
     <div class="app">
       <!-- 顶栏：侧栏开关 / 前进后退 / 应用内菜单；中间是拖拽区与品牌；右侧是面板开关与（桌面壳里的）窗口按钮 -->
       <header class="topbar">
+        <button
+          class="gleam-wordmark"
+          type="button"
+          data-goto="goals"
+          aria-label="Gleam 微光工作台"
+        >
+          <img src="/assets/gleam-logo.svg" width="30" height="30" alt="" />
+          <span>Gleam<small>微光</small></span>
+        </button>
+        <nav class="primary-nav" aria-label="主导航">
+          <button type="button" data-goto="goals" aria-current="page">
+            工作台
+          </button>
+          <button type="button" data-goto="library">资料与能力</button>
+          <button type="button" data-goto="schedules">自动化</button>
+        </nav>
+        <div class="topbar-drag"></div>
         <button
           class="topbar-btn"
           id="sidebar-toggle"
@@ -183,8 +199,49 @@
             <path d="M19 12H5M11 6l-6 6 6 6" />
           </svg>
         </button>
-        <div class="topbar-drag"></div>
         <div class="topbar-right">
+          <button
+            class="topbar-btn"
+            id="global-search"
+            type="button"
+            title="搜索任务与功能（Ctrl+K）"
+            aria-label="搜索任务与功能"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="17"
+              height="17"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              aria-hidden="true"
+            >
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
+          </button>
+          <button
+            class="topbar-btn"
+            type="button"
+            data-goto="settings"
+            title="设置"
+            aria-label="设置"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="17"
+              height="17"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <path d="M4 7h16M4 17h16" />
+              <circle cx="9" cy="7" r="2.5" fill="var(--frame)" />
+              <circle cx="15" cy="17" r="2.5" fill="var(--frame)" />
+            </svg>
+          </button>
           <button
             class="topbar-btn"
             id="rail-open"
@@ -323,29 +380,31 @@
           </div>
         </div>
       </header>
+      <nav class="module-trail" id="module-trail" aria-label="当前位置" hidden>
+        <button type="button" data-goto="library">资料与能力</button>
+        <span aria-hidden="true">/</span><span id="module-current"></span>
+      </nav>
+      <button
+        class="history-scrim"
+        id="history-scrim"
+        type="button"
+        aria-label="关闭任务记录"
+        hidden
+      ></button>
       <!-- 单列侧栏：品牌胶囊 / 新任务 / 搜索 / 工作区列表 / 底部导航 / 用户行 -->
       <aside class="sidebar" id="sidebar" aria-label="侧栏">
         <!-- 拖窄时外面这层裁切、里面这层保持原宽度：内容不重排不折行，像拉帘子一样被右边盖住 -->
         <div class="sidebar-inner">
           <div class="sidebar-head">
-            <span class="topbar-brand sidebar-brand" title="Gleam · 微光"
-              ><svg
-                class="brand-mark"
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                aria-hidden="true"
-              >
-                <path
-                  d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M5.6 18.4l2.2-2.2M16.2 7.8l2.2-2.2"
-                />
-                <circle cx="12" cy="12" r="3" /></svg
-              ><span>Gleam</span><small>微光</small></span
+            <span class="sidebar-brand">任务记录</span>
+            <button
+              class="topbar-btn"
+              id="history-close"
+              type="button"
+              aria-label="关闭任务记录"
             >
+              ×
+            </button>
           </div>
 
           <div class="sidebar-top">
@@ -539,6 +598,18 @@
 
       <!-- 主区 -->
       <main class="main" id="main">
+        <section
+          class="view view-library"
+          id="view-library"
+          aria-labelledby="library-title"
+        >
+          <div class="library-heading">
+            <p class="page-eyebrow">GLEAM / LIBRARY</p>
+            <h1 id="library-title">让每次积累，都用得上。</h1>
+            <p>资料留在手边，能力按需取用。不必在开始前配置一切。</p>
+          </div>
+          <div class="library-sections" id="library-sections"></div>
+        </section>
         <!-- ===== 目标视图 ===== -->
         <section
           class="view view-chat active"
@@ -660,8 +731,14 @@
             </div>
             <div class="row-list" id="goal-feed" aria-live="polite">
               <div class="empty home-hero" id="goals-empty">
-                <div class="empty-title">今天想让微光做什么？</div>
-                <p class="empty-desc">写下一个目标，剩下的交给微光推进。</p>
+                <p class="page-eyebrow">
+                  <span class="gleam-ray" aria-hidden="true"></span
+                  >一点微光，开始做事
+                </p>
+                <h1 class="empty-title">把想法，<br />照进现实。</h1>
+                <p class="empty-desc">
+                  从一件具体的事开始。微光帮你读资料、写代码、处理工作，过程与结果都可回看。
+                </p>
                 <div class="empty-entries" aria-label="快捷开始">
                   <button
                     class="quick-card"
@@ -689,7 +766,6 @@
                     <strong>快速研究</strong><small>阅读文档 · 输出简报</small>
                   </button>
                 </div>
-                <section class="activity-card" aria-label="本机活动"></section>
                 <section
                   class="site-tpl"
                   aria-label="站点模板"
@@ -703,7 +779,10 @@
             </div>
           </div>
 
-          <div class="card card--glass composer" id="composer">
+          <div class="card composer" id="composer">
+            <div class="composer-heading">
+              <span>交给微光</span><small>描述目标，再开始</small>
+            </div>
             <!-- 上边框正中那枚把手：按住上下拖可以改输入区高度 -->
             <div
               class="composer-grip"
@@ -715,12 +794,17 @@
               title="按住上下拖动，调整输入框高度（双击恢复自动高度）"
             ></div>
             <div class="composer-refs" id="composer-refs" hidden></div>
-            <div
-              class="expert-bar"
-              id="expert-bar"
-              role="radiogroup"
-              aria-label="专家团"
-            ></div>
+            <details class="role-picker" id="role-picker">
+              <summary>
+                工作角色 <span id="role-current">通用助手</span>
+              </summary>
+              <div
+                class="expert-bar"
+                id="expert-bar"
+                role="radiogroup"
+                aria-label="内置角色"
+              ></div>
+            </details>
             <textarea
               class="composer-input"
               id="goal-input"
@@ -1547,7 +1631,7 @@
         >
           <header class="view-header page-head">
             <div class="page-head-text">
-              <h1 class="view-title" id="schedules-title">定时任务</h1>
+              <h1 class="view-title" id="schedules-title">自动化</h1>
               <p class="view-desc">
                 到点自动执行目标。直接用中文描述“每天几点、工作日、每周几、每隔多久”就行。
               </p>
@@ -1835,25 +1919,7 @@
           </div>
           <header class="view-header page-head sites-head">
             <div class="page-head-text">
-              <h1 class="view-title" id="sites-title">
-                探索
-                <span class="sites-word"
-                  ><svg
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <path d="M3 9h18" /></svg
-                  >站点</span
-                >
-              </h1>
+              <h1 class="view-title" id="sites-title">网页作品</h1>
               <p class="view-desc">把想法做成一张能直接打开的网页</p>
             </div>
             <div class="sites-art" aria-hidden="true">
@@ -1887,16 +1953,6 @@
                 data-stab-site="mine"
               >
                 我的站点
-              </button>
-              <button
-                class="text-tab"
-                role="tab"
-                aria-selected="false"
-                disabled
-                aria-disabled="true"
-                title="需要账号同步才能看到别人共享的站点，这一版还没有"
-              >
-                共享给我的
               </button>
             </div>
             <div
@@ -1955,7 +2011,7 @@
         <section class="view" id="view-market" aria-labelledby="market-title">
           <header class="view-header page-head">
             <div class="page-head-text">
-              <h1 class="view-title" id="market-title">市场</h1>
+              <h1 class="view-title" id="market-title">扩展目录</h1>
               <p class="view-desc">
                 常见 MCP 服务器与技能模板，一键安装，安装即热生效；也支持自定义
                 stdio 接入。
@@ -2136,147 +2192,6 @@
 
         <section
           class="view"
-          id="view-hardware"
-          aria-labelledby="hardware-title"
-        >
-          <header class="view-header">
-            <h1 class="view-title" id="hardware-title">硬件设备</h1>
-            <p class="view-desc">
-              管理已注册的 AI 硬件设备，连接、配置和控制你的智能硬件。
-            </p>
-            <button class="btn btn-ghost" id="refresh-btn" type="button">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                aria-hidden="true"
-              >
-                <path d="M23 4v6h-6M1 20v-6h6" />
-                <path
-                  d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"
-                />
-              </svg>
-              刷新
-            </button>
-          </header>
-
-          <div class="hardware-content">
-            <section class="device-list-section">
-              <h2>已注册设备</h2>
-              <div class="device-grid" id="device-grid">
-                <div class="empty-state">
-                  <svg
-                    width="48"
-                    height="48"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                    <path d="M9 9h6v6H9z" />
-                  </svg>
-                  <p>暂无已注册设备</p>
-                </div>
-              </div>
-            </section>
-
-            <section class="connected-section">
-              <h2>已连接设备</h2>
-              <div class="connected-list" id="connected-list">
-                <div class="empty-state">
-                  <svg
-                    width="48"
-                    height="48"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                    <path d="M9 9h6v6H9z" />
-                  </svg>
-                  <p>暂无已连接设备</p>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <!-- Xiaohong Setup Modal -->
-          <div class="modal" id="xiaohong-modal">
-            <div class="modal-content">
-              <div class="modal-header">
-                <h3>连接 AtomGit 小鸿</h3>
-                <button class="modal-close" data-close>&times;</button>
-              </div>
-              <div class="modal-body">
-                <div class="setup-steps">
-                  <div class="step active" data-step="1">
-                    <div class="step-number">1</div>
-                    <div class="step-content">
-                      <h4>扫描 WiFi 网络</h4>
-                      <p>小鸿将扫描周围的 WiFi 网络</p>
-                      <button class="btn btn-primary" id="scan-wifi-btn">
-                        开始扫描
-                      </button>
-                    </div>
-                  </div>
-                  <div class="step" data-step="2">
-                    <div class="step-number">2</div>
-                    <div class="step-content">
-                      <h4>选择 WiFi 并输入密码</h4>
-                      <div class="wifi-list" id="wifi-list"></div>
-                      <div class="wifi-password">
-                        <input
-                          type="password"
-                          id="wifi-password"
-                          placeholder="输入 WiFi 密码"
-                        />
-                        <button class="btn btn-primary" id="connect-wifi-btn">
-                          连接
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="step" data-step="3">
-                    <div class="step-number">3</div>
-                    <div class="step-content">
-                      <h4>等待连接</h4>
-                      <div class="connecting-animation">
-                        <div class="spinner"></div>
-                        <p>正在连接到 WiFi...</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="step" data-step="4">
-                    <div class="step-number">✓</div>
-                    <div class="step-content">
-                      <h4>连接成功</h4>
-                      <p>小鸿已成功连接到网络</p>
-                      <button class="btn btn-primary" data-close>完成</button>
-                    </div>
-                  </div>
-                  <div class="step" data-step="error">
-                    <div class="step-number">!</div>
-                    <div class="step-content">
-                      <h4>连接失败</h4>
-                      <p id="error-message">WiFi 连接失败，请检查密码后重试</p>
-                      <button class="btn btn-secondary" id="retry-btn">
-                        重新配置
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section
-          class="view"
           id="view-settings"
           aria-labelledby="settings-title"
         >
@@ -2441,14 +2356,6 @@
               </button>
               <button
                 class="settings-tab"
-                data-stab="index"
-                role="tab"
-                aria-selected="false"
-              >
-                工作区索引
-              </button>
-              <button
-                class="settings-tab"
                 data-stab="conn"
                 role="tab"
                 aria-selected="false"
@@ -2583,9 +2490,6 @@
               </div>
               <div class="settings-panel" data-stab="worktrees" hidden>
                 <div class="s2-page" id="s2-worktrees"></div>
-              </div>
-              <div class="settings-panel" data-stab="index" hidden>
-                <div class="s2-page" id="s2-index"></div>
               </div>
               <div class="settings-panel" data-stab="conn" hidden>
                 <div class="s2-page" id="s2-conn"></div>
@@ -3502,7 +3406,7 @@
         <!-- ===== 成长视图 ===== -->
         <section class="view" id="view-growth" aria-labelledby="growth-title">
           <header class="view-header">
-            <h1 class="view-title" id="growth-title">成长</h1>
+            <h1 class="view-title" id="growth-title">使用回顾</h1>
             <p class="view-desc">
               记录 Gleam 与你协作的每一步——任务完成、技能新增、效率提升。
             </p>
@@ -3572,7 +3476,7 @@
         <!-- ===== GEO 视图（生成式引擎优化） ===== -->
         <section class="view" id="view-geo" aria-labelledby="geo-title">
           <header class="view-header">
-            <h1 class="view-title" id="geo-title">GEO 生成式引擎优化</h1>
+            <h1 class="view-title" id="geo-title">内容分析</h1>
             <p class="view-desc">
               让创作产出更容易被大模型检索、引用与推荐。每次创作完成后自动给出建议，也可在此手动分析任意内容。
             </p>

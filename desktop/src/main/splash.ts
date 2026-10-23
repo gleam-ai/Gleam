@@ -30,7 +30,7 @@ function copy(lang: Lang) {
         heading: '环境准备中',
         sub: '正在准备运行环境，请稍候，完成后自动进入主界面。',
         starting: '正在启动…',
-        hold: (n: number) => `（${n} 秒后自动进入主界面）`,
+        hold: '（{n} 秒后自动进入主界面）',
         entering: '（正在进入主界面…）',
       }
     : {
@@ -38,7 +38,7 @@ function copy(lang: Lang) {
         heading: 'Preparing environment',
         sub: 'Getting the runtime ready — the main window opens as soon as this finishes.',
         starting: 'Starting…',
-        hold: (n: number) => ` (opening the main window in ${n}s)`,
+        hold: ' (opening the main window in {n}s)',
         entering: ' (opening the main window…)',
       };
 }
@@ -88,11 +88,11 @@ const html = (brand: string, lang: Lang) => {
     var cap = document.getElementById('cap');
     if (!s.holdSeconds) { cap.textContent = s.status; return; }
     var left = s.holdSeconds;
-    cap.textContent = s.status + HOLD(left);
+    cap.textContent = s.status + HOLD.replace('{n}', String(left));
     var t = setInterval(function () {
       left -= 1;
       if (left <= 0) { clearInterval(t); cap.textContent = s.status + ENTERING; return; }
-      cap.textContent = s.status + HOLD(left);
+      cap.textContent = s.status + HOLD.replace('{n}', String(left));
     }, 1000);
   };
 </script></body></html>`;

@@ -3,7 +3,6 @@ async function loadSchedules() {
   list.innerHTML = '<div class="skeleton" style="height:56px"></div>';
   try {
     const { jobs } = await api('GET', '/api/schedules');
-    LiveRail.schedules((jobs || []).length);
     list.innerHTML = '';
     if (!jobs || !jobs.length) {
       list.innerHTML = `<div class="empty empty--card"><div class="empty-hero" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div><div class="empty-title">暂无定时任务</div><p class="empty-desc">创建一个任务，让 Gleam 按时自动执行目标。</p></div>`;

@@ -15,6 +15,7 @@ import (
 	"gleam/internal/harness/registry"
 	"gleam/internal/llm"
 	"gleam/internal/textmatch"
+	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
 )
 
@@ -522,126 +523,17 @@ func (p *Planner) validate(raw []byte, goal string) (types.Plan, error) {
 		if args == nil {
 			args = map[string]any{}
 		}
-		if err := validateArgs(tool, args); err != nil {
+		if err := toolutil.ValidateArgs(tool, args); err != nil {
 			return types.Plan{}, fmt.Errorf("步骤 %s（%s）参数不合法: %w", id, tool.Name(), err)
 		}
 		plan.Steps = append(plan.Steps, types.Step{
 			ID: id, Description: rs.Description, Tool: tool.Name(), Args: args, DependsOn: rs.DependsOn,
 		})
 	}
-	for _, st := range plan.Steps {
-		for _, d := range st.DependsOn {
-			if d == st.ID {
-				return types.Plan{}, fmt.Errorf("步骤 %s 依赖自身", st.ID)
-			}
-			if !ids[d] {
-				return types.Plan{}, fmt.Errorf("步骤 %s 依赖了不存在的步骤 %q", st.ID, d)
-			}
-		}
-	}
-	if err := checkAcyclic(plan.Steps); err != nil {
+	if err := types.ValidateStepGraph(plan.Steps); err != nil {
 		return types.Plan{}, err
 	}
 	return plan, nil
-}
-
-func validateArgs(t types.Tool, args map[string]any) error {
-	schema := t.Schema()
-	req, _ := schema["required"].([]any)
-	props, _ := schema["properties"].(map[string]any)
-	for _, r := range req {
-		key, ok := r.(string)
-		if !ok {
-			continue
-		}
-		v, present := args[key]
-		if s, isStr := v.(string); isStr {
-			if !present || strings.TrimSpace(s) == "" {
-				return fmt.Errorf("缺少必填参数 %q", key)
-			}
-			continue
-		}
-		if !present || v == nil {
-			return fmt.Errorf("缺少必填参数 %q", key)
-		}
-	}
-	for k, v := range args {
-		prop, ok := props[k].(map[string]any)
-		if !ok {
-			continue
-		}
-		typ, _ := prop["type"].(string)
-		if err := checkType(k, v, typ); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func checkType(key string, v any, typ string) error {
-	switch typ {
-	case "string":
-		if _, ok := v.(string); !ok {
-			return fmt.Errorf("参数 %q 应为字符串", key)
-		}
-	case "number", "integer":
-		switch v.(type) {
-		case float64, int64, int:
-		default:
-			return fmt.Errorf("参数 %q 应为数字", key)
-		}
-	case "boolean":
-		if _, ok := v.(bool); !ok {
-			return fmt.Errorf("参数 %q 应为布尔值", key)
-		}
-	case "array":
-		if _, ok := v.([]any); !ok {
-			return fmt.Errorf("参数 %q 应为数组", key)
-		}
-	case "object":
-		if _, ok := v.(map[string]any); !ok {
-			return fmt.Errorf("参数 %q 应为对象", key)
-		}
-	}
-	return nil
-}
-
-func checkAcyclic(steps []types.Step) error {
-	deps := map[string][]string{}
-	for _, st := range steps {
-		deps[st.ID] = st.DependsOn
-	}
-	const (
-		white = 0
-		gray  = 1
-		black = 2
-	)
-	color := map[string]int{}
-	var visit func(id string, stack []string) error
-	visit = func(id string, stack []string) error {
-		color[id] = gray
-		stack = append(stack, id)
-		for _, d := range deps[id] {
-			switch color[d] {
-			case gray:
-				return fmt.Errorf("计划存在循环依赖: %s", strings.Join(append(stack, d), " → "))
-			case white:
-				if err := visit(d, stack); err != nil {
-					return err
-				}
-			}
-		}
-		color[id] = black
-		return nil
-	}
-	for id := range deps {
-		if color[id] == white {
-			if err := visit(id, nil); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func extractJSON(s string) ([]byte, error) {

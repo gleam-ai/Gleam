@@ -34,9 +34,11 @@ type Server struct {
 
 	DisableSelfUpdate bool
 	updateMu          sync.Mutex
+	desktopPinMu      sync.Mutex
+	desktopPin        *releaseInfo
+	desktopPinAt      time.Time
 
 	mu        sync.Mutex
-	submitMu  sync.Mutex
 	tasks     map[string]*taskInfo
 	approvals map[string]*approvalWaiter
 	clients   map[chan sseEvent]struct{}
@@ -101,6 +103,14 @@ func (s *Server) OnTool(ev types.ToolEvent) {
 }
 
 func (s *Server) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
+	return s.onApprovalContext(context.Background(), req)
+}
+
+func (s *Server) onApprovalContext(ctx context.Context, req types.ApprovalRequest) types.ApprovalResponse {
+	cancelled := types.ApprovalResponse{Approved: false, Note: "请求已取消，自动拒绝"}
+	if ctx.Err() != nil {
+		return cancelled
+	}
 	w := &approvalWaiter{
 		ID:        "apr-" + types.NewID(),
 		Req:       req,
@@ -118,7 +128,13 @@ func (s *Server) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	timer := time.NewTimer(s.Agent.ApprovalTimeout())
 	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		s.resolve(w.ID, cancelled)
+		return cancelled
 	case resp := <-w.ch:
+		if ctx.Err() != nil {
+			return cancelled
+		}
 		return resp
 	case <-timer.C:
 		s.resolve(w.ID, types.ApprovalResponse{Approved: false, Note: "审批超时，自动拒绝"})
@@ -218,6 +234,9 @@ func (s *Server) resolve(id string, resp types.ApprovalResponse) bool {
 	if !ok {
 		return false
 	}
+	// Other tabs must retire their copy of the card; without this they keep
+	// offering a decision the server has already taken.
+	s.broadcast(newEvent("approval_resolved", map[string]any{"id": id}))
 	select {
 	case w.ch <- resp:
 	default:
@@ -245,7 +264,7 @@ func (s *Server) dropTaskApprovals(taskID, note string) {
 }
 
 func (w *approvalWaiter) view() map[string]any {
-	return map[string]any{
+	view := map[string]any{
 		"id":         w.ID,
 		"task_id":    w.Req.TaskID,
 		"plan":       w.Req.Plan,
@@ -255,6 +274,10 @@ func (w *approvalWaiter) view() map[string]any {
 		"whole_plan": w.Req.WholePlan,
 		"created_at": w.CreatedAt,
 	}
+	if w.Req.RequestID != "" {
+		view["request_id"] = w.Req.RequestID
+	}
+	return view
 }
 
 func (t *taskInfo) appendEvent(ev sseEvent) {

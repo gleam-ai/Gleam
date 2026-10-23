@@ -388,9 +388,9 @@ func TestReadiness_IsReadOnlyAndIdempotent(t *testing.T) {
 func TestReadiness_AggregateUsage(t *testing.T) {
 	a := fullKitAgent(t)
 	a.initUsage("t1")
-	a.addUsage("t1", llm.Usage{PromptTokens: 1000, CompletionTokens: 50, CachedTokens: 800})
+	a.addUsage("t1", "plan", llm.Usage{PromptTokens: 1000, CompletionTokens: 50, CachedTokens: 800})
 	a.initUsage("t2")
-	a.addUsage("t2", llm.Usage{PromptTokens: 500, CompletionTokens: 20})
+	a.addUsage("t2", "plan", llm.Usage{PromptTokens: 500, CompletionTokens: 20})
 
 	u := a.aggregateUsage()
 	if u.LLMCalls != 2 || u.PromptTokens != 1500 || u.CachedTokens != 800 || u.CachedCalls != 1 {
@@ -410,7 +410,7 @@ func TestReadiness_AggregateUsage(t *testing.T) {
 func TestReadiness_UsageNoCacheReportedIsNotALie(t *testing.T) {
 	a := fullKitAgent(t)
 	a.initUsage("t1")
-	a.addUsage("t1", llm.Usage{PromptTokens: 1000, CompletionTokens: 50})
+	a.addUsage("t1", "plan", llm.Usage{PromptTokens: 1000, CompletionTokens: 50})
 
 	joined := strings.Join(readyItem(t, a.Readiness(), "cache_control").Evidence, "\n")
 	if !strings.Contains(joined, "未报告") {

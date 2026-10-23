@@ -343,6 +343,69 @@ func TestDesktopUpdateAssetProxy(t *testing.T) {
 	}
 }
 
+func TestDesktopUpdateAssetPinsReleaseAcrossDownload(t *testing.T) {
+	release := "v0.0.21"
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/gleam-ai/Gleam/releases/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tag_name": release,
+				"assets": []map[string]any{
+					{
+						"name":                 "latest.yml",
+						"url":                  "https://api.github.com/repos/gleam-ai/Gleam/releases/assets/" + release + "-meta",
+						"browser_download_url": "https://github.com/gleam-ai/Gleam/releases/download/" + release + "/latest.yml",
+						"size":                 32,
+					},
+					{
+						"name":                 "Gleam-Setup.exe",
+						"url":                  "https://api.github.com/repos/gleam-ai/Gleam/releases/assets/" + release + "-installer",
+						"browser_download_url": "https://github.com/gleam-ai/Gleam/releases/download/" + release + "/Gleam-Setup.exe",
+						"size":                 32,
+					},
+				},
+			})
+		default:
+			// Serve by the requested asset URL, not the current "latest".
+			body := "installer-v0.0.21"
+			if strings.Contains(r.URL.Path, "v0.0.22") {
+				body = "installer-v0.0.22"
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			_, _ = w.Write([]byte(body))
+		}
+	})
+
+	s := &Server{}
+	fetch := func(name string) string {
+		req := httptest.NewRequest(http.MethodGet, "/api/update/desktop/"+name, nil)
+		req.SetPathValue("name", name)
+		rec := httptest.NewRecorder()
+		s.handleDesktopUpdateAsset(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, body = %s", name, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	if got := fetch("latest.yml"); got != "installer-v0.0.21" {
+		t.Fatalf("metadata = %q", got)
+	}
+	// A release published between the check and the download must not swap the
+	// installer: the digest the updater read belongs to the pinned release.
+	release = "v0.0.22"
+	if got := fetch("Gleam-Setup.exe"); got != "installer-v0.0.21" {
+		t.Fatalf("release changed mid-download: %q", got)
+	}
+	// The next check refreshes the pin, and downloads follow the new release.
+	if got := fetch("latest.yml"); got != "installer-v0.0.22" {
+		t.Fatalf("metadata after re-check = %q", got)
+	}
+	if got := fetch("Gleam-Setup.exe"); got != "installer-v0.0.22" {
+		t.Fatalf("new pin not applied: %q", got)
+	}
+}
+
 func TestDesktopUpdateAssetRejectsUntrustedSource(t *testing.T) {
 	var assetHits int
 	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {

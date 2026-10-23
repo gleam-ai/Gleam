@@ -1,8 +1,11 @@
 package toolutil
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"gleam/pkg/types"
 )
 
 func TestStr(t *testing.T) {
@@ -76,5 +79,31 @@ func TestSchema(t *testing.T) {
 	props := s["properties"].(map[string]any)
 	if !strings.Contains(props["path"].(map[string]any)["type"].(string), "string") {
 		t.Error("属性类型")
+	}
+}
+
+type schemaOnlyTool struct{ schema map[string]any }
+
+func (s schemaOnlyTool) Name() string                                         { return "schema-only" }
+func (s schemaOnlyTool) Description() string                                  { return "" }
+func (s schemaOnlyTool) Schema() map[string]any                               { return s.schema }
+func (s schemaOnlyTool) Permission() types.Permission                         { return types.PermissionUserApproved }
+func (s schemaOnlyTool) Execute(context.Context, map[string]any) (any, error) { return nil, nil }
+
+func TestValidateArgs_RequiredStringSlice(t *testing.T) {
+	tool := schemaOnlyTool{schema: Schema("写文件", []string{"path", "content"}, map[string]any{
+		"path": SchemaProp("路径", "string"), "content": SchemaProp("内容", "string"),
+	})}
+	if err := ValidateArgs(tool, map[string]any{"path": "a.txt"}); err == nil || !strings.Contains(err.Error(), "content") {
+		t.Fatalf("缺少必填 content 应报错，实际 %v", err)
+	}
+	if err := ValidateArgs(tool, map[string]any{"path": "a.txt", "content": "  "}); err == nil {
+		t.Error("空白必填字符串应报错")
+	}
+	if err := ValidateArgs(tool, map[string]any{"path": "a.txt", "content": 42}); err == nil {
+		t.Error("content 类型错误应报错")
+	}
+	if err := ValidateArgs(tool, map[string]any{"path": "a.txt", "content": "ok"}); err != nil {
+		t.Fatalf("合法参数被拒: %v", err)
 	}
 }

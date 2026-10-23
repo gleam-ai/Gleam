@@ -19,7 +19,7 @@ func TestBudget_ZeroMeansUnlimited(t *testing.T) {
 	f.a.Cfg.Agent.MaxTokensPerTask = 0
 	f.a.Cfg.Agent.MaxTaskDurationSecs = 0
 	f.a.initUsage("t-unlimited")
-	f.a.addUsage("t-unlimited", llm.Usage{PromptTokens: 100, CompletionTokens: 100})
+	f.a.addUsage("t-unlimited", "plan", llm.Usage{PromptTokens: 100, CompletionTokens: 100})
 	if got := f.a.overBudget("t-unlimited"); got != "" {
 		t.Fatalf("预算全为 0 时不应限流，实际：%s", got)
 	}
@@ -55,8 +55,8 @@ func TestBudget_GrantExtendsLimit(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.MaxLLMCallsPerTask = 2
 	f.a.initUsage("t-grant")
-	f.a.addUsage("t-grant", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
-	f.a.addUsage("t-grant", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
+	f.a.addUsage("t-grant", "plan", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
+	f.a.addUsage("t-grant", "plan", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
 	if got := f.a.overBudget("t-grant"); got == "" {
 		t.Fatal("达到调用上限时应报告超限")
 	}
@@ -64,8 +64,8 @@ func TestBudget_GrantExtendsLimit(t *testing.T) {
 	if got := f.a.overBudget("t-grant"); got != "" {
 		t.Fatalf("批准后应获得追加额度，仍超限：%s", got)
 	}
-	f.a.addUsage("t-grant", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
-	f.a.addUsage("t-grant", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
+	f.a.addUsage("t-grant", "plan", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
+	f.a.addUsage("t-grant", "plan", llm.Usage{PromptTokens: 10, CompletionTokens: 10})
 	if got := f.a.overBudget("t-grant"); got == "" {
 		t.Fatal("追加额度用尽后应再次报告超限")
 	}
@@ -75,11 +75,11 @@ func TestBudget_TokenLimit(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.MaxTokensPerTask = 100
 	f.a.initUsage("t-token")
-	f.a.addUsage("t-token", llm.Usage{PromptTokens: 60, CompletionTokens: 30})
+	f.a.addUsage("t-token", "plan", llm.Usage{PromptTokens: 60, CompletionTokens: 30})
 	if got := f.a.overBudget("t-token"); got != "" {
 		t.Fatalf("90 < 100 不应超限，实际：%s", got)
 	}
-	f.a.addUsage("t-token", llm.Usage{PromptTokens: 20, CompletionTokens: 0})
+	f.a.addUsage("t-token", "plan", llm.Usage{PromptTokens: 20, CompletionTokens: 0})
 	if got := f.a.overBudget("t-token"); got == "" {
 		t.Fatal("累计 110 超过 100 应报告超限")
 	}

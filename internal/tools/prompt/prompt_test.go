@@ -23,7 +23,7 @@ func (f *fakeClient) Name() string { return "fake-model" }
 
 func TestPromptRunSendsPromptAndInput(t *testing.T) {
 	f := &fakeClient{}
-	tool := NewGenerate(func() llm.Client { return f })
+	tool := NewGenerate(func(context.Context) llm.Client { return f })
 
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"prompt": "按这个技能做：把素材改写成三点",
@@ -49,7 +49,7 @@ func TestPromptRunSendsPromptAndInput(t *testing.T) {
 }
 
 func TestPromptRunWithoutModelSaysHowToFix(t *testing.T) {
-	tool := NewGenerate(func() llm.Client { return nil })
+	tool := NewGenerate(func(context.Context) llm.Client { return nil })
 	_, err := tool.Execute(context.Background(), map[string]any{"prompt": "做点什么"})
 	if err == nil {
 		t.Fatal("没有模型时应当报错")
@@ -60,7 +60,7 @@ func TestPromptRunWithoutModelSaysHowToFix(t *testing.T) {
 }
 
 func TestPromptRunRejectsEmptyPrompt(t *testing.T) {
-	tool := NewGenerate(func() llm.Client { return &fakeClient{} })
+	tool := NewGenerate(func(context.Context) llm.Client { return &fakeClient{} })
 	if _, err := tool.Execute(context.Background(), map[string]any{"prompt": "   "}); err == nil {
 		t.Fatal("空提示词应被拒")
 	}
@@ -70,11 +70,27 @@ func TestPromptRunRejectsEmptyPrompt(t *testing.T) {
 }
 
 func TestPromptRunRequiresApproval(t *testing.T) {
-	tool := NewGenerate(func() llm.Client { return &fakeClient{} })
+	tool := NewGenerate(func(context.Context) llm.Client { return &fakeClient{} })
 	if got := tool.Permission().String(); got != "user_approved" {
 		t.Errorf("提示词步骤会调用模型外发内容，应需批准，得到 %q", got)
 	}
 	if tool.Name() != "prompt.run" {
 		t.Errorf("工具名 = %q", tool.Name())
+	}
+}
+
+func TestPromptRunPassesExecutionContextToProvider(t *testing.T) {
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "goal-context")
+	saw := ""
+	tool := NewGenerate(func(c context.Context) llm.Client {
+		saw, _ = c.Value(ctxKey{}).(string)
+		return &fakeClient{}
+	})
+	if _, err := tool.Execute(ctx, map[string]any{"prompt": "执行"}); err != nil {
+		t.Fatal(err)
+	}
+	if saw != "goal-context" {
+		t.Fatalf("provider 没拿到执行上下文，任务级模型快照会失效：%q", saw)
 	}
 }

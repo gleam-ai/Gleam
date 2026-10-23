@@ -105,10 +105,22 @@ function trayIcon(): NativeImage {
   return nativeImage.createEmpty();
 }
 
+function isAppWindow(w: BrowserWindow): boolean {
+  if (w.isDestroyed()) return false;
+  try {
+    const u = new URL(w.webContents.getURL());
+    return u.protocol === `${APP_SCHEME}:` && u.host === APP_HOST;
+  } catch {
+    return false;
+  }
+}
+
 function target(): BrowserWindow | null {
+  // The startup splash is also a BrowserWindow and may be the focused one;
+  // actions sent to it never reach the app UI.
   const focused = BrowserWindow.getFocusedWindow();
-  if (focused && !focused.isDestroyed()) return focused;
-  return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null;
+  if (focused && isAppWindow(focused)) return focused;
+  return BrowserWindow.getAllWindows().find(isAppWindow) ?? null;
 }
 
 function reveal(): void {

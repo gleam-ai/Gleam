@@ -256,25 +256,17 @@ func (s *Service) handleToolsCall(_ context.Context, params json.RawMessage) (an
 	if !ok {
 		return nil, Errf(CodeInvalidParams, "工具 %q 不存在", p.Name)
 	}
-	dec := s.Agent.Gate.Evaluate(tool, p.Args)
-	if dec.NeedApproval {
-		req := types.ApprovalRequest{Plan: []string{fmt.Sprintf("直接调用工具 %s", tool.Name())}, Risk: dec.Risk, Reason: dec.Reason}
-		resp := s.OnApproval(req)
-		if !resp.Approved {
-			return nil, Errf(CodeInvalidParams, "操作被拒绝: %s", resp.Note)
-		}
-	}
 	timeout := time.Duration(p.TimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := tool.Execute(ctx, p.Args)
+	out, err := s.Agent.DirectToolCall(ctx, tool.Name(), p.Args, s.OnApproval)
 	if err != nil {
 		return nil, Errf(CodeInternal, "工具执行失败: %v", err)
 	}
-	return map[string]any{"name": tool.Name(), "output": out}, nil
+	return out, nil
 }
 
 func (s *Service) handleMemorySearch(_ context.Context, params json.RawMessage) (any, *RPCError) {

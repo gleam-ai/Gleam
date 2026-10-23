@@ -46,6 +46,9 @@ const TrayLink = (() => {
       } else if (a.action === 'settings') {
         showView('settings');
       } else if (a.action === 'open-convo' && a.id) {
+        // Activating a conversation does not leave whatever page the user was
+        // on (settings, schedules); the thread must be brought to the front.
+        showView('goals');
         openConvo(String(a.id));
       }
     });

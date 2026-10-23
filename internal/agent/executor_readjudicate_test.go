@@ -146,6 +146,42 @@ func TestExecute_RefInsideWorkspaceStillAuto(t *testing.T) {
 	}
 }
 
+func TestExecute_ApprovalContainsResolvedCommand(t *testing.T) {
+	reg := newTestRegistry()
+	const command = "actual resolved command"
+	reg.MustRegister(&funcTool{name: "source", perm: types.PermissionReadOnly, fn: func(context.Context, map[string]any) (any, error) {
+		return map[string]any{"command": command}, nil
+	}})
+	reg.MustRegister(&funcTool{name: "shell.exec", perm: types.PermissionFullAccess, fn: func(context.Context, map[string]any) (any, error) {
+		return "ok", nil
+	}})
+	n := &recordingNotifier{approveAll: true}
+	e := &Executor{Reg: reg, Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: n, DataDir: t.TempDir()}
+	res := e.Execute(context.Background(), types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "source"},
+		{ID: "s2", Tool: "shell.exec", Description: "check status", Args: map[string]any{"command": "$ref:s1.command"}},
+	}}, "approval", "auto", false)
+	if res.Failed != 0 || len(n.approvals) != 1 {
+		t.Fatalf("result=%+v approvals=%+v", res, n.approvals)
+	}
+	plan := strings.Join(n.approvals[0].Plan, "\n")
+	if !strings.Contains(plan, "shell.exec") || !strings.Contains(plan, command) || strings.Contains(plan, "$ref:") {
+		t.Fatalf("approval must describe executed arguments: %s", plan)
+	}
+}
+
+func TestExecute_RequestModeOverridesGlobalMode(t *testing.T) {
+	work := t.TempDir()
+	var called bool
+	reg, gate := refFixture(work, filepath.Join(work, "out.txt"), &called)
+	n := &recordingNotifier{approveAll: false}
+	e := &Executor{Reg: reg, Gate: gate, Notifier: n, DataDir: t.TempDir()}
+	res := e.Execute(context.Background(), refPlan(), "interactive", "interactive", false)
+	if called || len(n.approvals) != 1 || res.ByID["s2"].ErrorKind != types.ErrPermission {
+		t.Fatalf("request mode ignored: called=%v approvals=%+v result=%+v", called, n.approvals, res)
+	}
+}
+
 type modeFlipNotifier struct {
 	NopNotifier
 	gate *safety.Gate
@@ -175,5 +211,55 @@ func TestExecute_ModeFlippedMidApprovalNotRecordedAsAuto(t *testing.T) {
 	}
 	if a := auditOf(gate, "writer", "auto"); a != nil {
 		t.Errorf("同一步不该再记一条自动放行：%+v", a)
+	}
+}
+
+func TestExecute_MissingRequiredAfterSubstitutionIsRejected(t *testing.T) {
+	reg := newTestRegistry()
+	called := false
+	reg.MustRegister(&funcTool{name: "source", perm: types.PermissionReadOnly, fn: func(context.Context, map[string]any) (any, error) {
+		return map[string]any{"content": ""}, nil
+	}})
+	reg.MustRegister(&funcTool{
+		name: "writer", perm: types.PermissionUserApproved,
+		schema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"content": map[string]any{"type": "string"}},
+			"required":   []string{"content"},
+		},
+		fn: func(context.Context, map[string]any) (any, error) {
+			called = true
+			return "written", nil
+		},
+	})
+	e := &Executor{Reg: reg, Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}, DataDir: t.TempDir()}
+	res := e.Execute(context.Background(), types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "source"},
+		{ID: "s2", Tool: "writer", DependsOn: []string{"s1"}, Args: map[string]any{"content": "$ref:s1.content"}},
+	}}, "required", "auto", false)
+
+	if called {
+		t.Fatal("缺必填参数的步骤不该执行")
+	}
+	if got := res.ByID["s2"]; got.Status != types.StepFailed || got.ErrorKind != types.ErrParam {
+		t.Fatalf("s2 = %+v，应因参数失败", got)
+	}
+}
+
+func TestExecute_CyclicReferencesRejectedBeforeRun(t *testing.T) {
+	var called bool
+	reg := registry.New()
+	reg.MustRegister(&funcTool{name: "echo", perm: types.PermissionReadOnly, fn: func(context.Context, map[string]any) (any, error) {
+		called = true
+		return "x", nil
+	}})
+	e := &Executor{Reg: reg, Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}}
+	res := e.Execute(context.Background(), types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "echo", Args: map[string]any{"value": "$ref:s2.value"}},
+		{ID: "s2", Tool: "echo", Args: map[string]any{"value": "$ref:s1.value"}},
+	}}, "cycle", "auto", false)
+
+	if called || res.Failed != 2 {
+		t.Fatalf("循环引用应在执行前失败: called=%v result=%+v", called, res)
 	}
 }

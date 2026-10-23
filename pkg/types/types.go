@@ -260,7 +260,9 @@ func (e TaskDoneEvent) Line() string {
 }
 
 type ApprovalRequest struct {
-	TaskID    string   `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// RequestID correlates direct calls with their UI; it never grants authorization.
+	RequestID string   `json:"request_id,omitempty"`
 	Plan      []string `json:"plan"`
 	Risk      string   `json:"risk"`
 	Reason    string   `json:"reason,omitempty"`

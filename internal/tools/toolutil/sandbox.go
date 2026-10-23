@@ -2,6 +2,7 @@ package toolutil
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -29,20 +30,46 @@ func ResolveInRoots(p string, roots []string) (string, error) {
 	} else {
 		abs = filepath.Clean(filepath.Join(roots[0], p))
 	}
+	checkPath, err := resolveExistingAncestor(abs)
+	if err != nil {
+		return "", fmt.Errorf("无法解析路径 %q: %w", p, err)
+	}
 	for _, root := range roots {
-		checkRoot := root
-		if real, err := filepath.EvalSymlinks(root); err == nil {
-			checkRoot = real
-		}
-		checkPath := abs
-		if real, err := filepath.EvalSymlinks(abs); err == nil {
-			checkPath = real
-		} else if parent, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
-			checkPath = filepath.Join(parent, filepath.Base(abs))
+		checkRoot, err := resolveExistingAncestor(root)
+		if err != nil {
+			return "", fmt.Errorf("无法解析工作区根目录 %q: %w", root, err)
 		}
 		if Within(checkRoot, checkPath) {
 			return abs, nil
 		}
 	}
 	return "", fmt.Errorf("路径 %q 超出允许的工作区范围", p)
+}
+
+func resolveExistingAncestor(path string) (string, error) {
+	var suffix []string
+	for {
+		_, err := os.Lstat(path)
+		if err == nil {
+			// Lstat stops at dangling links too; unresolved links must not fall
+			// back to a lexical path that could hide an external destination.
+			real, err := resolveExistingPath(path)
+			if err != nil {
+				return "", err
+			}
+			for i := len(suffix) - 1; i >= 0; i-- {
+				real = filepath.Join(real, suffix[i])
+			}
+			return real, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(path))
+		path = parent
+	}
 }

@@ -306,9 +306,14 @@
       editing: isEdit,
       keySet: isEdit ? !!entry.api_key_set : false,
       entryId: isEdit ? entry.id : '',
+      entryProtocol: isEdit ? entry.protocol || '' : '',
     };
     let dirty = false;
     let busy = false;
+    // A preset entry may legitimately point at a gateway of the same vendor
+    // (or carry a protocol override). Only a provider/plan switch may replace
+    // those stored values; renaming the entry must keep them.
+    let endpointDirty = false;
     const touch = () => {
       dirty = true;
     };
@@ -426,6 +431,7 @@
               if (id !== st.prov) {
                 st.prov = id;
                 st.plan = '';
+                endpointDirty = true;
                 touch();
                 if (CUSTOM[id]) {
                   st.apiType = CUSTOM[id].types[0].value;
@@ -617,6 +623,7 @@
 
     function modelField() {
       let fetched = [];
+      let fetchedHost = '';
       let manual = false;
       let query = '';
       let optsBox = null;
@@ -650,8 +657,7 @@
         'aria-label': '模型',
       });
 
-      const host = () =>
-        hostOf(isCustom() ? st.base : (curPlan() || {}).base_url || '');
+      const host = () => hostOf(target().base_url || '');
       const cached = () => catGet(host());
       const builtin = () => {
         const p = curProv();
@@ -670,7 +676,7 @@
             out.push(id);
           }
         };
-        fetched.forEach(push);
+        if (fetchedHost === host()) fetched.forEach(push);
         const c = cached();
         if (c) c.ids.forEach(push);
         builtin().forEach(push);
@@ -849,13 +855,22 @@
         }
         fetchBtn.disabled = true;
         showResult('pending', '正在向厂商拉取模型列表…');
+        // Snapshot the target and its cache key together: the user may edit the
+        // provider while the request is in flight, and the reply belongs to the
+        // host that was asked, not to whatever the form says afterwards.
+        const reqTarget = target();
+        const cacheKey = host();
         try {
-          const r = await api('POST', '/api/llm/models', target());
+          const r = await api('POST', '/api/llm/models', reqTarget);
           if (r.ok && Array.isArray(r.models) && r.models.length) {
-            fetched = r.models.map((m) => m.id);
-            catPut(host(), fetched);
-            query = '';
-            paintModel();
+            const ids = r.models.map((m) => m.id);
+            catPut(cacheKey, ids);
+            if (host() === cacheKey) {
+              fetched = ids;
+              fetchedHost = cacheKey;
+              query = '';
+              paintModel();
+            }
             showResult(
               'ok',
               `拉到 ${r.models.length} 个模型（已缓存，下次打开仍可见）`,
@@ -923,6 +938,8 @@
       );
     }
     function target() {
+      const pl = curPlan() || {};
+      const keepStored = st.editing && !endpointDirty && !!st.base.trim();
       const b = isCustom()
         ? {
             provider_id: '',
@@ -933,9 +950,11 @@
           }
         : {
             provider_id: st.prov,
-            plan: (curPlan() || {}).kind || '',
-            protocol: (curPlan() || {}).protocol || '',
-            base_url: (curPlan() || {}).base_url || '',
+            plan: pl.kind || '',
+            protocol: keepStored
+              ? st.entryProtocol || pl.protocol || ''
+              : pl.protocol || '',
+            base_url: keepStored ? st.base.trim() : pl.base_url || '',
             model: (st.modelName || '').trim(),
           };
       if (st.key.trim()) b.api_key = st.key.trim();
@@ -1007,6 +1026,7 @@
               st.plan,
               (v) => {
                 st.plan = v;
+                endpointDirty = true;
                 const pl = curPlan();
                 st.modelName = pl
                   ? pl.model || (curProv().models || [])[0] || ''

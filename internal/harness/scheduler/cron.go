@@ -110,33 +110,53 @@ func parseField(s string, min, max int) (bool, map[int]bool, error) {
 	return any, values, nil
 }
 
-func (c *Cron) Match(t time.Time) bool {
+func (c *Cron) dayMatch(t time.Time) bool {
 	if !c.mon.match(int(t.Month())) {
 		return false
 	}
 	domOK := c.dom.match(t.Day())
 	dowOK := c.dow.match(int(t.Weekday()))
 	if c.domRestricted && c.dowRestricted {
-		if !domOK && !dowOK {
-			return false
-		}
-	} else if !domOK || !dowOK {
-		return false
+		return domOK || dowOK
 	}
-	if !c.hour.match(t.Hour()) {
-		return false
-	}
-	return c.min.match(t.Minute())
+	return domOK && dowOK
+}
+
+func (c *Cron) Match(t time.Time) bool {
+	return c.dayMatch(t) && c.hour.match(t.Hour()) && c.min.match(t.Minute())
 }
 
 func (c *Cron) Next(after time.Time) time.Time {
 	t := after.Truncate(time.Minute).Add(time.Minute)
-	limit := t.AddDate(1, 0, 0)
-	for t.Before(limit) {
-		if c.Match(t) {
-			return t
+	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	// Scan by day, not by minute within one year: a Feb 29 schedule can be up
+	// to eight years away (2096 -> 2104, since 2100 is not a leap year), and a
+	// one-year minute scan would report "never" for a valid schedule.
+	const maxDays = 366*8 + 2
+	for i := 0; i <= maxDays; i++ {
+		d := day.AddDate(0, 0, i)
+		year, month, dom := d.Date()
+		if !c.dayMatch(time.Date(year, month, dom, 12, 0, 0, 0, t.Location())) {
+			continue
 		}
-		t = t.Add(time.Minute)
+		startHour, startMin := 0, 0
+		if i == 0 {
+			startHour, startMin = t.Hour(), t.Minute()
+		}
+		for h := startHour; h < 24; h++ {
+			if !c.hour.match(h) {
+				continue
+			}
+			minStart := 0
+			if i == 0 && h == startHour {
+				minStart = startMin
+			}
+			for minute := minStart; minute < 60; minute++ {
+				if c.min.match(minute) {
+					return time.Date(year, month, dom, h, minute, 0, 0, t.Location())
+				}
+			}
+		}
 	}
 	return time.Time{}
 }

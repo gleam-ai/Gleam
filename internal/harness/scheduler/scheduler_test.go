@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,34 @@ import (
 	"testing"
 	"time"
 )
+
+func TestScheduler_PauseDoesNotConsumeDueJobs(t *testing.T) {
+	fired := make(chan Job, 1)
+	s, err := Open(filepath.Join(t.TempDir(), "schedules.json"), func(j Job) { fired <- j })
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.AddJob("pause", "", 5, "test goal", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := job.NextRun.Add(time.Second)
+	s.SetPaused(true)
+	s.tick(now)
+	if s.ListJobs()[0].LastRun != nil || s.reserve("pause") {
+		t.Fatal("paused scheduler consumed or dispatched a job")
+	}
+	s.SetPaused(false)
+	s.tick(now)
+	select {
+	case j := <-fired:
+		if j.Name != "pause" {
+			t.Fatalf("wrong job: %+v", j)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resumed scheduler did not dispatch the pending job")
+	}
+}
 
 func TestScheduler_AddJobValidation(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "schedules.json"), nil)
@@ -344,3 +374,58 @@ func TestScheduler_WatchPatternFiltersUnrelatedFiles(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func TestScheduler_AddJobRollsBackWhenPersistFails(t *testing.T) {
+	base := t.TempDir()
+	s, err := Open(filepath.Join(base, "sub", "schedules.json"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Make the parent directory a file so saveLocked's MkdirAll fails after the
+	// job has already been inserted into the in-memory map.
+	if err := os.WriteFile(filepath.Join(base, "sub"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddJob("rollback", "", 30, "目标", "auto"); err == nil {
+		t.Fatal("expected a persistence error")
+	}
+	if s.Count() != 0 {
+		t.Fatalf("failed job stayed runnable: %+v", s.ListJobs())
+	}
+}
+
+func TestScheduler_RejectsOverflowingInterval(t *testing.T) {
+	if int64(math.MaxInt) <= maxIntervalSeconds {
+		t.Skip("this platform's int cannot overflow a time.Duration")
+	}
+	s, err := Open(filepath.Join(t.TempDir(), "schedules.json"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddJob("huge", "", math.MaxInt, "目标", "auto"); err == nil {
+		t.Fatal("interval that overflows time.Duration was accepted")
+	}
+	if s.Count() != 0 {
+		t.Fatalf("rejected job stayed in memory: %+v", s.ListJobs())
+	}
+}
+
+func TestScheduler_LoadedOverflowingIntervalNeverRuns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.json")
+	raw := fmt.Sprintf(`[{"name":"huge","interval_sec":%d,"goal":"目标","enabled":true}]`, maxIntervalSeconds+1)
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := s.ListJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("jobs = %+v", jobs)
+	}
+	// A negative duration would put NextRun in the past and fire immediately.
+	if jobs[0].NextRun != nil {
+		t.Fatalf("overflowing interval produced NextRun %v", jobs[0].NextRun)
+	}
+}

@@ -93,6 +93,9 @@ const esc = (s) =>
 
 async function api(method, url, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (method === 'POST' && url === '/api/tools/call') {
+    body = { ...body, request_id: body?.request_id || crypto.randomUUID() };
+  }
   if (body !== undefined) opts.body = JSON.stringify(body);
   let resp;
   try {
@@ -323,37 +326,152 @@ function promptModal(label, oldValue = '', title = '请输入') {
   });
 }
 
-const VIEW_LOADERS = {
-  goals: loadGoals,
-  skills: () => loadSkills(),
-  memory: () => {
-    initMemoryOnce();
-    LocalImport.renderMemory();
+const MODULES = [
+  {
+    id: 'goals',
+    title: '工作台',
+    desc: '任务、对话与执行记录',
+    area: 'goals',
+    keywords: 'home tasks 目标 光迹',
+    load: loadGoals,
   },
-  schedules: () => loadSchedules(),
-  tools: () => loadTools(),
-  settings: () => {
-    loadSettingsProfile();
-    return loadSettings();
+  {
+    id: 'library',
+    title: '资料与能力',
+    desc: '记住的资料、可用的工具、留下的成果',
+    area: 'library',
+    keywords: 'library 资料 能力',
+    load: renderLibrary,
   },
-  market: () => loadMarket(),
-  sites: loadSites,
-  growth: () => loadGrowth(),
-  geo: () => loadGEO(),
-  hardware: () => {
-    Hardware.init();
-    return Hardware.loadDevices();
+  {
+    id: 'memory',
+    title: '记忆',
+    desc: '检索和整理微光记住的偏好与事实',
+    area: 'library',
+    section: '资料与产出',
+    keywords: 'memory 长期',
+    load: () => {
+      initMemoryOnce();
+      LocalImport.renderMemory();
+    },
   },
-};
+  {
+    id: 'sites',
+    title: '网页作品',
+    desc: '从模板开始，查看工作区里的网页',
+    area: 'library',
+    section: '资料与产出',
+    keywords: 'sites 站点 网页',
+    load: loadSites,
+  },
+  {
+    id: 'growth',
+    title: '使用回顾',
+    desc: '查看本机任务记录与使用统计',
+    area: 'library',
+    section: '资料与产出',
+    keywords: 'growth 成长 回顾',
+    load: () => loadGrowth(),
+  },
+  {
+    id: 'skills',
+    title: '技能',
+    desc: '管理已经安装的可复用工作方法',
+    area: 'library',
+    section: '工具与扩展',
+    keywords: 'skills 技能',
+    load: () => loadSkills(),
+  },
+  {
+    id: 'tools',
+    title: '工具',
+    desc: '查看可调用的工具和执行权限',
+    area: 'library',
+    section: '工具与扩展',
+    keywords: 'tools 工具 权限',
+    load: () => loadTools(),
+  },
+  {
+    id: 'market',
+    title: '扩展目录',
+    desc: '查找并安装技能与 MCP 连接器',
+    area: 'library',
+    section: '工具与扩展',
+    keywords: 'market 市场 插件 mcp',
+    load: () => loadMarket(),
+  },
+  {
+    id: 'geo',
+    title: '内容分析',
+    desc: '检查内容在生成式搜索中的可读性',
+    area: 'library',
+    section: '工具与扩展',
+    keywords: 'geo 生成式 引擎 优化',
+    load: () => loadGEO(),
+  },
+  {
+    id: 'schedules',
+    title: '自动化',
+    desc: '按时间或计划执行任务',
+    area: 'schedules',
+    keywords: 'schedule 定时 计划 日程',
+    load: () => loadSchedules(),
+  },
+  {
+    id: 'settings',
+    title: '设置',
+    desc: '模型、连接、外观与快捷键',
+    area: 'settings',
+    keywords: 'settings 设置 偏好',
+    load: () => {
+      loadSettingsProfile();
+      return loadSettings();
+    },
+  },
+];
+
+function renderLibrary() {
+  const root = $('#library-sections');
+  root.replaceChildren();
+  const sections = [...new Set(MODULES.map((m) => m.section).filter(Boolean))];
+  sections.forEach((name) => {
+    const section = el('section', 'library-section');
+    section.appendChild(el('h2', 'library-section-title', name));
+    MODULES.filter((m) => m.section === name).forEach((m) => {
+      const button = el('button', 'library-entry');
+      button.type = 'button';
+      button.dataset.goto = m.id;
+      const text = el('span', 'library-entry-text');
+      text.append(el('strong', '', m.title), el('small', '', m.desc));
+      const arrow = el('span', 'library-entry-arrow', '↗');
+      arrow.setAttribute('aria-hidden', 'true');
+      button.append(text, arrow);
+      section.appendChild(button);
+    });
+    root.appendChild(section);
+  });
+}
 
 function showView(name) {
+  const module = MODULES.find((m) => m.id === name);
+  const view = $('#view-' + name);
+  if (!module || !view) return;
+  ShellLayout.closeHistory();
   document
     .querySelectorAll('.view')
     .forEach((v) => v.classList.remove('active'));
   document.documentElement.dataset.view = name;
-  const view = $('#view-' + name);
-  if (view) view.classList.add('active');
-  (VIEW_LOADERS[name] || (() => {}))();
+  document.documentElement.dataset.area = module.area;
+  view.classList.add('active');
+  document.querySelectorAll('.primary-nav [data-goto]').forEach((button) => {
+    if (button.dataset.goto === module.area)
+      button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  const trail = $('#module-trail');
+  trail.hidden = module.area !== 'library' || name === 'library';
+  $('#module-current').textContent = module.title;
+  module.load();
   $('#home-back').hidden = name === 'goals';
 }
 
@@ -613,6 +731,20 @@ async function submitGoal() {
     goalInput.focus();
     return;
   }
+  // Snapshot the draft: the user may keep typing or switch mode/conversation
+  // while the create request is in flight.
+  const submitted = {
+    goal: displayGoal,
+    mode: currentMode,
+    task: currentTask,
+    role: currentRole,
+    site: siteMode,
+    refs: refs.map((r) => ({
+      kind: r.kind,
+      label: r.label,
+      value: r.refText,
+    })),
+  };
   chatStickBottom = true;
   const btn = $('#goal-submit');
   goalSubmitting = true;
@@ -633,44 +765,50 @@ async function submitGoal() {
       }
       return;
     }
-    await ensureConvo();
+    const convo = await ensureConvo();
+    const convoId = convo ? convo.id : undefined;
+    const inConvoView = viewingConvo;
     const goalText =
-      siteMode && !/index\.html/i.test(displayGoal)
-        ? displayGoal + SITE_SUFFIX
-        : displayGoal;
-    const submitted = await api('POST', '/api/goals', {
+      submitted.site && !/index\.html/i.test(submitted.goal)
+        ? submitted.goal + SITE_SUFFIX
+        : submitted.goal;
+    const result = await api('POST', '/api/goals', {
       goal: goalText,
-      mode: currentMode,
-      task_mode: currentTask,
-      role: currentRole,
-      conversation_id: currentConvo ? currentConvo.id : undefined,
-      references: refs.map((r) => ({
-        kind: r.kind,
-        label: r.label,
-        value: r.refText,
-      })),
+      mode: submitted.mode,
+      task_mode: submitted.task,
+      role: submitted.role,
+      conversation_id: convoId,
+      references: submitted.refs,
     });
-    if (submitted.warning) {
-      toast(submitted.warning, 'error', 8000);
+    if (result.warning) {
+      toast(result.warning, 'error', 8000);
     }
-    const task_id = submitted.task_id;
-    goalInput.value = '';
-    autoResize();
-    clearRefs();
-    if (viewingConvo) {
-      appendLiveConvoTurn(displayGoal, task_id, currentTask);
-    } else {
+    const task_id = result.task_id;
+    if (goalInput.value.trim() === displayGoal) {
+      goalInput.value = '';
+      autoResize();
+    }
+    if (refsMatch(submitted.refs)) clearRefs();
+    // The completion event can beat this response. Recreating a running
+    // bubble/card now would leave a stop button that no later event retires.
+    if (finishedTasks.has(task_id)) {
+      if (!viewingConvo) await ensureTask(task_id);
+    } else if (viewingConvo && currentConvo && currentConvo.id === convoId) {
+      appendLiveConvoTurn(displayGoal, task_id, submitted.task);
+    } else if (!viewingConvo) {
       const info = {
         task_id,
         goal: displayGoal,
-        mode: currentMode,
-        task_mode: currentTask,
+        mode: submitted.mode,
+        task_mode: submitted.task,
         status: 'running',
         events: [],
       };
       renderTaskCard(info, true);
     }
-    toast('目标已提交', 'success');
+    // A late response for an already-finished task must not announce "submitted"
+    // after the completion toast has already fired.
+    if (!finishedTasks.has(task_id)) toast('目标已提交', 'success');
   } catch (err) {
     toast(`提交失败：${err.message}`, 'error');
   } finally {
@@ -678,6 +816,14 @@ async function submitGoal() {
     goalSubmitting = false;
     goalInput.focus();
   }
+}
+
+function refsMatch(snapshot) {
+  if (refs.length !== snapshot.length) return false;
+  return refs.every((r, i) => {
+    const s = snapshot[i];
+    return r.kind === s.kind && r.label === s.label && r.refText === s.value;
+  });
 }
 
 const plusBtn = $('#plus-btn');
@@ -1483,19 +1629,23 @@ function refreshWorkbench() {
   $('#goals-filtered-empty').hidden = all.length === 0 || visible > 0;
 
   const feed = $('#goal-feed');
-  all
-    .sort((a, b) => {
-      const priority = (task) =>
-        approvalCardOf(task)
-          ? 0
-          : taskGroup(task) === 'active'
-            ? 1
-            : taskGroup(task) === 'attention'
-              ? 2
-              : 3;
-      return priority(a) - priority(b);
-    })
-    .forEach((task) => feed.appendChild(task.card));
+  // Conversation view owns the feed: task cards live in `tasks` and must not be
+  // re-mounted here, or another conversation's card appears in this thread.
+  if (!viewingConvo) {
+    all
+      .sort((a, b) => {
+        const priority = (task) =>
+          approvalCardOf(task)
+            ? 0
+            : taskGroup(task) === 'active'
+              ? 1
+              : taskGroup(task) === 'attention'
+                ? 2
+                : 3;
+        return priority(a) - priority(b);
+      })
+      .forEach((task) => feed.appendChild(task.card));
+  }
 
   LiveRail.summary(counts, attention);
   paintFailBanner();
@@ -1604,7 +1754,9 @@ function renderTaskCard(info, prepend) {
   if (existing) {
     // 卡片可能因为切到会话视图而被摘出 feed：回来时必须重新挂上，
     // 否则运行中的任务只活在 tasks 里，屏幕上没有可以审批的那张卡。
-    if (!existing.card.isConnected) $('#goal-feed').appendChild(existing.card);
+    // 但会话视图只画本会话的气泡，其它任务不能借这里挤进来。
+    if (!existing.card.isConnected && !viewingConvo)
+      $('#goal-feed').appendChild(existing.card);
     existing.info = info;
     const badge = existing.card.querySelector('.goal-meta .badge');
     if (badge) badge.outerHTML = statusBadge(info.status);
@@ -1668,10 +1820,12 @@ function renderTaskCard(info, prepend) {
   card.appendChild(slots.skill);
 
   const feed = $('#goal-feed');
-  const empty = $('#goals-empty');
-  if (empty) empty.remove();
-  if (prepend && feed.firstChild) feed.insertBefore(card, feed.firstChild);
-  else feed.appendChild(card);
+  if (!viewingConvo) {
+    const empty = $('#goals-empty');
+    if (empty) empty.remove();
+    if (prepend && feed.firstChild) feed.insertBefore(card, feed.firstChild);
+    else feed.appendChild(card);
+  }
 
   tasks.set(info.task_id, { info, card, slots });
   mountStopButton(card.querySelector('.goal-meta'), info.task_id, info.status);
@@ -2154,6 +2308,26 @@ async function resolveApproval(id, approved, box, task) {
   }
 }
 
+// The server broadcasts every decision so a card decided in another tab does not
+// stay clickable here. The deciding tab has already dropped the id, so it is a no-op.
+function retireApproval(id) {
+  if (!id) return;
+  document.querySelectorAll(`[data-approval-id="${id}"]`).forEach((box) => {
+    if (!box.classList.contains('approval-card')) return;
+    box.classList.remove('approval-card');
+    box.removeAttribute('data-approval-id');
+    box.replaceChildren(el('div', 'approval-resolved', '该审批已结束'));
+  });
+  for (const live of convoLive.values()) {
+    if (live.approvalEl?.dataset.approvalId === id) {
+      live.approvalEl.remove();
+      live.approvalEl = null;
+    }
+  }
+  refreshWorkbench();
+  LiveRail.refresh();
+}
+
 // renderStandaloneApproval 渲染工具页直调产生的独立审批卡（无任务归属）。
 // 挂在目标流顶部，批准/拒绝与任务内审批走同一裁决接口。
 function renderStandaloneApproval(ap) {
@@ -2191,6 +2365,7 @@ function updateApprovalBadge(delta) {
 }
 
 function applyResult(taskID, result) {
+  markTaskFinished(taskID, result && result.status);
   const t = tasks.get(taskID);
   if (!t) return;
   t.info.status = result.status;
@@ -2557,24 +2732,32 @@ function splitTableRow(row) {
 
 function inlineMd(text) {
   if (!text) return '';
-  let s = escHtml(text);
-  s = s.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
+  // Inline code is literal: set it aside before escaping and emphasis, so
+  // `__init__` cannot be reinterpreted as bold and its content stays copyable.
+  const code = [];
+  let s = String(text).replace(/`([^`\n]+)`/g, (_, body) => {
+    code.push(`<code>${escHtml(body)}</code>`);
+    return `\u0000${code.length - 1}\u0000`;
+  });
+  s = escHtml(s);
+  // The captures are already escaped (including & -> &amp;); escaping them a
+  // second time in the attribute turned every query string & into &amp;amp;.
   s = s.replace(
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
     (_, alt, url, title) =>
-      `<img src="${escAttr(safeHref(url))}" alt="${escAttr(alt)}"${title ? ` title="${escAttr(title)}"` : ''} loading="lazy">`,
+      `<img src="${safeHref(url)}" alt="${alt}"${title ? ` title="${title}"` : ''} loading="lazy">`,
   );
   s = s.replace(
     /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
     (_, txt, url, title) =>
-      `<a href="${escAttr(safeHref(url))}" target="_blank" rel="noopener noreferrer"${title ? ` title="${escAttr(title)}"` : ''}>${txt}</a>`,
+      `<a href="${safeHref(url)}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${txt}</a>`,
   );
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
   s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  return s;
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => code[Number(i)] || '');
 }
 
 function escHtml(s) {
@@ -2610,6 +2793,7 @@ function renderSkillSuggestion(t, data) {
 }
 
 async function loadGoals() {
+  const seq = ++convoLoadSeq;
   if (viewingConvo) {
     setThreadMode(false);
     currentConvo = null;
@@ -2618,18 +2802,13 @@ async function loadGoals() {
   }
   try {
     const { goals } = await api('GET', '/api/goals');
+    if (seq !== convoLoadSeq || viewingConvo) return;
     (goals || [])
       .slice()
       .reverse()
       .forEach((info) => renderTaskCard(info, false));
     if (!goals || !goals.length) {
-      resetFeedToEmpty(
-        '今天想让微光做什么？',
-        '写下一个目标，剩下的交给微光推进。',
-        {
-          home: true,
-        },
-      );
+      resetFeedToEmpty('', '', { home: true });
     }
   } catch {}
 }
@@ -2676,7 +2855,21 @@ function connectSSE() {
     LiveRail.observe(d);
     const contextNote = d.phase === 'context' || isContextNote(d.message);
     if (contextNote) loadContext();
-    if (viewingConvo && convoLive.has(d.task_id)) {
+    if (viewingConvo) {
+      // A task can start before its submit response returns, so the live bubble
+      // may not exist yet. Adopt only tasks that belong to this conversation;
+      // anything else must not paint a goal card into the conversation feed.
+      if (!convoLive.has(d.task_id)) {
+        const t = await ensureTask(d.task_id);
+        if (
+          !t ||
+          !viewingConvo ||
+          !currentConvo ||
+          (t.info.conversation_id || '') !== currentConvo.id
+        )
+          return;
+        appendLiveConvoTurn(t.info.goal, d.task_id, t.info.task_mode);
+      }
       if (d.phase === 'chat' && d.kind === 'llm' && d.message)
         convoStream(d.task_id, d.message);
       else if (d.message && (d.phase === 'context' || isContextNote(d.message)))
@@ -2694,7 +2887,22 @@ function connectSSE() {
       renderStandaloneApproval(ap);
       return;
     }
-    if (viewingConvo && convoLive.has(ap.task_id)) {
+    if (viewingConvo) {
+      if (!convoLive.has(ap.task_id)) {
+        const t = await ensureTask(ap.task_id);
+        if (
+          !t ||
+          !viewingConvo ||
+          !currentConvo ||
+          (t.info.conversation_id || '') !== currentConvo.id
+        ) {
+          pendingApprovals++;
+          updateApprovalBadge(0);
+          toast('有新的审批请求，请前往目标视图', 'info');
+          return;
+        }
+        appendLiveConvoTurn(t.info.goal, ap.task_id, t.info.task_mode);
+      }
       convoApproval(ap);
       return;
     }
@@ -2705,6 +2913,10 @@ function connectSSE() {
       updateApprovalBadge(0);
       toast('有新的审批请求，请前往目标视图', 'info');
     }
+  });
+  es.addEventListener('approval_resolved', (e) => {
+    const d = sseData(e);
+    if (d && d.id) retireApproval(d.id);
   });
   es.addEventListener('completed', async (e) => {
     const r = sseData(e);
@@ -2813,17 +3025,7 @@ async function resyncAfterReconnect() {
       appendLiveConvoTurn(info.goal, info.task_id, info.task_mode, {
         skipUser: true,
       });
-      for (const ev of info.events || []) {
-        if (ev.type !== 'progress' || !ev.data) continue;
-        const d = ev.data;
-        if (d.phase === 'chat' && d.kind === 'llm' && d.message)
-          convoStream(info.task_id, d.message);
-        else if (
-          d.message &&
-          (d.phase === 'context' || isContextNote(d.message))
-        )
-          convoNotice(info.task_id, d.message);
-      }
+      replayLiveProgress(info.task_id, info.events);
     }
     // Finished during the outage: retire its live bubble (and stop button).
     for (const info of goals) {
@@ -3744,14 +3946,13 @@ async function saveLLM() {
   };
   const key = $('#set-api-key').value.trim();
   if (key) patch.llm.api_key = key;
+  const numeric = ['set-temperature', 'set-max-tokens', 'set-llm-timeout'];
+  if ($('#set-context-window')?.value === 'custom') {
+    numeric.push('set-context-window-custom');
+  }
   await saveModule('set-save-llm', patch, {
     label: '模型设置',
-    numeric: [
-      'set-temperature',
-      'set-max-tokens',
-      'set-llm-timeout',
-      'set-context-window-custom',
-    ],
+    numeric,
     onSuccess: () => {
       $('#set-api-key').value = '';
     },
@@ -3857,7 +4058,9 @@ const ComposerMeta = (() => {
   let modelsList = [];
   let llmCfg = null;
   let fetched = [];
+  let fetchedFor = '';
   let liveModel = '';
+  let liveModelId = '';
   let lastCtx = null;
 
   const TIER_CN = {
@@ -3923,6 +4126,14 @@ const ComposerMeta = (() => {
     try {
       const r = await api('GET', '/api/models');
       modelsList = r && Array.isArray(r.models) ? r.models : [];
+      // Two entries may share a model name; the server's active id is the only
+      // reliable way to know which one the next task will use.
+      if (r && r.active && r.active.id) {
+        liveModelId = r.active.id;
+        liveModel = r.active.model || '';
+      } else if (r) {
+        liveModelId = '';
+      }
     } catch {
       modelsList = [];
     }
@@ -3930,10 +4141,14 @@ const ComposerMeta = (() => {
   }
 
   function activeEntry() {
+    if (liveModelId) {
+      const byId = modelsList.find((x) => x.id === liveModelId);
+      if (byId) return byId;
+    }
     const id = liveModel || '';
     if (id) {
-      const m = modelsList.find((x) => x.model === id || x.id === id);
-      if (m) return m;
+      const same = modelsList.filter((x) => x.model === id || x.id === id);
+      if (same.length === 1) return same[0];
     }
     return modelsList.find((x) => x.is_default) || modelsList[0] || null;
   }
@@ -3982,18 +4197,20 @@ const ComposerMeta = (() => {
     modelBtn.dataset.tone = unusable ? 'warn' : '';
   }
 
+  function fetchScope() {
+    const entry = activeEntry();
+    return entry
+      ? [
+          entry.id,
+          entry.provider_id || '',
+          entry.plan || '',
+          entry.base_url || '',
+        ].join('|')
+      : '';
+  }
+
   function paintModelList() {
     modelList.replaceChildren();
-    if (!modelsList.length) {
-      modelList.appendChild(
-        el(
-          'div',
-          'cp-pop-note',
-          '本机还没有已配置的模型。去设置里添加一个，或拉取厂商模型列表。',
-        ),
-      );
-      return;
-    }
     const active = activeEntry();
     const activeId = active ? active.id : '';
     modelsList.forEach((entry) => {
@@ -4015,13 +4232,51 @@ const ComposerMeta = (() => {
       b.addEventListener('click', () => switchModel(entry.id));
       modelList.appendChild(b);
     });
+    const configured = new Set(modelsList.map((x) => x.model));
+    const extra =
+      fetchedFor === fetchScope()
+        ? fetched.filter((m) => !configured.has(m))
+        : [];
+    if (extra.length) {
+      modelList.appendChild(
+        el('div', 'cp-pop-note', '厂商账号里还有这些模型，点一下换上去：'),
+      );
+      extra.forEach((name) => {
+        const b = el('button', 'plus-item');
+        b.type = 'button';
+        b.appendChild(el('span', null, name));
+        b.appendChild(
+          el(
+            'span',
+            'plus-sub',
+            active ? '拉取到的模型' : '先添加一个模型条目',
+          ),
+        );
+        b.disabled = !active;
+        b.addEventListener('click', () => useFetchedModel(name));
+        modelList.appendChild(b);
+      });
+    }
+    if (!modelsList.length && !extra.length) {
+      modelList.appendChild(
+        el(
+          'div',
+          'cp-pop-note',
+          '本机还没有已配置的模型。去设置里添加一个，或拉取厂商模型列表。',
+        ),
+      );
+    }
   }
 
   async function switchModel(id) {
     closeAll();
-    const prev = liveModel || (activeEntry() ? activeEntry().model : '');
+    const prevName = liveModel;
+    const prevId = liveModelId;
     const entry = modelsList.find((x) => x.id === id);
-    if (entry) liveModel = entry.model || id;
+    if (entry) {
+      liveModelId = entry.id;
+      liveModel = entry.model || entry.id;
+    }
     paintModelChip();
     paintModelList();
     try {
@@ -4030,8 +4285,10 @@ const ComposerMeta = (() => {
         `/api/models/${encodeURIComponent(id)}/activate`,
       );
       const active = r && r.active;
+      if (r && Array.isArray(r.models)) modelsList = r.models;
       if (active) {
-        liveModel = active.model || id;
+        liveModelId = active.id || id;
+        liveModel = active.model || liveModelId;
         if (llmCfg) {
           llmCfg.provider = active.provider_id || llmCfg.provider;
           llmCfg.model = active.model || llmCfg.model;
@@ -4040,23 +4297,63 @@ const ComposerMeta = (() => {
         PROVIDER = active.provider_id || PROVIDER;
         API_KEY_SET = !!active.api_key_set;
       }
-      toast(`已切到 ${liveModel}，下一个任务开始用它`, 'success');
+      toast(`已切到 ${liveModel || id}，下一个任务开始用它`, 'success');
     } catch (err) {
-      liveModel = prev;
+      liveModel = prevName;
+      liveModelId = prevId;
       paintModelChip();
       toast(`切换模型失败：${err.message}`, 'error');
     }
     paintModelList();
   }
 
+  async function useFetchedModel(name) {
+    const entry = activeEntry();
+    closeAll();
+    if (!entry || !entry.id) {
+      toast('先添加一个模型条目，再从拉取结果里切换', 'info');
+      return;
+    }
+    try {
+      const r = await api(
+        'PUT',
+        `/api/models/${encodeURIComponent(entry.id)}`,
+        {
+          name: entry.name || entry.model || name,
+          provider_id: entry.provider_id || '',
+          plan: entry.plan || '',
+          protocol: entry.protocol || '',
+          base_url: entry.base_url || '',
+          model: name,
+          is_default: !!entry.is_default,
+          is_fast: !!entry.is_fast,
+        },
+      );
+      if (r && Array.isArray(r.models)) modelsList = r.models;
+      if (r && r.model) {
+        liveModelId = r.model.id || entry.id;
+        liveModel = r.model.model || name;
+      }
+      paintModelChip();
+      toast(`已切到 ${liveModel || name}，下一个任务开始用它`, 'success');
+    } catch (err) {
+      paintModelChip();
+      toast(`切换模型失败：${err.message}`, 'error');
+    }
+    if (!modelPop.hidden) paintModelList();
+  }
+
   modelFetchBtn.addEventListener('click', async () => {
     modelFetchBtn.disabled = true;
     const old = modelFetchBtn.textContent;
     modelFetchBtn.textContent = '拉取中…';
+    fetched = [];
+    fetchedFor = '';
     try {
       const r = await api('POST', '/api/llm/models', {});
       if (r.ok && Array.isArray(r.models)) {
         fetched = r.models.map((m) => m.id).filter(Boolean);
+        fetchedFor = fetchScope();
         toast(
           `已拉取 ${r.count || fetched.length} 个模型，点一下就切`,
           'success',
@@ -4370,17 +4667,6 @@ function wsShort(path) {
   return parts[parts.length - 1] || path;
 }
 
-let activeSSH = '';
-try {
-  activeSSH = localStorage.getItem('gleam.workspace.ssh') || '';
-} catch {}
-function setActiveSSH(host) {
-  activeSSH = host || '';
-  try {
-    localStorage.setItem('gleam.workspace.ssh', activeSSH);
-  } catch {}
-}
-
 async function loadWorkspace() {
   try {
     const ws = await api('GET', '/api/workspace');
@@ -4388,28 +4674,21 @@ async function loadWorkspace() {
   } catch {}
 }
 
-let lastWsView = { workspace: '', recents: [], git_branch: '' };
 function renderWorkspace(ws) {
-  if (ws) lastWsView = ws;
   const path = (ws && ws.workspace) || '';
   const branch = (ws && ws.git_branch) || '';
-  const label = activeSSH
-    ? 'SSH · ' + activeSSH
-    : path
-      ? '工作区 · ' + wsShort(path)
-      : '不指定工作区';
+  const label = path ? '工作区 · ' + wsShort(path) : '不指定工作区';
   const foot = $('#composer-ws-text');
   if (foot) {
     foot.textContent = label;
-    foot.title = activeSSH || path || '';
+    foot.title = path;
   }
   const chipBtn = $('#composer-ws');
-  if (chipBtn)
-    chipBtn.classList.toggle('composer-foot--active', !!(path || activeSSH));
+  if (chipBtn) chipBtn.classList.toggle('composer-foot--active', !!path);
   const branchWrap = $('#composer-ws-branch');
   const branchText = $('#composer-ws-branch-text');
   if (branchWrap && branchText) {
-    branchWrap.hidden = !branch || !!activeSSH;
+    branchWrap.hidden = !branch;
     branchText.textContent = branch;
   }
 }
@@ -4417,7 +4696,6 @@ function renderWorkspace(ws) {
 async function chooseWorkspace(path) {
   try {
     const ws = await api('POST', '/api/workspace', { path });
-    setActiveSSH('');
     renderWorkspace(ws);
     toast(`工作区已切换：${wsShort(ws.workspace)}`, 'success');
   } catch (err) {
@@ -4428,7 +4706,6 @@ async function chooseWorkspace(path) {
 async function clearWorkspace() {
   try {
     const ws = await api('POST', '/api/workspace/clear');
-    setActiveSSH('');
     renderWorkspace(ws);
     toast('已改为不指定工作区', 'success');
   } catch (err) {
@@ -4474,11 +4751,7 @@ async function openWorkspaceMenu() {
   menu.id = 'ws-menu';
   menu.setAttribute('role', 'menu');
 
-  const cur = activeSSH
-    ? 'SSH · ' + activeSSH
-    : ws.workspace
-      ? wsShort(ws.workspace)
-      : '不指定工作区';
+  const cur = ws.workspace ? wsShort(ws.workspace) : '不指定工作区';
   const head = el('div', 'ws-menu-head');
   head.innerHTML = `<div class="ws-menu-label">当前工作区</div><div class="ws-menu-current">${esc(cur)}</div>`;
   menu.appendChild(head);
@@ -4522,13 +4795,7 @@ async function openWorkspaceMenu() {
       openNewWorkspaceDialog();
     }),
   );
-  menu.appendChild(
-    mkAction(WS_ICON.plug, '连接 SSH…', '自动检测本机与设置里的主机', () => {
-      closeWorkspaceMenu();
-      openSSHDialog();
-    }),
-  );
-  if (ws.workspace || activeSSH) {
+  if (ws.workspace) {
     menu.appendChild(
       mkAction(WS_ICON.none, '不指定工作区', '文件操作不受工作区限制', () => {
         closeWorkspaceMenu();
@@ -4551,10 +4818,7 @@ const WS_ICON = {
     '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
   folderAdd:
     '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M12 11v5M9.5 13.5h5"/></svg>',
-  plug: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v6M15 3v6M6 9h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6z"/><path d="M12 18v3"/></svg>',
   none: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 8.5 7 7M15.5 8.5l-7 7"/></svg>',
-  server:
-    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.6"/><rect x="3" y="13" width="18" height="7" rx="1.6"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
 };
 
 async function pickSystemFolder() {
@@ -4575,88 +4839,6 @@ async function pickSystemFolder() {
     return;
   }
   openWorkspaceBrowse();
-}
-
-async function openSSHDialog() {
-  const saved = new Set(UIPrefs.get().sshHosts || []);
-  let local = [];
-  let cfgPath = '';
-  try {
-    const r = await api('GET', '/api/ssh/hosts');
-    local = r.hosts || [];
-    cfgPath = r.path || '';
-  } catch {}
-
-  const hosts = [];
-  local.forEach((h) => {
-    if (!hosts.includes(h)) hosts.push(h);
-  });
-  saved.forEach((h) => {
-    if (!hosts.includes(h)) hosts.push(h);
-  });
-
-  Modal.open('连接 SSH', (box) => {
-    const wrap = el('div');
-    wrap.innerHTML =
-      '<p class="field-hint" style="margin:0 0 var(--space-3);">从本机 SSH 配置与「设置 → 连接」里挑选一台主机。Gleam 只读 Host 名称，不读取用户名、地址或任何密钥。</p>' +
-      '<div class="ws-ssh-list" id="ws-ssh-list" role="listbox" aria-label="SSH 主机"></div>' +
-      '<p class="field-hint" id="ws-ssh-note" style="margin:var(--space-3) 0 0;"></p>';
-    box.appendChild(wrap);
-
-    const list = $('#ws-ssh-list');
-    const note = $('#ws-ssh-note');
-    note.textContent = cfgPath
-      ? `本机配置：${cfgPath}（只解析 Host 名称）`
-      : '没有找到本机 SSH 配置文件。';
-
-    if (!hosts.length) {
-      list.innerHTML =
-        '<div class="empty" style="padding:var(--space-4) 0;"><div class="empty-title">没有可用的主机</div>' +
-        '<p class="empty-desc">在 ~/.ssh/config 里写好 Host，或到「设置 → 连接」添加 SSH 连接。</p></div>';
-    } else {
-      hosts.forEach((h) => {
-        const row = el('button', 'ws-ssh-item');
-        row.type = 'button';
-        row.setAttribute('role', 'option');
-        row.setAttribute('aria-selected', String(activeSSH === h));
-        row.innerHTML =
-          `<span class="ws-ssh-glyph">${esc((h[0] || '?').toUpperCase())}</span>` +
-          `<span class="ws-ssh-name">${esc(h)}</span>` +
-          (activeSSH === h
-            ? '<span class="badge badge--mode">已连接</span>'
-            : '');
-        row.addEventListener('click', () => {
-          setActiveSSH(h);
-          Modal.close();
-          renderWorkspace(lastWsView);
-          toast(`已连接 SSH：${h}`, 'success');
-        });
-        list.appendChild(row);
-      });
-    }
-
-    const actions = el('div', 'modal-actions');
-    if (activeSSH) {
-      const dc = el('button', 'btn btn-secondary', '断开连接');
-      dc.type = 'button';
-      dc.addEventListener('click', () => {
-        setActiveSSH('');
-        Modal.close();
-        loadWorkspace();
-        toast('已断开 SSH', 'success');
-      });
-      actions.appendChild(dc);
-    }
-    const cancel = el(
-      'button',
-      'btn btn-secondary',
-      activeSSH ? '取消' : '关闭',
-    );
-    cancel.type = 'button';
-    cancel.addEventListener('click', Modal.close);
-    actions.appendChild(cancel);
-    box.appendChild(actions);
-  });
 }
 
 const WS_ICON_MARKUP = [
@@ -4745,16 +4927,6 @@ function openNewWorkspaceDialog() {
       '<div class="wsnew-field">' +
       '<div class="wsnew-label">工作区颜色</div>' +
       '<div class="wsnew-colors" id="wsnew-colors" role="radiogroup" aria-label="工作区颜色"></div>' +
-      '</div>' +
-      '<div class="wsnew-field wsnew-field--index">' +
-      '<div class="wsnew-index">' +
-      '<div class="wsnew-index-text">' +
-      '<div class="wsnew-label">工作区索引</div>' +
-      '<p class="wsnew-hint">建立工作区索引可增强上下文理解能力，从而提升智能体回复准确性。关于工作区索引数据处理方式，' +
-      '<a href="#" class="wsnew-link" id="wsnew-more">了解详情</a>。</p>' +
-      '</div>' +
-      '<button type="button" class="wsnew-switch" id="wsnew-index" role="switch" aria-checked="true" aria-label="工作区索引"><span></span></button>' +
-      '</div>' +
       '</div>';
     box.appendChild(wrap);
 
@@ -4771,7 +4943,6 @@ function openNewWorkspaceDialog() {
     const srcBox = $('#wsnew-src');
     const addBtn = $('#wsnew-add');
     const nameInput = $('#wsnew-name');
-    const idxBtn = $('#wsnew-index');
 
     const iconsBox = $('#wsnew-icons');
     WS_ICON_MARKUP.forEach((mk, i) => {
@@ -4813,17 +4984,6 @@ function openNewWorkspaceDialog() {
         b.setAttribute('aria-checked', String(i === colorIdx)),
       );
     }
-
-    idxBtn.addEventListener('click', () => {
-      idxBtn.setAttribute(
-        'aria-checked',
-        String(idxBtn.getAttribute('aria-checked') !== 'true'),
-      );
-    });
-    $('#wsnew-more').addEventListener('click', (e) => {
-      e.preventDefault();
-      toast('工作区索引还没上线：这里只先记住你的开关意向。', 'info');
-    });
 
     function paintSrc() {
       if (!picked) {
@@ -4878,8 +5038,6 @@ function openNewWorkspaceDialog() {
       const meta = wsMetaOf(p);
       if (typeof meta.icon === 'number') iconIdx = meta.icon;
       if (typeof meta.color === 'number') colorIdx = meta.color;
-      if (typeof meta.index === 'boolean')
-        idxBtn.setAttribute('aria-checked', String(meta.index));
       paintIcons();
       paintColors();
       paintSrc();
@@ -4896,7 +5054,6 @@ function openNewWorkspaceDialog() {
       saveWsMeta(picked, {
         icon: iconIdx,
         color: colorIdx,
-        index: idxBtn.getAttribute('aria-checked') === 'true',
         name: wsName,
       });
       Modal.settle(() => {});
@@ -4930,6 +5087,19 @@ let currentConvo = null;
 let viewingConvo = false;
 let convoLoadSeq = 0;
 const convoLive = new Map();
+// Terminal task IDs seen on this page (bounded). The submit HTTP response can
+// arrive after the completed event; the response path consults this so it does
+// not resurrect a running card or conversation bubble.
+const finishedTasks = new Map();
+const FINISHED_TASK_CAP = 200;
+function markTaskFinished(taskID, status) {
+  if (!taskID || !status) return;
+  finishedTasks.delete(taskID);
+  finishedTasks.set(taskID, status);
+  while (finishedTasks.size > FINISHED_TASK_CAP) {
+    finishedTasks.delete(finishedTasks.keys().next().value);
+  }
+}
 
 const CONVO_ICONS = {
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
@@ -4985,9 +5155,13 @@ async function loadSpaces() {
   return spaceState;
 }
 
+let convoListSeq = 0;
 async function loadConvoList(activeId) {
   const root = $('#convo-list');
-  root.innerHTML = '';
+  // Two refreshes can overlap (task completion + manual navigation). Build the
+  // new list off-document and let only the latest call publish it; clearing
+  // before the await let both append and produced duplicate space groups.
+  const seq = ++convoListSeq;
 
   await loadSpaces();
   let items = [];
@@ -4997,6 +5171,7 @@ async function loadConvoList(activeId) {
   } catch {
     items = [];
   }
+  if (seq !== convoListSeq) return;
 
   const bySpace = new Map();
   spaceState.spaces.forEach((sp) => bySpace.set(sp.id, []));
@@ -5006,8 +5181,10 @@ async function loadConvoList(activeId) {
     bySpace.get(sid).push(it);
   });
 
+  const frag = document.createDocumentFragment();
   if (!spaceState.spaces.length) {
-    root.appendChild(el('div', 'convo-empty', '还没有空间'));
+    frag.appendChild(el('div', 'convo-empty', '还没有空间'));
+    root.replaceChildren(frag);
     return;
   }
 
@@ -5022,10 +5199,11 @@ async function loadConvoList(activeId) {
     const list = bySpace.get(sp.id) || [];
     const isActive = sp.id === spaceState.activeId;
     const open = expanded.has(sp.id);
-    root.appendChild(
+    frag.appendChild(
       spaceGroupEl(sp, list, { open, active: isActive, currentConvoId }),
     );
   });
+  root.replaceChildren(frag);
 }
 
 function spaceGroupEl(sp, list, opts) {
@@ -5214,7 +5392,13 @@ function convoItemEl(it, active) {
   ops.appendChild(del);
   item.appendChild(title);
   item.appendChild(ops);
-  item.addEventListener('click', () => openConvo(it.id));
+  item.addEventListener('click', () => {
+    // showView would reload the goals module and tear down thread mode just
+    // before reopening another conversation, racing the switch.
+    if (!(viewingConvo && $('#view-goals').classList.contains('active')))
+      showView('goals');
+    openConvo(it.id);
+  });
   return item;
 }
 
@@ -5231,29 +5415,20 @@ function setThreadMode(on) {
   if (cue) cue.style.display = on ? 'none' : '';
 }
 
-// Empty-state quick starts: keep them structurally identical to the static
-// block in index.html #goals-empty (copy and data-prompt must match exactly;
-// change one and change the other). The brand hero left the empty state: the
-// mark already appears in the sidebar and top bar, and the empty state should
-// answer "what can I do next", not "what is this product".
-const EMPTY_ENTRIES = `<div class="empty-entries" aria-label="快捷开始"><button class="quick-card" type="button" data-prompt="整理当前工作区的文件，按类型归档并生成一份索引" data-task="work"><strong>整理工作区</strong><small>文件归档 · 生成索引</small></button><button class="quick-card" type="button" data-prompt="分析最近的项目进度，提炼风险并给出下一步行动" data-task="work"><strong>项目复盘</strong><small>进度分析 · 风险提醒</small></button><button class="quick-card" type="button" data-prompt="阅读当前目录的文档，提炼关键结论并整理成简报" data-task="work"><strong>快速研究</strong><small>阅读文档 · 输出简报</small></button></div>`;
+const HOME_EMPTY = $('#goals-empty').cloneNode(true);
 
 function resetFeedToEmpty(title, desc, opts = {}) {
   const feed = $('#goal-feed');
-  feed.innerHTML = '';
-  const empty = el(
-    'div',
-    opts.home ? 'empty home-hero' : 'empty home-hero home-hero--task',
-  );
+  if (opts.home) {
+    feed.replaceChildren(HOME_EMPTY.cloneNode(true));
+    return;
+  }
+  const empty = el('div', 'empty home-hero home-hero--task');
   empty.id = 'goals-empty';
   empty.innerHTML =
-    `<div class="empty-title">${esc(title)}</div><p class="empty-desc">${esc(desc)}</p>` +
-    (opts.home
-      ? EMPTY_ENTRIES +
-        '<section class="activity-card" aria-label="本机活动"></section>'
-      : '') +
+    `<h1 class="empty-title">${esc(title)}</h1><p class="empty-desc">${esc(desc)}</p>` +
     '<section class="site-tpl" aria-label="站点模板" hidden></section>';
-  feed.appendChild(empty);
+  feed.replaceChildren(empty);
 }
 
 async function enterConvoView(c, opts = {}) {
@@ -5272,6 +5447,7 @@ async function enterConvoView(c, opts = {}) {
 }
 
 async function startNewConvo(spaceId) {
+  ShellLayout.closeHistory();
   const running = [...tasks.values()].filter(
     (t) => t.info.status === 'running',
   ).length;
@@ -5311,6 +5487,10 @@ async function openConvo(id) {
     setThreadMode(true);
     $('#goals-title').textContent = c.title || '新对话';
     renderConvoMessages(c);
+    // Reopening a conversation only restores archived messages. A task that is
+    // still running has no assistant message yet, so rebuild its live bubble
+    // (with the stop control) from the server's task list.
+    void attachRunningTasksToConvo(c.id);
     await loadConvoList(c.id);
     goalInput.focus();
   } catch (err) {
@@ -5444,6 +5624,48 @@ async function openTaskDetail(taskID) {
   }
 }
 
+function replayLiveProgress(taskID, events) {
+  for (const ev of events || []) {
+    if (ev.type !== 'progress' || !ev.data) continue;
+    const d = ev.data;
+    if (d.phase === 'chat' && d.kind === 'llm' && d.message)
+      convoStream(taskID, d.message);
+    else if (d.message && (d.phase === 'context' || isContextNote(d.message)))
+      convoNotice(taskID, d.message);
+  }
+}
+
+// Restores the live half of a conversation (running bubble, streamed text,
+// pending approval) after the page only had the archived messages to show.
+async function attachRunningTasksToConvo(convoId) {
+  const stillHere = () =>
+    viewingConvo && currentConvo && currentConvo.id === convoId;
+  if (!stillHere()) return;
+  let goals = [];
+  try {
+    goals = (await api('GET', '/api/goals')).goals || [];
+  } catch {
+    return;
+  }
+  if (!stillHere()) return;
+  for (const info of goals) {
+    if (info.status !== 'running' || info.conversation_id !== convoId) continue;
+    if (convoLive.has(info.task_id)) continue;
+    appendLiveConvoTurn(info.goal, info.task_id, info.task_mode, {
+      skipUser: true,
+    });
+    replayLiveProgress(info.task_id, info.events);
+  }
+  try {
+    const { approvals } = await api('GET', '/api/approvals');
+    if (!stillHere()) return;
+    for (const ap of approvals || []) {
+      if (!ap.task_id || !convoLive.has(ap.task_id)) continue;
+      convoApproval(ap);
+    }
+  } catch {}
+}
+
 function appendLiveConvoTurn(goal, taskID, taskMode, opts = {}) {
   if (convoLive.has(taskID)) return;
   const feed = $('#goal-feed');
@@ -5522,13 +5744,32 @@ function convoNotice(taskID, text) {
 }
 
 function convoComplete(taskID, result) {
+  markTaskFinished(taskID, result && result.status);
   const live = convoLive.get(taskID);
-  const text = (result && (result.summary || result.error)) || '';
+  const streamed = live && live.buf.trim() ? live.buf : '';
+  const cancelled = !!result && result.status === 'cancelled';
+  // A cancelled backend now returns the partial answer as summary; if an older
+  // engine returns none, the text already streamed into the bubble is still the
+  // best answer and must not be replaced by the bare error line.
+  const text =
+    (result && result.summary) ||
+    (cancelled ? streamed : '') ||
+    (result && result.error) ||
+    '';
   if (live) {
     live.assistantEl.classList.remove('streaming');
     live.assistantEl.innerHTML = renderMarkdown(text || '（无回复内容）');
     if (live.approvalEl) live.approvalEl.remove();
     appendMsgActs(live.bodyEl, { task_id: taskID, mode: live.taskMode });
+    if (cancelled && text && text !== (result.error || '')) {
+      live.bodyEl.appendChild(
+        el(
+          'span',
+          'msg-status msg-status--cancelled',
+          STATUS_LABEL.cancelled || '已取消',
+        ),
+      );
+    }
     // 跑完了就没有可停止的东西：按钮必须跟着走，留下它只会让人点了个空
     mountStopButton(live.bodyEl, taskID, 'done');
     convoLive.delete(taskID);
@@ -5814,6 +6055,18 @@ function _doSetPerm(mode, label, persist = true) {
 
 /* ---------- 专家团 ---------- */
 const expertBar = document.getElementById('expert-bar');
+const rolePicker = $('#role-picker');
+rolePicker.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && rolePicker.open) {
+    event.preventDefault();
+    event.stopPropagation();
+    rolePicker.open = false;
+    rolePicker.querySelector('summary').focus();
+  }
+});
+document.addEventListener('click', (event) => {
+  if (!rolePicker.contains(event.target)) rolePicker.open = false;
+});
 
 function renderExpertTags(roles) {
   if (!expertBar) return;
@@ -5829,10 +6082,14 @@ function renderExpertTags(roles) {
     btn.innerHTML =
       '<span class="expert-tag-dot" aria-hidden="true"></span>' +
       '<span>' +
-      r.name +
+      esc(r.name) +
       '</span>';
+    if (r.id === currentRole) $('#role-current').textContent = r.name;
     btn.addEventListener('click', () => {
       currentRole = r.id;
+      $('#role-current').textContent = r.name;
+      $('#role-picker').open = false;
+      $('#role-picker summary').focus();
       expertBar.querySelectorAll('.expert-tag').forEach((t) => {
         t.setAttribute(
           'aria-checked',
@@ -7700,19 +7957,6 @@ const TaskSearch = (() => {
   const input = $('#task-search-input');
   const list = $('#task-search-list');
   const count = $('#task-search-count');
-  const MODULES = [
-    ['goals', '光迹', '目标与任务流', 'goals tasks home 目标 任务 光迹'],
-    ['memory', '长期记忆', '偏好与事实', 'memory 记忆 长期'],
-    ['schedules', '定时任务', '按计划自动执行', 'schedule 定时 计划 日程'],
-    ['skills', '技能', '可复用的工作方法', 'skills 技能'],
-    ['tools', '工具', '本机可调用的能力', 'tools 工具 能力'],
-    ['sites', '站点', '生成并发布网页', 'sites 站点 网页'],
-    ['market', '市场', '扩展与模板', 'market 市场 插件'],
-    ['growth', '成长', '使用回顾与建议', 'growth 成长 回顾'],
-    ['geo', 'GEO', '生成式引擎优化', 'geo 生成式 引擎 优化 搜索'],
-    ['hardware', '硬件设备', '本机设备与传感器', 'hardware 硬件 设备'],
-    ['settings', '设置', '模型、外观与快捷键', 'settings 设置 偏好'],
-  ];
   const ACTIONS = [
     [
       'new',
@@ -7791,8 +8035,8 @@ const TaskSearch = (() => {
       ...ACTIONS.map(([id, title, sub, hay, run]) =>
         entry('action', '动作', id, title, sub, hay, { run, hint: '动作' }),
       ),
-      ...MODULES.map(([id, title, sub, hay]) =>
-        entry('view', '跳转', id, title, sub, hay, { hint: '模块' }),
+      ...MODULES.map(({ id, title, desc, keywords }) =>
+        entry('view', '跳转', id, title, desc, keywords, { hint: '模块' }),
       ),
     ];
     const spaceName = new Map(
@@ -7885,6 +8129,7 @@ const TaskSearch = (() => {
       it.run();
       return;
     }
+    ShellLayout.closeHistory();
     if (it.kind === 'view') {
       showView(it.id);
       return;
@@ -8416,194 +8661,107 @@ document.querySelectorAll('.sites-layout [data-layout]').forEach((b) =>
   }),
 );
 
-/* ---------- 壳层：侧栏收展 / 底部快捷跳转 / 首页态 / 本机活动卡 ---------- */
 const ShellLayout = (() => {
+  const root = document.documentElement;
   const toggle = $('#sidebar-toggle');
-  const narrow = window.matchMedia('(max-width: 900px)');
-  const mobileOpen = () =>
-    document.documentElement.dataset.mobileNav === 'open';
-  function syncToggle() {
-    const expanded = narrow.matches
-      ? mobileOpen()
-      : !UIPrefs.get().sidebarCollapsed;
-    toggle.setAttribute('aria-expanded', String(expanded));
-    toggle.title = expanded ? '收起侧栏' : '展开侧栏';
+  const sidebar = $('#sidebar');
+  const scrim = $('#history-scrim');
+  const historyOpen = () => root.dataset.history === 'open';
+  function setHistory(open) {
+    root.dataset.history = open ? 'open' : 'closed';
+    sidebar.inert = !open;
+    scrim.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.title = open ? '关闭任务记录' : '打开任务记录';
     toggle.setAttribute('aria-label', toggle.title);
   }
+  function closeHistory() {
+    if (!historyOpen()) return;
+    setHistory(false);
+    toggle.focus();
+  }
+  const visible = (node) =>
+    !node.closest('[hidden], [inert]') &&
+    node.getClientRects().length > 0 &&
+    getComputedStyle(node).visibility !== 'hidden';
+  function otherLayerOpen() {
+    return [
+      ...document.querySelectorAll(
+        '[aria-modal="true"], [role="dialog"], [role="menu"], [popover], .cp-pop, .mention-pop, #onboarding-overlay, .perm-warning-overlay',
+      ),
+    ].some((node) => node !== sidebar && visible(node));
+  }
+  setHistory(false);
   toggle.addEventListener('click', () => {
-    if (narrow.matches) {
-      document.documentElement.dataset.mobileNav = mobileOpen()
-        ? 'closed'
-        : 'open';
-    } else {
-      UIPrefs.set({ sidebarCollapsed: !UIPrefs.get().sidebarCollapsed });
-    }
-    syncToggle();
-  });
-  narrow.addEventListener('change', () => {
-    if (narrow.matches) document.documentElement.dataset.mobileNav = 'closed';
-    syncToggle();
-  });
-  $('#sidebar').addEventListener('click', (e) => {
-    if (!narrow.matches || !mobileOpen()) return;
-    if (e.target.closest('button, .convo-item, .sidebar-link')) {
-      document.documentElement.dataset.mobileNav = 'closed';
-      syncToggle();
+    if (historyOpen()) closeHistory();
+    else {
+      setHistory(true);
+      $('#convo-new').focus();
     }
   });
-  syncToggle();
-  document
-    .querySelectorAll('[data-goto]')
-    .forEach((b) =>
-      b.addEventListener('click', () => showView(b.dataset.goto)),
-    );
-
-  // 本机活动：只用本机真实数据（会话最后活跃日、成长日志里完成的任务），没有就保持全空格子
-  const WEEKS = 52;
-  let tab = 'convo';
-  let cache = null;
-  const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-  async function fetchData() {
-    const [cv, gr] = await Promise.all([
-      api('GET', '/api/conversations').catch(() => ({})),
-      api('GET', '/api/growth/recent?n=200').catch(() => ({})),
-    ]);
-    const convo = new Map();
-    (cv.conversations || []).forEach((c) => {
-      if (!c.count || !c.updated_at) return;
-      const k = dayKey(new Date(c.updated_at));
-      convo.set(k, (convo.get(k) || 0) + 1);
-    });
-    const task = new Map();
-    (gr.entries || []).forEach((e) => {
-      if (e.type !== 'task_completed' || !e.time) return;
-      const k = dayKey(new Date(e.time));
-      task.set(k, (task.get(k) || 0) + 1);
-    });
-    return { convo, task };
-  }
-  function level(n, max) {
-    if (!n) return 0;
-    if (max <= 1) return 4;
-    return Math.min(4, 1 + Math.floor((n - 1) / Math.max(1, max / 4)));
-  }
-  function render(card) {
-    const data = cache ? cache[tab] : new Map();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const start = new Date(today);
-    start.setDate(start.getDate() - (WEEKS - 1) * 7 - today.getDay());
-    const max = Math.max(0, ...data.values());
-    let total = 0;
-    const cells = [];
-    const months = [];
-    let lastMonth = -1;
-    for (let w = 0; w < WEEKS; w++) {
-      for (let d = 0; d < 7; d++) {
-        const day = new Date(start);
-        day.setDate(start.getDate() + w * 7 + d);
-        if (d === 0 && day.getMonth() !== lastMonth) {
-          if (w > 0)
-            months.push(
-              `<span style="grid-column:${w + 1}">${day.getMonth() + 1}月</span>`,
-            );
-          lastMonth = day.getMonth();
-        }
-        if (day > today) {
-          cells.push('<i class="heat-cell" data-future></i>');
-          continue;
-        }
-        const n = data.get(dayKey(day)) || 0;
-        total += n;
-        // 日期与次数挂到 data-* 上，交给下面的卡片提示；原生 title 太慢也太丑
-        cells.push(
-          `<i class="heat-cell" data-l="${level(n, max)}" data-ts="${day.getTime()}" data-n="${n}"></i>`,
-        );
+  $('#history-close').addEventListener('click', closeHistory);
+  scrim.addEventListener('click', closeHistory);
+  sidebar.addEventListener('click', (e) => {
+    if (e.target.closest('.convo-item')) closeHistory();
+  });
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (
+        !historyOpen() ||
+        e.defaultPrevented ||
+        (e.key !== 'Escape' && e.key !== 'Tab') ||
+        otherLayerOpen()
+      )
+        return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeHistory();
+        return;
       }
-    }
-    hideHeatTip();
-    card.innerHTML = `<div class="activity-tabs" role="tablist">
-        <button type="button" role="tab" data-act="convo" aria-selected="${tab === 'convo'}">会话</button>
-        <button type="button" role="tab" data-act="task" aria-selected="${tab === 'task'}">任务</button>
-      </div>
-      <div class="heat-grid" aria-label="过去一年的本机活动，共 ${total} 次">${cells.join('')}</div>
-      <div class="heat-months" aria-hidden="true">${months.join('')}</div>`;
-    card.querySelectorAll('[data-act]').forEach((b) =>
-      b.addEventListener('click', () => {
-        tab = b.dataset.act;
-        render(card);
-      }),
-    );
-    bindHeatTip(card.querySelector('.heat-grid'), () => tab);
-  }
+      const focusables = [
+        ...sidebar.querySelectorAll(
+          'a[href], button, input, textarea, select, [tabindex]',
+        ),
+      ].filter((node) => !node.disabled && node.tabIndex >= 0 && visible(node));
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (!first) {
+        e.preventDefault();
+        return;
+      }
+      if (!focusables.includes(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    },
+    { capture: true },
+  );
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-goto]');
+    if (!button) return;
+    closeHistory();
+    showView(button.dataset.goto);
+  });
+  $('#global-search').addEventListener('click', () => {
+    closeHistory();
+    TaskSearch.open();
+  });
 
-  // 悬停格子时弹一张日期卡片：12月4日周四 / 单日活跃任务 / N 个任务
-  let heatTip = null;
-  function hideHeatTip() {
-    if (heatTip) heatTip.hidden = true;
-  }
-  function bindHeatTip(grid, tabOf) {
-    if (!grid) return;
-    if (!heatTip) {
-      heatTip = el('div', 'heat-tip');
-      heatTip.hidden = true;
-      document.body.appendChild(heatTip);
-    }
-    grid.addEventListener('mouseover', (e) => {
-      const cell = e.target.closest('.heat-cell');
-      if (!cell || cell.hasAttribute('data-future') || !cell.dataset.ts) return;
-      const d = new Date(Number(cell.dataset.ts));
-      const n = Number(cell.dataset.n) || 0;
-      const wd = '日一二三四五六'[d.getDay()];
-      const noun = tabOf() === 'task' ? '任务' : '会话';
-      heatTip.innerHTML =
-        `<div class="heat-tip-head"><span class="heat-tip-date">${d.getMonth() + 1}月${d.getDate()}日周${wd}</span>` +
-        `<span class="heat-tip-count">${n} 个${noun}</span></div>` +
-        `<div class="heat-tip-sub">单日活跃${noun}</div>`;
-      heatTip.hidden = false;
-      const r = cell.getBoundingClientRect();
-      const tw = heatTip.offsetWidth,
-        th = heatTip.offsetHeight;
-      const left = Math.max(
-        8,
-        Math.min(r.left + r.width / 2 - tw / 2, window.innerWidth - tw - 8),
-      );
-      let top = r.top - th - 8;
-      if (top < 8) top = r.bottom + 8;
-      heatTip.style.left = Math.round(left) + 'px';
-      heatTip.style.top = Math.round(top) + 'px';
-    });
-    grid.addEventListener('mouseleave', hideHeatTip);
-    grid.addEventListener('mouseout', (e) => {
-      if (!e.relatedTarget || !e.relatedTarget.closest('.heat-grid'))
-        hideHeatTip();
-    });
-  }
-  async function paintActivity() {
-    const card = document.querySelector('#goals-empty .activity-card');
-    if (!card) return;
-    if (!card.childElementCount) render(card);
-    try {
-      cache = await fetchData();
-    } catch {
-      cache = null;
-    }
-    if (card.isConnected) render(card);
-  }
-
-  // 首页态：会话流里只有空态时，主区换成首页布局（插图位 + 活动卡 + 底部输入框）
   const view = $('#view-goals');
   const feed = $('#goal-feed');
   function syncHome() {
     const empty = $('#goals-empty');
     const home = !!empty && feed.children.length === 1;
-    view.classList.toggle('is-home', home);
-    if (
-      home &&
-      empty.querySelector('.activity-card') &&
-      !empty.querySelector('.activity-card').childElementCount
-    )
-      paintActivity();
+    view.classList.toggle('is-home', home && !viewingConvo);
     const tpl = empty && empty.querySelector('.site-tpl');
     if (home && tpl && siteMode) {
       if (!tpl.childElementCount) SiteTemplates.paint(tpl);
@@ -8612,7 +8770,7 @@ const ShellLayout = (() => {
   }
   new MutationObserver(syncHome).observe(feed, { childList: true });
   syncHome();
-  return { paintActivity, syncHome };
+  return { closeHistory, syncHome };
 })();
 
 /* ---------- 输入框工具条：执行方式下拉 + 侧栏模式切换 + 附件 ----------
@@ -8906,7 +9064,7 @@ const Updater = (() => {
       });
     }
 
-    desk.update.onStatus((s) => {
+    const applyStatus = (s) => {
       if (!s || !s.kind) return;
       switch (s.kind) {
         case 'checking':
@@ -8950,7 +9108,14 @@ const Updater = (() => {
           hideBadge();
           break;
       }
-    });
+    };
+    desk.update.onStatus(applyStatus);
+    // Reloading the renderer drops the button that a "downloaded" status had
+    // revealed; the shell only pushes to windows created after the updater was
+    // installed. Pull the current status once so the control survives reload.
+    Promise.resolve(desk.update.status())
+      .then(applyStatus)
+      .catch(() => {});
   }
 
   function openCheckDialog() {
@@ -9154,309 +9319,6 @@ const VoiceInput = (() => {
   }
 
   return { supported: true, toggle };
-})();
-
-/* ---------- 硬件设备管理 ---------- */
-const Hardware = (function () {
-  const API_BASE = '/api/hardware';
-  const DEVICE_ICONS = {
-    xiaohong: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>`,
-    qianwen_a2: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`,
-  };
-  const CAPABILITY_LABELS = {
-    audio_in: '麦克风',
-    audio_out: '扬声器',
-    sensor: '传感器',
-    display: '显示屏',
-    button: '按键',
-    storage: '存储',
-    network: '网络',
-    usb: 'USB',
-    ble: '蓝牙',
-    transcribe: '语音转写',
-  };
-
-  let devices = [];
-  let instances = [];
-  let selectedWifi = null;
-  let initialized = false;
-
-  function init() {
-    if (initialized) return;
-    initialized = true;
-    setupEventListeners();
-  }
-
-  function setupEventListeners() {
-    const refreshBtn = document.getElementById('refresh-btn');
-    if (refreshBtn) refreshBtn.addEventListener('click', loadDevices);
-
-    document.querySelectorAll('[data-close]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const modal = document.getElementById('xiaohong-modal');
-        if (modal) modal.classList.remove('active');
-        resetSetupSteps();
-      });
-    });
-
-    const scanBtn = document.getElementById('scan-wifi-btn');
-    if (scanBtn) scanBtn.addEventListener('click', scanWiFi);
-
-    const connectWifiBtn = document.getElementById('connect-wifi-btn');
-    if (connectWifiBtn) connectWifiBtn.addEventListener('click', connectWiFi);
-
-    const retryBtn = document.getElementById('retry-btn');
-    if (retryBtn) retryBtn.addEventListener('click', () => goToStep(1));
-  }
-
-  async function loadDevices() {
-    try {
-      const [devicesRes, instancesRes] = await Promise.all([
-        fetch(`${API_BASE}/devices`),
-        fetch(`${API_BASE}/instances`),
-      ]);
-      devices = await devicesRes.json();
-      instances = await instancesRes.json();
-      renderDeviceGrid();
-      renderConnectedList();
-    } catch (err) {
-      console.error('Failed to load devices:', err);
-    }
-  }
-
-  function renderDeviceGrid() {
-    const grid = document.getElementById('device-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-
-    if (!devices.devices || devices.devices.length === 0) {
-      grid.innerHTML = `<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg><p>暂无已注册设备</p></div>`;
-      return;
-    }
-
-    devices.devices.forEach((device) => {
-      const isConnected =
-        instances.instances &&
-        instances.instances.some((i) => i.id === device.id);
-      const card = document.createElement('div');
-      card.className = 'device-card';
-      card.innerHTML = `
-        <div class="device-card-header">
-          <div class="device-icon">${DEVICE_ICONS[device.id] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>'}</div>
-          <div class="device-info"><h3>${esc(device.name)}</h3><p>${esc(device.description)}</p></div>
-        </div>
-        <div class="device-capabilities">${(device.capabilities || []).map((cap) => `<span class="capability-tag">${esc(CAPABILITY_LABELS[cap] || cap)}</span>`).join('')}</div>
-        <div class="device-actions"><button class="btn ${isConnected ? 'btn-secondary' : 'btn-primary'}" data-act="toggle">${
-          isConnected ? '断开' : device.id === 'xiaohong' ? '一键配置' : '连接'
-        }</button></div>
-      `;
-      card
-        .querySelector('[data-act="toggle"]')
-        .addEventListener('click', () => {
-          if (isConnected) Hardware.disconnectDevice(device.id);
-          else Hardware.connectDevice(device.id);
-        });
-      grid.appendChild(card);
-    });
-  }
-
-  function renderConnectedList() {
-    const list = document.getElementById('connected-list');
-    if (!list) return;
-
-    if (!instances.instances || instances.instances.length === 0) {
-      list.innerHTML = `<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg><p>暂无已连接设备</p></div>`;
-      return;
-    }
-
-    list.innerHTML = '';
-    instances.instances.forEach((inst) => {
-      const item = document.createElement('div');
-      item.className = 'connected-item';
-      item.innerHTML = `
-        <div class="connected-item-info"><div class="status-indicator"></div><span class="connected-item-name">${esc(inst.name)}</span></div>
-        <div class="connected-item-actions">
-          <button class="btn btn-ghost" data-act="info">详情</button>
-          <button class="btn btn-secondary" data-act="disconnect">断开</button>
-        </div>
-      `;
-      item
-        .querySelector('[data-act="info"]')
-        .addEventListener('click', () => Hardware.showDeviceInfo(inst.id));
-      item
-        .querySelector('[data-act="disconnect"]')
-        .addEventListener('click', () => Hardware.disconnectDevice(inst.id));
-      list.appendChild(item);
-    });
-  }
-
-  async function connectDevice(deviceId) {
-    if (deviceId === 'xiaohong') {
-      const modal = document.getElementById('xiaohong-modal');
-      if (modal) modal.classList.add('active');
-      goToStep(1);
-    } else {
-      try {
-        const res = await fetch(`${API_BASE}/connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device_id: deviceId, config: {} }),
-        });
-        const data = await res.json();
-        if (res.ok) await loadDevices();
-        else alert(`连接失败：${data.error}`);
-      } catch (err) {
-        alert(`连接失败：${err.message}`);
-      }
-    }
-  }
-
-  async function disconnectDevice(deviceId) {
-    try {
-      const res = await fetch(`${API_BASE}/disconnect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: deviceId }),
-      });
-      if (res.ok) await loadDevices();
-    } catch (err) {
-      console.error('Disconnect failed:', err);
-    }
-  }
-
-  async function showDeviceInfo(deviceId) {
-    try {
-      const res = await fetch(`${API_BASE}/info/${deviceId}`);
-      const info = await res.json();
-      console.log('Device info:', info);
-    } catch (err) {
-      console.error('Failed to get device info:', err);
-    }
-  }
-
-  function goToStep(stepNum) {
-    document
-      .querySelectorAll('.step')
-      .forEach((s) => s.classList.remove('active'));
-    const step = document.querySelector(`.step[data-step="${stepNum}"]`);
-    if (step) step.classList.add('active');
-  }
-
-  function resetSetupSteps() {
-    goToStep(1);
-    selectedWifi = null;
-    const pwdInput = document.getElementById('wifi-password');
-    if (pwdInput) pwdInput.value = '';
-    const wifiList = document.getElementById('wifi-list');
-    if (wifiList) wifiList.innerHTML = '';
-  }
-
-  async function scanWiFi() {
-    const btn = document.getElementById('scan-wifi-btn');
-    if (!btn) return;
-    btn.disabled = true;
-    btn.textContent = '扫描中...';
-    try {
-      const connectRes = await fetch(`${API_BASE}/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          device_id: 'xiaohong',
-          config: { base_url: 'http://xiaohong.local:8080' },
-        }),
-      });
-      if (!connectRes.ok)
-        throw new Error('无法连接到小鸿，请确保设备已开机并处于配网模式');
-
-      const scanRes = await fetch(`${API_BASE}/scan-wifi`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_id: 'xiaohong' }),
-      });
-      if (!scanRes.ok) throw new Error('WiFi 扫描失败');
-
-      const data = await scanRes.json();
-      renderWiFiList(data.networks || []);
-      goToStep(2);
-    } catch (err) {
-      alert('扫描失败：' + err.message);
-      goToStep('error');
-      const errorMsg = document.getElementById('error-message');
-      if (errorMsg) errorMsg.textContent = err.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '开始扫描';
-    }
-  }
-
-  function renderWiFiList(networks) {
-    const list = document.getElementById('wifi-list');
-    if (!list) return;
-    list.innerHTML = '';
-    networks.forEach((net) => {
-      const item = document.createElement('div');
-      item.className = 'wifi-item';
-      item.innerHTML = `<span class="wifi-name">${esc(net.name)}</span><span class="wifi-signal">${getSignalStrength(net.signal)}</span>`;
-      item.addEventListener('click', () => {
-        document
-          .querySelectorAll('.wifi-item')
-          .forEach((i) => i.classList.remove('selected'));
-        item.classList.add('selected');
-        selectedWifi = net.name;
-      });
-      list.appendChild(item);
-    });
-  }
-
-  function getSignalStrength(signal) {
-    if (signal > -50) return '强';
-    if (signal > -70) return '中';
-    return '弱';
-  }
-
-  async function connectWiFi() {
-    if (!selectedWifi) {
-      alert('请先选择 WiFi 网络');
-      return;
-    }
-    const pwdInput = document.getElementById('wifi-password');
-    const password = pwdInput ? pwdInput.value : '';
-    if (!password) {
-      alert('请输入 WiFi 密码');
-      return;
-    }
-
-    goToStep(3);
-    try {
-      const configRes = await fetch(`${API_BASE}/configure-wifi`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          device_id: 'xiaohong',
-          ssid: selectedWifi,
-          password: password,
-        }),
-      });
-      if (!configRes.ok) {
-        const data = await configRes.json();
-        throw new Error(data.error || 'WiFi 配置失败');
-      }
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      const infoRes = await fetch(`${API_BASE}/info/xiaohong`);
-      if (infoRes.ok) {
-        goToStep(4);
-        await loadDevices();
-      } else {
-        throw new Error('WiFi 连接失败，请检查密码');
-      }
-    } catch (err) {
-      const errorMsg = document.getElementById('error-message');
-      if (errorMsg) errorMsg.textContent = err.message;
-      goToStep('error');
-    }
-  }
-
-  return { init, loadDevices, connectDevice, disconnectDevice, showDeviceInfo };
 })();
 
 /* ---------- 启动（必须是本文件的最后一段，判据见 scripts/check-app-startup.py） ---------- */

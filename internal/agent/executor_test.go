@@ -236,7 +236,7 @@ func TestExecute_RefErrors(t *testing.T) {
 	plan := types.Plan{Steps: []types.Step{
 		{ID: "s1", Tool: "noop"},
 		{ID: "s2", Tool: "noop", DependsOn: []string{"s1"}, Args: map[string]any{"x": "$ref:s1.nosuch"}},
-		{ID: "s3", Tool: "noop", DependsOn: []string{"s1"}, Args: map[string]any{"x": "$ref:ghost"}},
+		{ID: "s3", Tool: "noop", DependsOn: []string{"s1"}, Args: map[string]any{"x": "{ref:s1.other}"}},
 	}}
 	res := e.Execute(context.Background(), plan, "t", "auto", false)
 	if res.Failed != 2 {
