@@ -25,7 +25,7 @@ Gleam は単なるチャットボットでも、単純なタスク実行器で�
 ## プレビュー
 
 <p align="center">
-  <img src="artifacts/gleam-desktop-2026-10-10.png" alt="Gleam デスクトップ" width="90%">
+  <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam デスクトップ" width="90%">
 </p>
 
 <p align="center">

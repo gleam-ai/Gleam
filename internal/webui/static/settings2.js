@@ -646,10 +646,8 @@ const S2 = (() => {
   ];
   const MODE_NAMES = { code: '编程', work: '目标' };
   const currentMode = () => {
-    const b = document.querySelector(
-      '#mode-toggle button[aria-checked="true"]',
-    );
-    return b ? b.dataset.mode : 'work';
+    const b = document.querySelector('#task-seg button[aria-pressed="true"]');
+    return b ? b.dataset.task : 'work';
   };
   function applyModeBinding(mode) {
     const bind = (UIPrefs.get().modeBind || {})[mode] || {};
@@ -676,9 +674,9 @@ const S2 = (() => {
       }
     });
     document
-      .querySelectorAll('#mode-toggle button[data-mode]')
+      .querySelectorAll('#task-seg button[data-task]')
       .forEach((b) =>
-        mo.observe(b, { attributes: true, attributeFilter: ['aria-checked'] }),
+        mo.observe(b, { attributes: true, attributeFilter: ['aria-pressed'] }),
       );
   }
   function renderModes() {

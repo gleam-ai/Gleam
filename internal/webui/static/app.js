@@ -347,9 +347,6 @@ const VIEW_LOADERS = {
 };
 
 function showView(name) {
-  document.querySelectorAll('.nav-item[data-view]').forEach((b) => {
-    b.toggleAttribute('aria-current', b.dataset.view === name);
-  });
   document
     .querySelectorAll('.view')
     .forEach((v) => v.classList.remove('active'));
@@ -357,46 +354,10 @@ function showView(name) {
   const view = $('#view-' + name);
   if (view) view.classList.add('active');
   (VIEW_LOADERS[name] || (() => {}))();
-  const inMore = document.querySelector(
-    `#nav-more-body .nav-item[data-view="${name}"]`,
-  );
-  $('#nav-more').classList.toggle('has-active', !!inMore);
+  $('#home-back').hidden = name === 'goals';
 }
 
-document.querySelectorAll('.nav-item[data-view]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    showView(btn.dataset.view);
-    if (btn.closest('#nav-more-body')) setMoreOpen(false);
-  });
-});
-
-document.querySelectorAll('.nav-item').forEach((btn) => {
-  if (btn.hasAttribute('aria-label')) return;
-  const label = btn.querySelector(':scope > span:not(.nav-badge)');
-  const text = label && label.textContent.trim();
-  if (!text) return;
-  btn.setAttribute('aria-label', text);
-  btn.title = text;
-});
-
-function setMoreOpen(open) {
-  const body = $('#nav-more-body');
-  const toggle = $('#nav-more-toggle');
-  body.hidden = !open;
-  toggle.setAttribute('aria-expanded', String(open));
-  $('#nav-more').classList.toggle('open', open);
-}
-$('#nav-more-toggle').addEventListener('click', (e) => {
-  e.stopPropagation();
-  setMoreOpen($('#nav-more-body').hidden);
-});
-document.addEventListener('click', (e) => {
-  if (!$('#nav-more-body').hidden && !e.target.closest('#nav-more'))
-    setMoreOpen(false);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#nav-more-body').hidden) setMoreOpen(false);
-});
+$('#home-back').addEventListener('click', () => showView('goals'));
 
 // Quick starts are part of the empty state (#goals-empty), and the feed is
 // rebuilt wholesale by resetFeedToEmpty; per-node handlers would be lost on
@@ -466,7 +427,7 @@ $('#task-seg').addEventListener('click', (e) => {
   document
     .querySelectorAll('#task-seg button')
     .forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
-  $('#ws-chip').hidden = currentTask === 'chat';
+  $('#new-chat-btn').hidden = currentTask !== 'chat';
   goalInput.placeholder = composerPlaceholder();
 });
 
@@ -1507,33 +1468,11 @@ function refreshWorkbench() {
   });
 
   const attention = counts.attention;
-  const active = counts.active;
   // 徽标数的是"还能决定的审批"，和上面 attention 用同一个判据（任务已定格的残留卡片不算）；
   // 工具页直调的审批没有任务归属，单独并入，否则这条计数会把它们漏掉。
   pendingApprovals =
     all.filter((task) => approvalCardOf(task)).length +
     document.querySelectorAll('.approval-card.standalone-approval').length;
-  const approvalBadge = $('#approval-badge');
-  if (approvalBadge) {
-    approvalBadge.hidden = pendingApprovals === 0;
-    approvalBadge.textContent = pendingApprovals;
-  }
-  const title = $('#workbench-title');
-  const detail = $('#workbench-detail');
-  const dot = $('#workbench-dot');
-  dot.dataset.state = attention ? 'attention' : active ? 'active' : 'idle';
-  if (attention) {
-    title.textContent = `${attention} 项需要处理`;
-    detail.textContent = '有审批或异常任务值得查看';
-  } else if (active) {
-    title.textContent = `${active} 个目标正在推进`;
-    detail.textContent = 'Gleam 会在需要你决定时提醒你';
-  } else {
-    title.textContent = all.length ? '当前任务已处理完毕' : '准备就绪';
-    detail.textContent = all.length
-      ? '可以开始下一个目标'
-      : '可以开始一个新目标';
-  }
 
   all.forEach((task) => {
     const group = taskGroup(task);
@@ -2249,11 +2188,6 @@ function renderStandaloneApproval(ap) {
 let pendingApprovals = 0;
 function updateApprovalBadge(delta) {
   pendingApprovals = Math.max(0, pendingApprovals + delta);
-  const badge = $('#approval-badge');
-  if (badge) {
-    badge.hidden = pendingApprovals === 0;
-    badge.textContent = pendingApprovals;
-  }
 }
 
 function applyResult(taskID, result) {
@@ -2312,9 +2246,13 @@ function applyResult(taskID, result) {
   const errSlot = t.card.querySelector('[data-role="error"]');
   if (errSlot) {
     if (result.error) {
-      // 标题跟着状态走：部分完成时叫"失败原因"会把人吓一跳，其实只是有几条验收没达标
-      const title = result.status === 'partial' ? '未达标说明' : '失败原因';
-      errSlot.innerHTML = `<div class="callout callout--error">${ICONS.alert}<div class="callout-body"><div class="callout-title">${title}</div><div class="fail-summary">${esc(failSummary(result.error))}</div><details class="fail-detail"><summary>技术详情</summary><pre class="fail-raw">${esc(result.error)}</pre></details></div></div>`;
+      // 横幅已经给了失败摘要与动作，卡片只留一行记录：状态标签在 meta 行，
+      // 这里不再重复"失败原因"标题，部分完成才需要"未达标说明"把语义补回来。
+      const label =
+        result.status === 'partial'
+          ? '<span class="fail-note-label">未达标说明</span>'
+          : '';
+      errSlot.innerHTML = `<div class="fail-note">${ICONS.alert}<div class="fail-note-body"><p class="fail-note-text">${label}${esc(failSummary(result.error))}</p><details class="fail-detail"><summary>技术详情</summary><pre class="fail-raw">${esc(result.error)}</pre></details></div></div>`;
       errSlot.hidden = false;
     } else {
       errSlot.hidden = true;
@@ -2685,9 +2623,13 @@ async function loadGoals() {
       .reverse()
       .forEach((info) => renderTaskCard(info, false));
     if (!goals || !goals.length) {
-      resetFeedToEmpty('暂无任务', '描述一个目标，或从下面选一件事开始。', {
-        home: true,
-      });
+      resetFeedToEmpty(
+        '今天想让微光做什么？',
+        '写下一个目标，剩下的交给微光推进。',
+        {
+          home: true,
+        },
+      );
     }
   } catch {}
 }
@@ -3146,7 +3088,9 @@ function renderCues(led) {
   const deck = $('#cu-deck');
   const rows = led.rows || [];
   const sup = led.suppressed || [];
-  const silent = !rows.length && !sup.length && !led.scanned && !led.note;
+  // A scan only proves the archive was read, not that there is anything to say:
+  // with no rows, suppressed entries, or read warning the deck holds empty space.
+  const silent = !rows.length && !sup.length && !led.note;
   deck.hidden = silent;
   if (silent) return;
 
@@ -3154,9 +3098,7 @@ function renderCues(led) {
   $('#cu-note').textContent = led.note || '';
   $('#cu-tail').textContent = led.truncated || '';
   cueGoals = new Map(rows.map((r) => [r.id, r.goal || '']));
-  $('#cu-list').innerHTML = rows.length
-    ? rows.map(cueCard).join('')
-    : '<p class="cue-empty">最近的任务里没有反复出问题的地方，这一轮没什么可提的。</p>';
+  $('#cu-list').innerHTML = rows.map(cueCard).join('');
 
   const box = $('#cu-restore');
   box.hidden = !sup.length;
@@ -3486,7 +3428,6 @@ function syncRuntimeState(s) {
     const clearBtn = $('#set-clear-key');
     if (clearBtn) clearBtn.hidden = !(API_KEY_SET || host);
   }
-  LiveRail.runtime(s);
   ComposerMeta.model(s);
 }
 
@@ -4457,11 +4398,6 @@ function renderWorkspace(ws) {
     : path
       ? '工作区 · ' + wsShort(path)
       : '不指定工作区';
-  const text = $('#ws-chip-text');
-  if (text) {
-    text.textContent = label;
-    text.title = activeSSH || path || '';
-  }
   const foot = $('#composer-ws-text');
   if (foot) {
     foot.textContent = label;
@@ -4986,7 +4922,6 @@ function openNewWorkspaceDialog() {
 }
 
 $('#composer-ws').addEventListener('click', () => openWorkspaceMenu());
-$('#ws-chip').addEventListener('click', () => openWorkspaceMenu());
 function openWorkspaceDialog() {
   openWorkspaceMenu();
 }
@@ -5301,7 +5236,7 @@ function setThreadMode(on) {
 // change one and change the other). The brand hero left the empty state: the
 // mark already appears in the sidebar and top bar, and the empty state should
 // answer "what can I do next", not "what is this product".
-const EMPTY_ENTRIES = `<div class="empty-entries" aria-label="快捷开始"><button class="quick-card" type="button" data-prompt="整理当前工作区的文件，按类型归档并生成一份索引" data-task="work"><strong>整理工作区</strong><small>文件归档 · 生成索引</small></button><button class="quick-card" type="button" data-prompt="分析最近的项目进度，提炼风险并给出下一步行动" data-task="work"><strong>项目复盘</strong><small>进度分析 · 风险提醒</small></button><button class="quick-card" type="button" data-prompt="阅读当前目录的文档，提炼关键结论并整理成简报" data-task="code"><strong>快速研究</strong><small>阅读文档 · 输出简报</small></button></div>`;
+const EMPTY_ENTRIES = `<div class="empty-entries" aria-label="快捷开始"><button class="quick-card" type="button" data-prompt="整理当前工作区的文件，按类型归档并生成一份索引" data-task="work"><strong>整理工作区</strong><small>文件归档 · 生成索引</small></button><button class="quick-card" type="button" data-prompt="分析最近的项目进度，提炼风险并给出下一步行动" data-task="work"><strong>项目复盘</strong><small>进度分析 · 风险提醒</small></button><button class="quick-card" type="button" data-prompt="阅读当前目录的文档，提炼关键结论并整理成简报" data-task="work"><strong>快速研究</strong><small>阅读文档 · 输出简报</small></button></div>`;
 
 function resetFeedToEmpty(title, desc, opts = {}) {
   const feed = $('#goal-feed');
@@ -6361,10 +6296,7 @@ const LiveRail = (() => {
 
   const railEl = $('#rail');
   const foldBtn = $('#rail-fold');
-  const stripBtn = $('#rail-strip');
   const pulse = $('#rail-pulse');
-  const stripDot = $('#rail-strip-dot');
-  const stripStage = $('#rail-strip-stage');
   const flowBox = $('#rail-flow');
   const flowCount = $('#rail-flow-count');
   const loopRead = $('#rail-loop-read');
@@ -6376,99 +6308,55 @@ const LiveRail = (() => {
     stageEls[s] = loopEl.querySelector(`.loop-step[data-stage="${s}"]`);
     noteEls[s] = loopEl.querySelector(`[data-note="${s}"]`);
   });
-  const ro = {
-    model: $('#ro-model'),
-    host: $('#ro-host'),
-    tools: $('#ro-tools'),
-    schedules: $('#ro-schedules'),
-    memory: $('#ro-memory'),
-    version: $('#ro-version'),
-  };
 
-  const narrow = () => window.matchMedia('(max-width: 900px)').matches;
   const calm = () =>
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const midMQ = window.matchMedia('(max-width: 1240px)');
-  const narrowMQ = window.matchMedia('(max-width: 900px)');
-  // 中屏默认收成竖签，但**用户一旦自己点过就以他的选择为准**——自动兜底不能盖过显式意愿，
-  // 否则你刚展开的东西会在下一次 resize 时被"贴心地"收回去。
-  const pref = UIPrefs.get();
-  let userChose = pref.railFolded != null;
-  let choice = !!pref.railFolded;
-  // 用户没点过收展 = 默认跟着视口走，**每次现读**：init 时快照一份宽度，遇到布局还没
-  // 落定的场合（内嵌帧、刚创建就 maximise 的窗口）会把按钮文案和画面锁成反的——
-  // 第一下点击因此"看起来没反应"。点过了就只认他点的。
-  // ≥1240 放得下三栏 → 默认展开（第一眼就知道出事看哪里）；≤1240 放不下 → 兜成竖签。
-  // 这正是 01-base.css:6094 注释声明的意图；此前恒为 true，宽屏用户第一次打开
-  // 根本看不到现场栏，"出了事看哪里"在首屏就没有答案。
-  const folded = () => (userChose ? choice : midMQ.matches);
-  // 窄屏浮层是**临时**状态，不进偏好：没人希望"下次打开窗口默认挡住对话"。
-  let overlayOpen = false;
+  let openState = false;
   let rows = 0;
   let cur = null;
   let ticker = null;
 
-  /* ---------- 收展 ---------- */
-  function applyFold() {
-    // 窄屏没有"常驻右栏"这回事：那一列本来就是浮层，收展只由 data-overlay 说话，
-    // data-rail 让位给 CSS 的宽屏分支，两套状态不打架。
-    document.documentElement.dataset.rail =
-      !narrow() && folded() ? 'folded' : 'open';
-    railEl.dataset.overlay = narrow() && overlayOpen ? 'open' : 'closed';
-    const expanded = narrow() ? overlayOpen : !folded();
-    foldBtn.title = expanded ? '收起现场栏' : '展开现场栏';
-    foldBtn.setAttribute('aria-expanded', String(expanded));
+  /* ---------- 收展：现场是按需抽屉，不再占常驻列 ---------- */
+  function applyOpen() {
+    document.documentElement.dataset.rail = openState ? 'open' : 'folded';
+    railEl.dataset.overlay = openState ? 'open' : 'closed';
+    foldBtn.title = openState ? '收起现场栏' : '展开现场栏';
+    foldBtn.setAttribute('aria-expanded', String(openState));
     const openBtn = $('#rail-open');
     if (openBtn) {
-      openBtn.setAttribute('aria-expanded', String(expanded));
-      openBtn.title = expanded ? '收起现场栏' : '展开现场栏';
+      openBtn.setAttribute('aria-expanded', String(openState));
+      openBtn.title = openState ? '收起现场栏' : '展开现场栏';
       openBtn.setAttribute('aria-label', openBtn.title);
     }
   }
-  function setFolded(next) {
-    userChose = true;
-    choice = next;
-    UIPrefs.set({ railFolded: next });
-    applyFold();
+  function setOpen(next, focusBack) {
+    if (openState === next) return;
+    openState = next;
+    applyOpen();
+    if (next) foldBtn.focus?.();
+    else if (focusBack) $('#rail-open').focus?.();
   }
-  function setOverlay(next) {
-    overlayOpen = next;
-    applyFold();
-    // 竖签展开后自己就隐藏了：焦点得跟着送进面板，否则键盘用户按 Tab 会掉回页面顶部
-    (next ? foldBtn : stripBtn).focus?.();
-  }
-  // 一条竖签在两种视口下含义不同：宽屏是"把栏放回来"，窄屏是"把浮层掀开"。
-  foldBtn.addEventListener('click', () =>
-    narrow() ? setOverlay(!overlayOpen) : setFolded(!folded()),
-  );
-  stripBtn.addEventListener('click', () =>
-    narrow() ? setOverlay(true) : setFolded(false),
-  );
+  foldBtn.addEventListener('click', () => setOpen(false, true));
   $('#rail-open').addEventListener('click', (e) => {
     e.stopPropagation();
-    if (narrow()) setOverlay(!overlayOpen);
-    else setFolded(!folded());
+    setOpen(!openState);
   });
-  if (narrowMQ.addEventListener) {
-    narrowMQ.addEventListener('change', () => {
-      overlayOpen = false;
-      applyFold();
-    });
-  }
-  if (midMQ.addEventListener) midMQ.addEventListener('change', applyFold);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && narrow() && overlayOpen) setOverlay(false);
+    if (e.key === 'Escape' && openState) setOpen(false, true);
   });
-  // 浮层盖在主区上，点它外面就该散开——不然用户只能找到那个小箭头才能关。
   document.addEventListener(
     'click',
     (e) => {
-      if (overlayOpen && narrow() && !railEl.contains(e.target))
-        setOverlay(false);
+      if (
+        openState &&
+        !railEl.contains(e.target) &&
+        !e.target.closest('#rail-open')
+      )
+        setOpen(false);
     },
     true,
   );
-  applyFold();
+  applyOpen();
 
   /* ---------- 小工具 ---------- */
   function clock(d) {
@@ -6566,7 +6454,6 @@ const LiveRail = (() => {
     stopTicker();
     setRead(loopRead, text);
     delete loopEl.dataset.wait;
-    stripStage.textContent = '空闲';
     paintPulse('idle');
   }
   function paintRead() {
@@ -6579,11 +6466,9 @@ const LiveRail = (() => {
     if (waiting) {
       setRead(loopRead, `等你批准 · ${secs}s`, 'warn');
       loopEl.dataset.wait = 'true';
-      stripStage.textContent = '待批准';
       paintPulse('attention');
     } else {
       setRead(loopRead, `${STAGE_CN[cur.stage] || '循环'}中 · ${secs}s`);
-      stripStage.textContent = STAGE_CN[cur.stage] || '循环';
       paintPulse('running');
     }
   }
@@ -6628,7 +6513,6 @@ const LiveRail = (() => {
 
   function paintPulse(state) {
     pulse.dataset.state = state;
-    stripDot.dataset.state = state;
   }
 
   /* ---------- 对外入口（都兜住：旁路面板不能连累主流程） ---------- */
@@ -6741,36 +6625,8 @@ const LiveRail = (() => {
 
   const facts = guard((info) => {
     if (!info) return;
-    if (info.model) {
-      setRead(ro.model, clip(info.model, 22), 'ok');
-      // 同一个字段喂两处：现场栏只读，输入区那块还能点着切。两处各拉一次
-      // /api/info 就会一个先动一个后动，看着像两个模型名。
-      ComposerMeta.live(info.model);
-    }
-    if (typeof info.tools === 'number') setRead(ro.tools, String(info.tools));
-    if (typeof info.memory === 'number')
-      setRead(ro.memory, String(info.memory));
-    if (info.version) setRead(ro.version, 'v' + info.version);
-  });
-
-  const runtime = guard((s) => {
-    if (!s || !s.llm) return;
-    const host = s.llm.api_key_host_cur || '';
-    if (s.llm.model) setRead(ro.model, clip(s.llm.model, 22), 'ok');
-    if (!host) return;
-    setRead(
-      ro.host,
-      s.llm.api_key_set ? host : host + ' · 无密钥',
-      s.llm.api_key_set ? 'ok' : 'warn',
-    );
-  });
-
-  const schedules = guard((n) => {
-    if (typeof n === 'number') setRead(ro.schedules, String(n));
-  });
-
-  const memory = guard((n) => {
-    if (typeof n === 'number') setRead(ro.memory, String(n));
+    // The composer pill is the only place that shows the live model name.
+    if (info.model) ComposerMeta.live(info.model);
   });
 
   /* ---------- ① 待批准区 ----------
@@ -6862,9 +6718,6 @@ const LiveRail = (() => {
     result,
     summary,
     facts,
-    runtime,
-    schedules,
-    memory,
     approvals: paintApprovals,
     pushApproval,
     refresh: refreshApprovals,
@@ -7542,28 +7395,6 @@ makeSash({
   save: (w) => UIPrefs.set({ sidebarW: w }),
   close: () => $('#sidebar-toggle').click(),
 });
-// 右侧栏：宽度落在它自己的 --aux-w；拖到最右＝关闭
-makeSash({
-  handleSel: '#aux-resize',
-  panelSel: '#aux',
-  dir: -1,
-  min: 280,
-  max: 560,
-  closeAt: 200,
-  apply: (w) => {
-    const a = $('#aux');
-    if (a) a.style.setProperty('--aux-w', Math.round(w) + 'px');
-  },
-  save: (w) => UIPrefs.set({ auxW: w }),
-  close: () => AuxPanel.toggle(),
-});
-// 右侧栏宽度也记在本机：开机按上次的宽，没拖过就用 CSS 里的 clamp
-(() => {
-  const w = Number(UIPrefs.get().auxW),
-    a = $('#aux');
-  if (a && w >= 280) a.style.setProperty('--aux-w', Math.round(w) + 'px');
-})();
-
 /* ---------- 初始化 ---------- */
 applyTheme();
 api('GET', '/api/info')
@@ -7863,12 +7694,76 @@ $('#memory-empty-write').addEventListener('click', () =>
   $('#memory-content').focus(),
 );
 
-/* ---------- 全局任务搜索（Ctrl+K）：本机会话 + 当前已载入的目标 ---------- */
+/* Command palette (Ctrl+K): actions, module jumps, sessions and goals. */
 const TaskSearch = (() => {
   const overlay = $('#task-search');
   const input = $('#task-search-input');
   const list = $('#task-search-list');
   const count = $('#task-search-count');
+  const MODULES = [
+    ['goals', '光迹', '目标与任务流', 'goals tasks home 目标 任务 光迹'],
+    ['memory', '长期记忆', '偏好与事实', 'memory 记忆 长期'],
+    ['schedules', '定时任务', '按计划自动执行', 'schedule 定时 计划 日程'],
+    ['skills', '技能', '可复用的工作方法', 'skills 技能'],
+    ['tools', '工具', '本机可调用的能力', 'tools 工具 能力'],
+    ['sites', '站点', '生成并发布网页', 'sites 站点 网页'],
+    ['market', '市场', '扩展与模板', 'market 市场 插件'],
+    ['growth', '成长', '使用回顾与建议', 'growth 成长 回顾'],
+    ['geo', 'GEO', '生成式引擎优化', 'geo 生成式 引擎 优化 搜索'],
+    ['hardware', '硬件设备', '本机设备与传感器', 'hardware 硬件 设备'],
+    ['settings', '设置', '模型、外观与快捷键', 'settings 设置 偏好'],
+  ];
+  const ACTIONS = [
+    [
+      'new',
+      '新任务',
+      '清空对话上下文，回到输入',
+      'new task 新建 任务',
+      () => $('#convo-new').click(),
+    ],
+    [
+      'workspace',
+      '新建工作区',
+      '把一个目录加进来',
+      'workspace 工作区 目录 新建',
+      () => $('#space-new').click(),
+    ],
+    [
+      'live',
+      '现场栏',
+      '进度、审批与事件流水',
+      'live rail 现场 进度 审批',
+      () => $('#rail-open').click(),
+    ],
+    [
+      'terminal',
+      '终端',
+      '在底部执行命令',
+      'terminal 终端 shell',
+      () => Terminal.toggle(),
+    ],
+    [
+      'browser',
+      '内置浏览器',
+      '查看本机服务',
+      'browser 浏览器 预览',
+      () => BrowserPane.open(),
+    ],
+    [
+      'files',
+      '工作区文件',
+      '选一个文件引用到输入框',
+      'files 文件 工作区',
+      () => WorkspaceFiles.open(),
+    ],
+    [
+      'help',
+      '帮助',
+      '快捷键与使用说明',
+      'help 帮助 文档',
+      () => $('#help-btn').click(),
+    ],
+  ];
   let items = [];
   let shown = [];
   let sel = 0;
@@ -7882,7 +7777,24 @@ const TaskSearch = (() => {
       ? d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       : d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
   };
+  const entry = (kind, group, id, title, sub, hay, extra) => ({
+    kind,
+    group,
+    id,
+    title,
+    sub,
+    hay: `${title} ${sub} ${hay}`.toLowerCase(),
+    ...extra,
+  });
   async function collect() {
+    const out = [
+      ...ACTIONS.map(([id, title, sub, hay, run]) =>
+        entry('action', '动作', id, title, sub, hay, { run, hint: '动作' }),
+      ),
+      ...MODULES.map(([id, title, sub, hay]) =>
+        entry('view', '跳转', id, title, sub, hay, { hint: '模块' }),
+      ),
+    ];
     const spaceName = new Map(
       (spaceState.spaces || []).map((sp) => [sp.id, sp.name]),
     );
@@ -7892,31 +7804,39 @@ const TaskSearch = (() => {
     } catch {
       convos = [];
     }
-    const out = convos.map((c) => ({
-      kind: 'convo',
-      id: c.id,
-      title: c.title || '新对话',
-      sub: [
-        spaceName.get(c.space_id || 'default') || '默认空间',
-        c.preview || '',
-      ]
-        .filter(Boolean)
-        .join(' · '),
-      time: c.updated_at,
-      hay: `${c.title} ${c.preview || ''} ${c.id}`.toLowerCase(),
-    }));
+    convos
+      .map((c) =>
+        entry(
+          'convo',
+          '会话',
+          c.id,
+          c.title || '新对话',
+          [
+            spaceName.get(c.space_id || 'default') || '默认空间',
+            c.preview || '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          `${c.title} ${c.preview || ''} ${c.id}`,
+          { time: c.updated_at },
+        ),
+      )
+      .sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))
+      .forEach((it) => out.push(it));
     [...tasks.values()].forEach((t) => {
       const i = t.info || {};
-      out.push({
-        kind: 'goal',
-        id: i.task_id,
-        title: i.goal || '目标',
-        sub: '目标 · ' + (STATUS_LABEL[i.status] || i.status || ''),
-        time: i.created_at || i.started_at,
-        hay: `${i.goal || ''} ${i.task_id || ''}`.toLowerCase(),
-      });
+      out.push(
+        entry(
+          'goal',
+          '目标',
+          i.task_id,
+          i.goal || '目标',
+          STATUS_LABEL[i.status] || i.status || '',
+          `${i.goal || ''} ${i.task_id || ''}`,
+          { time: i.created_at || i.started_at },
+        ),
+      );
     });
-    out.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
     return out;
   }
   function render() {
@@ -7926,17 +7846,20 @@ const TaskSearch = (() => {
     count.textContent = String(shown.length);
     list.innerHTML = '';
     if (!shown.length) {
-      list.appendChild(
-        el('div', 'search-empty', q ? '没有匹配的任务' : '还没有任务'),
-      );
+      list.appendChild(el('div', 'search-empty', `没有匹配「${q}」的结果`));
       return;
     }
+    let group = '';
     shown.slice(0, 200).forEach((it, i) => {
+      if (it.group !== group) {
+        group = it.group;
+        list.appendChild(el('div', 'search-group', group));
+      }
       const row = el('button', 'search-row' + (i === sel ? ' active' : ''));
       row.type = 'button';
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', String(i === sel));
-      row.innerHTML = `<span class="search-row-title">${esc(it.title)}</span><span class="search-row-sub">${esc(it.sub)}</span><span class="search-row-time">${esc(fmtTime(it.time))}</span>`;
+      row.innerHTML = `<span class="search-row-title">${esc(it.title)}</span><span class="search-row-sub">${esc(it.sub)}</span><span class="search-row-time">${esc(it.hint || fmtTime(it.time))}</span>`;
       row.addEventListener('mousemove', () => {
         if (sel !== i) {
           sel = i;
@@ -7948,15 +7871,24 @@ const TaskSearch = (() => {
     });
   }
   function paintSel() {
-    [...list.children].forEach((r, i) => {
+    const rows = [...list.querySelectorAll('.search-row')];
+    rows.forEach((r, i) => {
       r.classList.toggle('active', i === sel);
       r.setAttribute('aria-selected', String(i === sel));
     });
-    const cur = list.children[sel];
+    const cur = rows[sel];
     if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
   }
   function choose(it) {
     close();
+    if (it.kind === 'action') {
+      it.run();
+      return;
+    }
+    if (it.kind === 'view') {
+      showView(it.id);
+      return;
+    }
     if (it.kind === 'convo') {
       showView('goals');
       openConvo(it.id);
@@ -8487,15 +8419,37 @@ document.querySelectorAll('.sites-layout [data-layout]').forEach((b) =>
 /* ---------- 壳层：侧栏收展 / 底部快捷跳转 / 首页态 / 本机活动卡 ---------- */
 const ShellLayout = (() => {
   const toggle = $('#sidebar-toggle');
+  const narrow = window.matchMedia('(max-width: 900px)');
+  const mobileOpen = () =>
+    document.documentElement.dataset.mobileNav === 'open';
   function syncToggle() {
-    const collapsed = !!UIPrefs.get().sidebarCollapsed;
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.title = collapsed ? '展开侧栏' : '收起侧栏';
+    const expanded = narrow.matches
+      ? mobileOpen()
+      : !UIPrefs.get().sidebarCollapsed;
+    toggle.setAttribute('aria-expanded', String(expanded));
+    toggle.title = expanded ? '收起侧栏' : '展开侧栏';
     toggle.setAttribute('aria-label', toggle.title);
   }
   toggle.addEventListener('click', () => {
-    UIPrefs.set({ sidebarCollapsed: !UIPrefs.get().sidebarCollapsed });
+    if (narrow.matches) {
+      document.documentElement.dataset.mobileNav = mobileOpen()
+        ? 'closed'
+        : 'open';
+    } else {
+      UIPrefs.set({ sidebarCollapsed: !UIPrefs.get().sidebarCollapsed });
+    }
     syncToggle();
+  });
+  narrow.addEventListener('change', () => {
+    if (narrow.matches) document.documentElement.dataset.mobileNav = 'closed';
+    syncToggle();
+  });
+  $('#sidebar').addEventListener('click', (e) => {
+    if (!narrow.matches || !mobileOpen()) return;
+    if (e.target.closest('button, .convo-item, .sidebar-link')) {
+      document.documentElement.dataset.mobileNav = 'closed';
+      syncToggle();
+    }
   });
   syncToggle();
   document
@@ -8669,8 +8623,7 @@ const ComposerControls = (() => {
   const permPop = $('#cp-perm-pop');
   const permLabel = $('#cp-perm-label');
   const permIcon = $('#cp-perm-icon');
-  const toggle = $('#mode-toggle');
-  if (!permBtn || !permPop || !toggle) return {};
+  if (!permBtn || !permPop) return {};
   const ICON = {
     auto: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.8v6.4l5-3.2z"/></svg>',
     plan_first:
@@ -8704,28 +8657,11 @@ const ComposerControls = (() => {
         : key === 'full_access'
           ? '完全访问：高风险操作仍会询问（点击切换）'
           : '自动审批：仅高风险操作才征求批准（点击切换）';
-    const code = task === 'code';
-    toggle.querySelectorAll('button[data-mode]').forEach((b) => {
-      b.setAttribute(
-        'aria-checked',
-        String((b.dataset.mode === 'code') === code),
-      );
-    });
     // Set data-mode on #view-goals for CSS layout rules
     const viewGoals = document.getElementById('view-goals');
     if (viewGoals) {
       viewGoals.setAttribute('data-mode', task);
     }
-    updateModePill();
-  }
-  function updateModePill() {
-    const pill = toggle.querySelector('.mode-toggle-pill');
-    const active = toggle.querySelector('button[aria-checked="true"]');
-    if (!pill || !active) return;
-    const rect = active.getBoundingClientRect();
-    const parent = toggle.getBoundingClientRect();
-    pill.style.left = rect.left - parent.left + 'px';
-    pill.style.width = rect.width + 'px';
   }
   const mo = new MutationObserver(paint);
   ['#task-seg', '#perm-list'].forEach((sel) => {
@@ -8760,22 +8696,6 @@ const ComposerControls = (() => {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !permPop.hidden) setOpen(false);
-  });
-
-  toggle.addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-mode]');
-    if (!b) return;
-    // 注意别用 segValue：它读的是 data-val，而 #task-seg 的按钮用的是 data-task，
-    // 拿回来永远是空串 → 兜底成 'work' → 从「编程」切回「通用」时判定永远不成立。
-    const taskBtn = document.querySelector(
-      '#task-seg button[aria-pressed="true"]',
-    );
-    const cur = taskBtn ? taskBtn.dataset.task || 'work' : 'work';
-    const want = b.dataset.mode;
-    if (want === 'code' && cur !== 'code')
-      document.querySelector('#task-seg button[data-task="code"]').click();
-    if (want === 'work' && cur === 'code')
-      document.querySelector('#task-seg button[data-task="work"]').click();
   });
 
   const attach = $('#cp-attach');
@@ -9559,10 +9479,6 @@ const Hardware = (function () {
       _doSetPerm(s.safety.mode, s.safety.mode, false);
     syncRuntimeState(s);
   } catch {}
-  // 现场栏的「定时任务」不等用户打开定时任务视图才有数：这一列的价值就是常驻
-  api('GET', '/api/schedules')
-    .then((r) => LiveRail.schedules((r.jobs || []).length))
-    .catch(() => {});
   try {
     const { approvals } = await api('GET', '/api/approvals');
     pendingApprovals = (approvals || []).length;

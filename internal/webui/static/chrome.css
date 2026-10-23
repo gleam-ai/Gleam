@@ -1,44 +1,9 @@
 /* ============================================================
- * 窗口外壳（chrome）：菜单栏 / 窗口按钮 / 右侧栏 / 终端 / 帮助按钮 / 问题反馈 / 快捷键页
+ * 窗口外壳（chrome）：窗口按钮 / 终端 / 帮助按钮 / 问题反馈 / 快捷键页
  * 只用主题 token（--frame / --panel / --line / --surface / --hover / --pop-* / --color-*），
  * 五套主题 × 深浅都从这些变量里取色。
+ * 网格（侧栏 | 主区 + 底部终端 + 右侧现场抽屉）由 10-shell.css 收口。
  * ============================================================ */
-
-/* ---------- 网格：侧栏 | 主区 | 右侧栏 | 现场栏；第三行是终端 ---------- */
-.app {
-  grid-template-columns: var(--side-w) minmax(0, 1fr) auto auto;
-  grid-template-rows: var(--topbar-h) minmax(0, 1fr) auto;
-}
-html[data-sidebar="collapsed"] .app {
-  grid-template-columns: 0 minmax(0, 1fr) auto auto;
-}
-.sidebar {
-  grid-row: 2 / 4;
-}
-.main {
-  grid-column: 2;
-  grid-row: 2;
-}
-.side-panel {
-  grid-column: 3;
-  grid-row: 2 / 4;
-}
-.rail {
-  grid-column: 4;
-  grid-row: 2 / 4;
-}
-.term {
-  grid-column: 2;
-  grid-row: 3;
-}
-@media (max-width: 900px) {
-  .app {
-    grid-template-columns: 0 minmax(0, 1fr) auto 0;
-  }
-  .side-panel {
-    display: none !important;
-  }
-}
 
 /* ---------- 顶栏 ---------- */
 .topbar {
@@ -53,34 +18,6 @@ html[data-sidebar="collapsed"] .app {
 #nav-back {
   margin-left: 4px;
 }
-.menubar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 10px;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-.menubar-item {
-  height: 26px;
-  padding: 0 9px;
-  border: none;
-  border-radius: var(--row-r);
-  background: transparent;
-  color: var(--color-fg-muted);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: default;
-}
-.menubar-item:hover,
-.menubar-item[aria-expanded="true"] {
-  background: var(--nav-sel);
-  color: var(--color-fg);
-}
-.menubar-item:focus-visible {
-  outline: 2px solid rgba(var(--accent-rgb) / 0.5);
-  outline-offset: -2px;
-}
 .topbar-drag {
   flex: 1 1 auto;
   align-self: stretch;
@@ -88,10 +25,6 @@ html[data-sidebar="collapsed"] .app {
   align-items: center;
   justify-content: center;
   min-width: 40px;
-}
-.topbar-drag .topbar-brand {
-  pointer-events: none;
-  opacity: 0.85;
 }
 .topbar-right {
   display: flex;
@@ -101,8 +34,7 @@ html[data-sidebar="collapsed"] .app {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
-#term-toggle[aria-expanded="true"],
-#aux-toggle[aria-expanded="true"] {
+#term-toggle[aria-expanded="true"] {
   color: var(--color-fg);
   background: var(--nav-sel);
 }
@@ -149,66 +81,6 @@ html[data-win-max="true"] .win-btn .win-restore {
 }
 html[data-platform="darwin"] .topbar {
   padding-left: 78px;
-}
-
-/* ---------- 菜单下拉 ---------- */
-.menubar-pop {
-  position: fixed;
-  z-index: 120;
-  min-width: 196px;
-  padding: 6px;
-  background: var(--pop-bg, var(--surface));
-  border: 1px solid var(--surface-line);
-  border-radius: 12px;
-  box-shadow: var(--pop-shadow);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  animation: mb-in 120ms var(--ease-out);
-}
-.menubar-pop[hidden] {
-  display: none;
-}
-@keyframes mb-in {
-  from {
-    opacity: 0;
-    transform: translateY(-3px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.mb-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-  height: 30px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-fg);
-  font: inherit;
-  font-size: var(--fs-sm);
-  text-align: left;
-  cursor: default;
-  white-space: nowrap;
-}
-.mb-item:hover,
-.mb-item:focus-visible {
-  background: var(--hover);
-  outline: none;
-}
-.mb-accel {
-  color: var(--color-fg-faint);
-  font-size: 12px;
-}
-.mb-sep {
-  height: 1px;
-  margin: 5px 6px;
-  background: var(--surface-line);
 }
 
 /* ---------- 悬浮提示 ---------- */

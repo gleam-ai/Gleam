@@ -767,7 +767,7 @@ body::before {
 }
 
 /* ============ 目标首页：问候 + 模式 chip + 分类 chip ============ */
-/* 「本地工作台」标语块与三张快捷卡已随 WorkBuddy 形态退休：首页要回答的是
+/* 「本地工作台」标语块与三张快捷卡已退休：首页要回答的是
    "现在能做什么"，不是"这台机器上还有几个任务"。任务信息搬到了筛选行与候补目标。 */
 .eyebrow {
   color: var(--color-fg-faint);
@@ -915,11 +915,6 @@ body::before {
   font-size: 11px;
   color: var(--color-fg-faint);
   font-variant-numeric: tabular-nums;
-}
-.cue-empty {
-  margin: var(--space-3) 0 0;
-  font-size: var(--fs-sm);
-  color: var(--color-fg-muted);
 }
 .cue-tail {
   margin: 10px 0 0;
@@ -1724,7 +1719,7 @@ details.run-group {
   padding-left: 0;
 }
 
-/* ============ 会话内的工具步骤条（Qoder 式） ============
+/* ============ 会话内的工具步骤条 ============
  * 挂在助手气泡里、回复正文**之上**：先看到它做了什么，再看到它说了什么。
  * 与卡片模式共用 .run-group/.run-item 的视觉语言与文案口径（runSummaryText），
  * 这里只补会话特有的三段式行（图标 / 标题+摘要 / 耗时）与进行中脉冲。 */

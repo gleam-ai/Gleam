@@ -1,0 +1,560 @@
+/* ============================================================
+ * 第 10 层 · 壳层（2026-10-23）
+ *
+ * 这一层接手「模块住在哪」：会话列表是唯一的常驻导航，其余模块通过
+ * 命令面板按需出现；现场栏从常驻第三列改为右侧抽屉；主区从"浮动舞台卡"
+ * 改为整块平面画布。间距/颜色/状态语义仍归 08-ia 与 09-visual，这里只做
+ * 结构落位与随之而来的视觉收敛。回滚 = 删本文件与 index.html 的一行 link。
+ *
+ * 三条定盘值：
+ *   1. 一列内容：标题、任务流、输入框共用同一根 --home-w 列（820px）。
+ *   2. 一个入口：侧栏只放会话；动作与模块跳转都在 Ctrl+K。
+ *   3. 一层浮起：只有抽屉与弹层有阴影；画布与任务行靠细线分格。
+ * ============================================================ */
+
+:root {
+  --home-w: 820px;
+}
+
+/* ---------- 1. 网格：侧栏 | 主区。顶栏只属于主区，侧栏独占整列高度 ---------- */
+.app {
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr) auto;
+}
+html[data-sidebar="collapsed"] .app {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+.topbar {
+  grid-column: 2;
+  grid-row: 1;
+  padding: 0 10px;
+  background: var(--frame);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.topbar-drag {
+  min-width: 24px;
+}
+.sidebar {
+  grid-column: 1;
+  grid-row: 1 / 4;
+  padding: 0 8px 8px;
+  background: var(--frame) !important;
+  border-right: 1px solid var(--color-border-subtle);
+}
+.sidebar-inner {
+  width: 100% !important;
+}
+.main {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--frame);
+  box-shadow: none;
+}
+html[data-sidebar="collapsed"] .main {
+  margin-left: 0;
+}
+html[data-view="goals"] .main {
+  overflow: hidden;
+}
+.term {
+  grid-column: 2;
+  grid-row: 3;
+  margin: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+html[data-sidebar="collapsed"] .term {
+  margin-left: 0;
+}
+
+/* ---------- 2. 侧栏：品牌 / 新任务 / 搜索 / 会话 ---------- */
+.sidebar-head {
+  height: var(--topbar-h);
+  padding: 0 10px;
+  margin: 0;
+}
+.sidebar-brand {
+  margin: 0;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.sidebar-brand small {
+  margin-left: 1px;
+  color: var(--color-fg-faint);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+}
+.sidebar-brand .brand-mark {
+  color: var(--color-accent);
+  filter: drop-shadow(0 0 7px rgba(var(--accent-rgb) / 0.45));
+}
+.sidebar .sidebar-top {
+  margin: 2px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-link {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--row-r);
+  color: var(--color-fg-muted);
+  font-size: var(--fs-sm);
+}
+.sidebar-link:hover {
+  background: var(--hover);
+  color: var(--color-fg);
+}
+.sidebar-link svg {
+  flex: none;
+}
+.sidebar .convo-new {
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--row-r);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 500;
+}
+.sidebar .convo-new:hover {
+  background: var(--hover);
+  border: 0;
+}
+.sidebar .convo-new svg {
+  color: var(--color-accent);
+}
+.sidebar .kbd-hint {
+  margin-left: auto;
+}
+.sidebar .convo-pane-label {
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  color: var(--color-fg-faint);
+}
+.sidebar .space-pane-head {
+  padding: 2px 10px 6px;
+}
+.convo-item {
+  border-radius: 7px;
+  padding: 7px 10px;
+}
+.convo-item.active {
+  background: var(--hover);
+  color: var(--color-fg);
+  font-weight: 500;
+}
+.convo-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb) / 0.55);
+}
+.sidebar-foot {
+  padding-top: 8px;
+}
+.nav-me {
+  border-radius: var(--row-r);
+}
+
+/* ---------- 3. 目标流：一列到底，任务是一条细线而不是一张卡 ---------- */
+.view-chat.active,
+.main > .view-chat.active {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+.chat-header {
+  width: min(var(--home-w), calc(100% - 40px));
+  margin: 0 auto;
+  padding: 6px 0 0;
+}
+.chat-title-row {
+  min-height: 36px;
+}
+.chat-scroll {
+  width: min(var(--home-w), calc(100% - 40px));
+  margin: 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+#goal-feed {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 6px;
+}
+#goal-feed .goal-card {
+  margin: 0;
+  padding: 18px 6px 17px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+  transition: background-color var(--dur-fast) ease;
+}
+#goal-feed .goal-card:hover {
+  background: rgba(var(--accent-rgb) / 0.035);
+}
+#goal-feed .goal-card:last-child {
+  border-bottom: 0;
+}
+#goal-feed .goal-card .goal-text {
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 560;
+  letter-spacing: 0;
+}
+#goal-feed .goal-card .goal-meta {
+  margin-top: 7px;
+}
+#goal-feed .goal-card .goal-summary {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--color-border-subtle);
+  border-radius: 0;
+  padding: 2px 0 2px 14px;
+  margin-top: 12px;
+}
+#goal-fail-banner {
+  width: 100%;
+  max-width: none;
+  margin: 12px 0 4px;
+}
+html[data-view="goals"] .cue-deck {
+  width: 100%;
+  margin: 4px 0 10px;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 会话态：头部与消息共用一列，输入框始终贴底 */
+#view-goals.thread-mode .chat-header {
+  width: min(var(--home-w), calc(100% - 40px));
+}
+#view-goals.thread-mode .chat-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ---------- 4. 首页：问候、起步建议与输入框作为一列整体居中 ---------- */
+#view-goals.is-home {
+  justify-content: center;
+}
+#view-goals.is-home[data-mode="code"] {
+  justify-content: center;
+}
+#view-goals.is-home[data-mode="code"] .chat-scroll {
+  flex: 0 0 auto;
+}
+#view-goals.is-home .chat-header {
+  flex: 0 0 auto;
+  padding: 4px 0 0;
+}
+#view-goals.is-home .chat-title-row {
+  display: none;
+}
+#view-goals.is-home .chat-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  justify-content: flex-start;
+  padding-bottom: 0;
+}
+#view-goals.is-home .composer {
+  flex: 0 0 auto;
+}
+#view-goals.is-home #goal-feed {
+  flex: 0 0 auto;
+}
+#view-goals.is-home .composer .composer-input {
+  min-height: 64px;
+}
+#goals-empty {
+  margin-top: 0;
+  padding: 0 0 22px;
+  align-items: flex-start;
+  text-align: left;
+}
+.home-hero .empty-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+#goals-empty .empty-title::before {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 1px;
+  margin-bottom: 16px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent),
+    rgba(var(--accent-rgb) / 0)
+  );
+  box-shadow: 0 0 10px rgba(var(--accent-rgb) / 0.6);
+}
+.home-hero .empty-desc {
+  margin: 7px 0 0;
+  color: var(--color-fg-muted);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.home-hero .hero-art,
+.home-hero .activity-card,
+.home-hero .site-tpl {
+  display: none;
+}
+.empty-entries {
+  margin-top: 22px;
+  gap: 0;
+}
+.empty-entries .quick-card {
+  min-height: 30px;
+  padding: 5px 0;
+  color: var(--color-fg-muted);
+}
+.empty-entries .quick-card + .quick-card {
+  border-top: 1px solid var(--color-border-subtle);
+}
+.empty-entries .quick-card:hover {
+  background: transparent;
+  color: var(--color-fg);
+}
+.empty-entries .quick-card strong {
+  font-weight: 500;
+}
+
+/* ---------- 5. 输入框：稳定的一条，焦点只在细边上亮一次 ---------- */
+.view-chat > .composer,
+.view-chat > .composer-foot {
+  width: min(var(--home-w), calc(100% - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+.view-chat > .composer {
+  margin-top: 8px;
+  margin-bottom: 6px;
+  padding: 12px 14px 10px;
+  border-radius: 16px;
+  background: var(--color-card);
+  border-color: var(--color-border-subtle);
+  box-shadow: 0 18px 40px -30px rgba(var(--ink-rgb) / 0.45);
+}
+.composer:focus-within {
+  border-color: rgba(var(--accent-rgb) / 0.34);
+  box-shadow:
+    0 18px 40px -30px rgba(var(--ink-rgb) / 0.45),
+    0 0 0 2px rgba(var(--accent-rgb) / 0.07);
+}
+.composer-grip {
+  opacity: 0;
+}
+.composer:hover .composer-grip {
+  opacity: 1;
+}
+.view-chat > .composer-foot {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+#goal-hint {
+  display: none;
+}
+
+/* ---------- 6. 模块页：回到普通文档流，标题轻、内容宽 ---------- */
+.main > .view:not(.view-chat).active {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 26px clamp(20px, 4vw, 46px) 56px;
+}
+.main > .view:not(.view-chat) .view-header {
+  margin-bottom: 20px;
+}
+.main > .view:not(.view-chat) .view-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.main > .view:not(.view-chat) .view-desc {
+  font-size: var(--fs-sm);
+}
+
+/* ---------- 7. 现场栏：右侧抽屉。不占列，不挤压主区 ---------- */
+html[data-rail] .rail {
+  position: fixed;
+  top: var(--topbar-h);
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  width: min(360px, 92vw);
+  height: calc(100dvh - var(--topbar-h));
+  margin: 0;
+  border: 0;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
+  background: var(--color-bg);
+  box-shadow: -28px 0 70px -36px rgba(var(--ink-rgb) / 0.5);
+  transform: translateX(102%);
+  visibility: hidden;
+  transition:
+    transform 220ms var(--ease-out),
+    visibility 0s linear 220ms;
+}
+html[data-rail="open"] .rail {
+  transform: none;
+  visibility: visible;
+  transition:
+    transform 220ms var(--ease-out),
+    visibility 0s;
+}
+html[data-rail] .rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb) / 0.7),
+    rgba(var(--accent-rgb) / 0) 46%
+  );
+  pointer-events: none;
+}
+html[data-rail] .rail-head {
+  flex-direction: row;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+html[data-rail] .rail-eyebrow,
+html[data-rail] .rail-body {
+  display: flex;
+}
+html[data-rail] .rail-fold {
+  margin-left: auto;
+  margin-top: 0;
+  transform: none;
+}
+html[data-rail] .rail-fold:hover {
+  transform: none;
+}
+html[data-rail] .rail-body {
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+@media (max-width: 520px) {
+  html[data-rail] .rail {
+    display: flex;
+  }
+}
+
+/* ---------- 8. 命令面板：分组标题 + 动作/模块/会话同列 ---------- */
+.search-dialog {
+  width: min(660px, 92vw);
+  max-height: 68vh;
+  border-radius: 14px;
+}
+.search-group {
+  padding: 12px 10px 4px;
+  color: var(--color-fg-faint);
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.search-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) auto;
+}
+.search-row-title {
+  font-weight: 500;
+}
+.search-row-time {
+  letter-spacing: 0.04em;
+}
+
+/* ---------- 9. 窄屏：侧栏变浮层，内容列吃满 ---------- */
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+  .topbar {
+    grid-column: 2;
+    padding-left: 6px;
+  }
+  .sidebar {
+    position: fixed;
+    z-index: 95;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    padding: 0 8px 8px;
+    border-right: 1px solid var(--color-border);
+    box-shadow: 28px 0 70px -40px rgba(var(--ink-rgb) / 0.5);
+    transform: translateX(-102%);
+    visibility: hidden;
+    transition:
+      transform 220ms var(--ease-out),
+      visibility 0s linear 220ms;
+  }
+  html[data-mobile-nav="open"] .sidebar {
+    transform: none;
+    visibility: visible;
+    transition:
+      transform 220ms var(--ease-out),
+      visibility 0s;
+  }
+  .sidebar-resize {
+    display: none;
+  }
+  .main > .view:not(.view-chat).active {
+    padding: 18px 16px 40px;
+  }
+  .chat-header,
+  .chat-scroll,
+  .view-chat > .composer,
+  .view-chat > .composer-foot {
+    width: calc(100% - 28px);
+  }
+}
+@media (max-width: 520px) {
+  .topbar-right {
+    padding-right: 4px;
+  }
+  .chat-header,
+  .chat-scroll,
+  .view-chat > .composer,
+  .view-chat > .composer-foot {
+    width: calc(100% - 20px);
+  }
+  .topbar-drag {
+    display: none;
+  }
+}

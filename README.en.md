@@ -25,7 +25,7 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 ## Preview
 
 <p align="center">
-  <img src="artifacts/gleam-desktop-2026-10-10.png" alt="Gleam desktop" width="90%">
+  <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam desktop" width="90%">
 </p>
 
 <p align="center">

@@ -10,9 +10,9 @@ const I18N_EN = {
   设置: 'Settings',
   我的: 'Me',
   新任务: 'New task',
-  暂无任务: 'No tasks yet',
-  '描述一个目标，或从下面选一件事开始。':
-    'Describe a goal, or pick one below to start.',
+  '今天想让微光做什么？': 'What should Gleam do today?',
+  '写下一个目标，剩下的交给微光推进。':
+    'Write one goal; Gleam carries it forward.',
   会话: 'Chats',
   任务: 'Tasks',
   收起侧栏: 'Collapse sidebar',
@@ -23,8 +23,6 @@ const I18N_EN = {
   工作区: 'Workspaces',
   新对话: 'New chat',
   选择工作区: 'Choose workspace',
-  准备就绪: 'Ready',
-  可以开始一个新目标: 'Start a new goal',
   全部: 'All',
   进行中: 'Active',
   已完成: 'Done',
@@ -1002,7 +1000,6 @@ const I18N_EN = {
   更新完成: 'Update complete',
   最近一轮改动: 'Latest round of changes',
   有一个操作在等你决定: 'An action is waiting for your decision',
-  有审批或异常任务值得查看: 'There are approvals or failed tasks worth a look',
   有改动: 'Has changes',
   '有新的实验功能时会出现在这里。':
     'New experimental features will show up here.',
@@ -2069,14 +2066,6 @@ const I18N_PATTERNS = [
   [/^来源: 系统 PATH · (.*)$/, (m, p) => `Source: system PATH · ${p}`],
   [/^预算闸 · (.+)$/, (m, rest) => `Budget · ${rest}`],
   [/^最近一次 (.+)$/, (m, when) => `Last seen ${when}`],
-  [
-    /^(\d+) 项需要处理$/,
-    (m, n) => `${I18N_PLURAL(n, 'item', 'items')} need attention`,
-  ],
-  [
-    /^(\d+) 个目标正在推进$/,
-    (m, n) => `${I18N_PLURAL(n, 'goal', 'goals')} in progress`,
-  ],
   [/^(\d+) 个工具$/, (m, n) => I18N_PLURAL(n, 'tool', 'tools')],
   [/^(\d+) 项$/, (m, n) => I18N_PLURAL(n, 'item', 'items')],
   [/^(\d+) 条$/, (m, n) => I18N_PLURAL(n, 'entry', 'entries')],

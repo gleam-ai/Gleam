@@ -224,9 +224,9 @@ html[data-theme="light"] {
 .goal-fail-banner {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin: 0 0 12px;
-  padding: 12px 16px;
+  padding: 9px 12px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-left: 3px solid var(--color-destructive);
@@ -239,17 +239,22 @@ html[data-theme="light"] {
   border-radius: var(--radius-full);
   background: var(--color-destructive);
 }
+/* 标题与说明同排：横幅只回答"出了什么事 + 怎么办"，两行竖排会把它撑成一块面板。 */
 .gfb-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
 }
 .gfb-title {
-  font-size: var(--fs-md);
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--color-fg);
+  white-space: nowrap;
 }
 .gfb-sub {
-  margin-top: 2px;
   font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--color-fg-muted);
@@ -265,16 +270,56 @@ html[data-theme="light"] {
   font-size: var(--fs-xs);
   color: var(--color-fg-faint);
 }
+/* 窄屏放不下一行时把动作换到下一行：标题列被压到几十像素后，
+   nowrap 的标题会逐字竖排，横幅反而比卡片还高。 */
+@media (max-width: 560px) {
+  .goal-fail-banner {
+    flex-wrap: wrap;
+  }
+  .gfb-main {
+    flex-basis: calc(100% - 18px);
+  }
+  .gfb-actions {
+    width: 100%;
+    padding-left: 18px;
+  }
+}
 
-/* ---------- C2：失败卡分级 = 白话摘要 + 可展开原文 ---------- */
-.fail-summary {
+/* ---------- C2：失败卡 = 一行记录 + 可展开原文 ----------
+   摘要与动作已经由横幅统一给过，卡片再放一块粉色感叹号就是同一句话说两遍。
+   这里用一条分隔线把记录接在卡片正文后：颜色只留在图标上。 */
+.fail-note {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.fail-note > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
   margin-top: 2px;
+  color: var(--color-destructive);
+}
+.fail-note-body {
+  flex: 1;
+  min-width: 0;
+}
+.fail-note-text {
+  margin: 0;
   font-size: var(--fs-sm);
-  line-height: 1.6;
+  line-height: 1.55;
+  color: var(--color-fg-muted);
+  overflow-wrap: anywhere;
+}
+.fail-note-label {
+  margin-right: 6px;
+  font-weight: 600;
   color: var(--color-fg);
 }
 .fail-detail {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 .fail-detail summary {
   width: fit-content;

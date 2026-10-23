@@ -23,7 +23,7 @@ Gleam is not a chatbot. It's an agent that **plans tasks, executes them with too
 
 Built from scratch in Go with **zero third-party dependencies**, the core is a single **~10 MB** binary. The desktop shell (Electron) wraps it into a double-click installer with bundled Node and uv runtimes.
 
-<img src="artifacts/gleam-desktop-2026-10-10.png" alt="Gleam Desktop" width="100%">
+<img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop" width="100%">
 
 ## What you get
 

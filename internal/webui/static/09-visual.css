@@ -1,16 +1,15 @@
 /* ============================================================
  * 第 9 层 · 视觉表现修正层（2026-10-16）
  *
- * 只动视觉表现，不动信息架构：三栏层级（252 / 1fr / auto / 272）、LIVE 面板
- * 分区、响度三档、四态语义、失败态结构、主题系统全部沿用 08-ia 及更早层
- * 的结论。01-base.css 不碰；回滚 = 删本文件 + 删 index.html 里一行 <link>。
+ * 只动视觉密度，不动信息架构：会话侧栏 + 单列主区 + 按需现场抽屉的壳层
+ * 归 10-shell.css；响度三档、四态语义、失败态结构与主题系统沿用 08-ia
+ * 及更早层的结论。01-base.css 不碰；回滚 = 删本文件 + 删 index.html 里一行 <link>。
  *
  * 三个 dials（本轮重构的定盘值）：
  *   DESIGN_VARIANCE  = 3/10  偏居中：工具要可预测，不对称是品牌页语言
  *   MOTION_INTENSITY = 2/10  仅 hover：运行状态已由 status-breathe 承载，
  *                            装饰动效不跟它抢注意力
- *   VISUAL_DENSITY   = 7/10  偏密集：对抗 Qoder 味——Qoder 味 = 营销页的
- *                            大留白 + 大字号 + 标语位被搬进产品 UI
+ *   VISUAL_DENSITY   = 7/10  偏密集：产品 UI 不搬营销页的大留白、大字号与标语位
  *
  * 优先级（冲突时按此顺序裁决，冲突须报备）：
  *   GLEAM-APP-DESIGN.md（前十一轮实证）> minimalist-skill > taste-skill 默认
@@ -19,38 +18,8 @@
  * soft-skill（high-end-visual-design）经评估属营销页美学，不用于产品 UI。
  * ============================================================ */
 
-/* ---------- 1. 主区空态：顶部对齐，与有任务时连续 ----------
-   03-align 给空态的 justify-content:center + padding-bottom:100px 是营销
-   hero 构图（大留白垂直居中）。工具空态顶部起排，和任务列表共用同一个
-   版面起点——切换有无任务时版面不动，只有内容变。 */
-#view-goals.is-home .chat-scroll {
-  justify-content: flex-start;
-  padding-bottom: 24px;
-}
-.home-hero.empty,
-.chat-scroll .home-hero.empty {
-  align-items: stretch;
-  text-align: left;
-}
+/* ---------- 1. 首页构图与字号：由 10-shell.css 接管 ---------- */
 
-/* ---------- 2. 字号阶梯重排 ----------
-   空态标题/说明原来同为 20px（--fs-xl），只靠变灰区分——那是营销 lede 的
-   手法。产品 UI 的标题只做层级不做海报：标题 15px/600，说明 13px。 */
-.home-hero .empty-title {
-  margin-top: 0;
-  font-size: 15px;
-  line-height: 1.5;
-  font-weight: 600;
-}
-.home-hero .empty-desc {
-  margin-top: 2px;
-  max-width: 52ch;
-  font-size: var(--fs-sm);
-  line-height: 1.5;
-}
-.home-hero--task .empty-desc {
-  font-size: var(--fs-sm);
-}
 /* 页签行标题 21px 收到 16px：这是页签行，不是页头。 */
 .chat-title-row .view-title {
   font-size: var(--fs-lg);
@@ -113,62 +82,13 @@
   margin-top: 16px;
 }
 
-/* ---------- 5. 修复 workbench-bar：无样式的状态行 ----------
-   全部 .workbench-* 类在既有层里零定义（和上一批清掉的 command-deck 同一批
-   退休残留）。它是主区唯一的状态行，修它而不是另起一行（不造第二处对同一
-   事实的答案）。圆点走四态语义：idle 中性 / active 青呼吸 / attention 琥珀。
-   形态维度不适用：这枚点没有失败态（失败走卡片与横幅，那里的红不许挪过来）。 */
-.workbench-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 0 4px 10px;
+/* ---------- 5. 任务卡密度：标题与元信息各收一档 ----------
+   16px 的标题在这张卡里比正文重两档，读起来像海报；元信息跟标题之间
+   也不需要 8px 的空隙。卡间距归 03-align（layout），这里只动视觉重量。 */
+#goal-feed .goal-card .goal-text {
+  font-size: 15px;
+  line-height: 1.5;
 }
-.workbench-state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.workbench-state > div {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-.workbench-state strong {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--color-fg);
-  white-space: nowrap;
-}
-.workbench-state strong + span {
-  font-size: var(--fs-xs);
-  color: var(--color-fg-faint);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.workbench-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-fg-faint);
-}
-.workbench-dot[data-state="active"] {
-  background: var(--state-run);
-  animation: status-breathe 1.8s var(--ease-out) infinite;
-}
-.workbench-dot[data-state="attention"] {
-  background: var(--color-warning);
-}
-/* status-breathe 的第 6 处使用者，语义与既有五处一致（脉冲 = 活跃/运行中，
-   唯一定义在 08-ia）。08-ia 的 reduced-motion 兜底是点名式列表（不含本文件
-   的选择器），按 App 反模式「新增动画必须补兜底」在这里补自己的那份。 */
-@media (prefers-reduced-motion: reduce) {
-  .workbench-dot[data-state="active"] {
-    animation: none;
-  }
+#goal-feed .goal-card .goal-meta {
+  margin-top: 6px;
 }

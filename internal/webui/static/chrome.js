@@ -127,10 +127,10 @@ const Keymap = (() => {
     {
       id: 'task.toggleRight',
       group: 'task',
-      title: '打开或关闭右侧栏',
-      desc: '切换右侧入口栏（工作区文件 / 内置浏览器 / 终端）。',
+      title: '打开或关闭现场栏',
+      desc: '切换右侧的实时进度与审批面板。',
       def: 'Ctrl+Shift+B',
-      run: () => AuxPanel.toggle(),
+      run: () => $('#rail-open').click(),
     },
     {
       id: 'aux.files',
@@ -138,7 +138,7 @@ const Keymap = (() => {
       title: '打开工作区文件',
       desc: '从当前工作区选择文件，引用到输入框。',
       def: 'Ctrl+Alt+E',
-      run: () => AuxPanel.files(),
+      run: () => WorkspaceFiles.open(),
     },
     {
       id: 'aux.browser',
@@ -178,7 +178,7 @@ const Keymap = (() => {
   const GROUPS = [
     ['nav', '导航'],
     ['task', '任务'],
-    ['panel', '侧栏入口'],
+    ['panel', '面板'],
     ['system', '系统'],
   ];
   const FIXED_DESKTOP = {
@@ -384,8 +384,8 @@ const Keymap = (() => {
 })();
 
 function toggleWorkMode() {
-  const btns = [...document.querySelectorAll('#mode-toggle button[data-mode]')];
-  const off = btns.find((b) => b.getAttribute('aria-checked') !== 'true');
+  const btns = [...document.querySelectorAll('#task-seg button[data-task]')];
+  const off = btns.find((b) => b.getAttribute('aria-pressed') !== 'true');
   if (off) off.click();
 }
 
@@ -442,243 +442,6 @@ const NavHistory = (() => {
   Keymap.onChange(paint);
   paint();
   return { back: () => go(-1), forward: () => go(1) };
-})();
-
-const MenuBar = (() => {
-  const bar = $('#menubar');
-  const pop = $('#menubar-pop');
-  let openId = null;
-  let focusBefore = null;
-  let byKeyboard = false;
-
-  function browserEdit(act) {
-    const t =
-      focusBefore && document.contains(focusBefore)
-        ? focusBefore
-        : document.activeElement;
-    if (t && t.focus) t.focus();
-    if (act === 'paste' || act === 'pasteAndMatchStyle') {
-      if (!navigator.clipboard || !navigator.clipboard.readText) {
-        toast('浏览器不允许网页读剪贴板，请直接按 Ctrl+V', 'warning');
-        return;
-      }
-      navigator.clipboard
-        .readText()
-        .then((txt) => {
-          if (!document.execCommand('insertText', false, txt))
-            toast('这里不能粘贴', 'info');
-        })
-        .catch(() => toast('浏览器没给剪贴板权限，请直接按 Ctrl+V', 'warning'));
-      return;
-    }
-    const ok = document.execCommand(act === 'selectAll' ? 'selectAll' : act);
-    if (!ok && act !== 'selectAll')
-      toast('浏览器拒绝了这一步，请改用键盘快捷键', 'info');
-  }
-  function edit(act) {
-    if (deskHas('edit')) {
-      const t =
-        focusBefore && document.contains(focusBefore) ? focusBefore : null;
-      if (t && t.focus) t.focus();
-      Desk.edit(act);
-    } else browserEdit(act);
-  }
-  function fullscreen() {
-    if (deskHas('window')) {
-      Desk.window('fullscreen');
-      return;
-    }
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else
-      document.documentElement
-        .requestFullscreen()
-        .catch(() => toast('浏览器拒绝进入全屏', 'warning'));
-  }
-  const settingsKey = () =>
-    Keymap.label(Keymap.binding('nav.settings'), { words: true });
-  const MENUS = {
-    file: () => [
-      { label: '设置…', accel: settingsKey(), run: () => showView('settings') },
-      '-',
-      {
-        label: '关闭窗口',
-        accel: 'Ctrl+W',
-        run: () => Desk.window('close'),
-        show: deskHas('window'),
-      },
-    ],
-    edit: () => [
-      { label: '撤销', accel: 'Ctrl+Z', run: () => edit('undo') },
-      { label: '重做', accel: 'Ctrl+Y', run: () => edit('redo') },
-      '-',
-      { label: '剪切', accel: 'Ctrl+X', run: () => edit('cut') },
-      { label: '复制', accel: 'Ctrl+C', run: () => edit('copy') },
-      { label: '粘贴', accel: 'Ctrl+V', run: () => edit('paste') },
-      {
-        label: '粘贴并匹配样式',
-        accel: 'Ctrl+Shift+V',
-        run: () => edit('pasteAndMatchStyle'),
-      },
-      { label: '删除', accel: '', run: () => edit('delete') },
-      { label: '全选', accel: 'Ctrl+A', run: () => edit('selectAll') },
-    ],
-    view: () => [
-      {
-        label: '重新载入',
-        accel: 'Ctrl+R',
-        run: () => (deskHas('view') ? Desk.view('reload') : location.reload()),
-      },
-      {
-        label: '强制重新载入',
-        accel: 'Ctrl+Shift+R',
-        run: () => Desk.view('forceReload'),
-        show: deskHas('view'),
-      },
-      '-',
-      {
-        label: '实际大小',
-        accel: 'Ctrl+0',
-        run: () => Desk.view('resetZoom'),
-        show: deskHas('view'),
-      },
-      {
-        label: '放大',
-        accel: 'Ctrl+=',
-        run: () => Desk.view('zoomIn'),
-        show: deskHas('view'),
-      },
-      {
-        label: '缩小',
-        accel: 'Ctrl+-',
-        run: () => Desk.view('zoomOut'),
-        show: deskHas('view'),
-      },
-      '-',
-      { label: '切换全屏', accel: 'F11', run: fullscreen },
-    ],
-    help: () => [
-      { label: '检查更新', accel: '', run: checkUpdate },
-      '-',
-      { label: '关于 Gleam', accel: '', run: About.open },
-    ],
-  };
-  function items(id) {
-    const raw = MENUS[id]().filter((it) => it === '-' || it.show !== false);
-    const out = [];
-    raw.forEach((it) => {
-      if (it === '-' && (!out.length || out[out.length - 1] === '-')) return;
-      out.push(it);
-    });
-    while (out[out.length - 1] === '-') out.pop();
-    return out;
-  }
-  function render(id) {
-    pop.replaceChildren();
-    items(id).forEach((it) => {
-      if (it === '-') {
-        pop.appendChild(el('div', 'mb-sep'));
-        return;
-      }
-      const b = el('button', 'mb-item');
-      b.type = 'button';
-      b.setAttribute('role', 'menuitem');
-      b.innerHTML = `<span class="mb-label">${esc(it.label)}</span><span class="mb-accel">${esc(it.accel || '')}</span>`;
-      b.addEventListener('mousedown', (e) => e.preventDefault());
-      b.addEventListener('click', () => {
-        close();
-        it.run();
-      });
-      pop.appendChild(b);
-    });
-  }
-  function open(id, focusFirst) {
-    const btn = bar.querySelector(`[data-menu="${id}"]`);
-    if (!btn) return;
-    if (!openId) focusBefore = document.activeElement;
-    byKeyboard = !!focusFirst;
-    openId = id;
-    bar
-      .querySelectorAll('.menubar-item')
-      .forEach((b) => b.setAttribute('aria-expanded', String(b === btn)));
-    render(id);
-    pop.hidden = false;
-    pop.setAttribute('aria-label', btn.textContent);
-    const r = btn.getBoundingClientRect();
-    pop.style.left = Math.round(r.left) + 'px';
-    pop.style.top = Math.round(r.bottom + 4) + 'px';
-    if (focusFirst) {
-      const f = pop.querySelector('.mb-item');
-      if (f) f.focus();
-    }
-  }
-  function close() {
-    if (!openId) return;
-    openId = null;
-    pop.hidden = true;
-    bar
-      .querySelectorAll('.menubar-item')
-      .forEach((b) => b.setAttribute('aria-expanded', 'false'));
-  }
-  bar.querySelectorAll('.menubar-item').forEach((b) => {
-    b.addEventListener('mousedown', (e) => e.preventDefault());
-    b.addEventListener('click', () =>
-      openId === b.dataset.menu ? close() : open(b.dataset.menu),
-    );
-    b.addEventListener('mouseenter', () => {
-      if (openId && openId !== b.dataset.menu) open(b.dataset.menu);
-    });
-    b.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        open(b.dataset.menu, true);
-      }
-    });
-  });
-  const order = () =>
-    [...bar.querySelectorAll('.menubar-item')].map((b) => b.dataset.menu);
-  pop.addEventListener('keydown', (e) => {
-    const list = [...pop.querySelectorAll('.mb-item')];
-    const i = list.indexOf(document.activeElement);
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      (list[(i + 1) % list.length] || list[0]).focus();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      (list[(i - 1 + list.length) % list.length] || list[0]).focus();
-    } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      e.preventDefault();
-      const o = order();
-      const k = o.indexOf(openId);
-      open(
-        o[(k + (e.key === 'ArrowRight' ? 1 : -1) + o.length) % o.length],
-        true,
-      );
-    }
-  });
-  document.addEventListener(
-    'mousedown',
-    (e) => {
-      if (openId && !pop.contains(e.target) && !bar.contains(e.target)) close();
-    },
-    true,
-  );
-  document.addEventListener(
-    'keydown',
-    (e) => {
-      if (e.key === 'Escape' && openId) {
-        e.preventDefault();
-        e.stopPropagation();
-        const b = bar.querySelector(`[data-menu="${openId}"]`);
-        const kb = byKeyboard;
-        close();
-        if (b && kb) b.focus();
-      }
-    },
-    true,
-  );
-  window.addEventListener('blur', close);
-  window.addEventListener('resize', close);
-  return { open, close };
 })();
 
 const UpdateCheck = (() => {
@@ -974,40 +737,12 @@ const ChromeTip = (() => {
   };
 })();
 
-const AuxPanel = (() => {
-  const aux = $('#aux');
-  const btn = $('#aux-toggle');
+const WorkspaceFiles = (() => {
   let workspace = '';
-  function paint() {
-    const open = !aux.hidden;
-    document.documentElement.dataset.aux = open ? 'open' : 'closed';
-    btn.setAttribute('aria-expanded', String(open));
-    btn.dataset.tip = open ? '隐藏侧边栏' : '显示侧边栏';
-    btn.setAttribute('aria-label', btn.dataset.tip);
-    ChromeTip.refresh(btn);
-    const files = $('#aux-files');
-    files.disabled = !workspace;
-    files.title = workspace ? '工作区：' + workspace : '先选择一个工作区';
-    document.querySelectorAll('[data-kbd-for]').forEach((s) => {
-      s.textContent = Keymap.label(Keymap.binding(s.dataset.kbdFor)).replace(
-        /\+/g,
-        ' ',
-      );
-    });
-  }
-  function set(open) {
-    aux.hidden = !open;
-    UIPrefs.set({ auxOpen: open });
-    paint();
-  }
-  function toggle() {
-    set(aux.hidden);
-  }
   function setWorkspace(ws) {
     workspace = ws || '';
-    paint();
   }
-  function files() {
+  function open() {
     if (!workspace) {
       toast('先选择一个工作区，才能打开里面的文件', 'info');
       openWorkspaceDialog();
@@ -1016,14 +751,7 @@ const AuxPanel = (() => {
     showView('goals');
     openFilePicker();
   }
-  btn.addEventListener('click', toggle);
-  $('#aux-files').addEventListener('click', files);
-  $('#aux-browser').addEventListener('click', () => BrowserPane.open());
-  $('#aux-term').addEventListener('click', () => Terminal.open(true));
-  Keymap.onChange(paint);
-  aux.hidden = !UIPrefs.get().auxOpen;
-  paint();
-  return { toggle, set, files, setWorkspace };
+  return { open, setWorkspace };
 })();
 
 const Terminal = (() => {
@@ -1072,7 +800,7 @@ const Terminal = (() => {
       workspace = ws;
       cwd = ws;
     }
-    AuxPanel.setWorkspace(ws);
+    WorkspaceFiles.setWorkspace(ws);
     paint();
   }
   function open(focus) {

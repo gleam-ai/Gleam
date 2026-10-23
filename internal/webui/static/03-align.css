@@ -722,11 +722,15 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 }
 .chat-title-row {
   position: relative;
-  height: 40px;
-  padding: 0 8px 0 16px;
+  height: auto;
+  min-height: 40px;
+  padding: 0;
   margin: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  row-gap: 4px;
   gap: 8px;
 }
 #goals-title {
@@ -740,10 +744,31 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
   text-overflow: ellipsis;
 }
 .chat-tools {
-  margin-left: auto;
+  margin-left: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
+}
+/* 筛选是列表页的工具，和标题同排：标题左、筛选靠右、工具收尾。
+   首页与会话态没有"列表"可筛，整组收起（计数只属于任务列表）。 */
+#goal-filters {
+  margin-left: auto;
+}
+#view-goals.is-home #goal-filters,
+#view-goals.thread-mode #goal-filters {
+  display: none;
+}
+#view-goals.is-home .chat-tools,
+#view-goals.thread-mode .chat-tools {
+  margin-left: auto;
+}
+@media (max-width: 760px) {
+  .chat-tools {
+    margin-left: auto;
+    /* 700px 以下标题行变成纵向堆叠，工具行占满宽度：
+       右对齐让现场栏按钮留在它习惯的右上角位置。 */
+    justify-content: flex-end;
+  }
 }
 #ws-chip {
   position: absolute;
@@ -789,10 +814,10 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 .chat-tools .role-select:hover {
   background-color: var(--hover);
 }
+/* 候补目标是 chat-header 的直接子项，宽度跟着头部走：若再按
+   calc(100% - 32px) 自居中，就会比下面的任务卡左右各缩 16px。 */
 .cue-deck {
-  margin-left: auto;
-  margin-right: auto;
-  width: min(var(--home-w), calc(100% - 32px));
+  width: 100%;
 }
 
 /* 首页态按工作模式分两路（data-mode 是唯一口径，JS 只写属性）：
@@ -805,8 +830,6 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
   display: none !important;
 }
 #view-goals.is-home[data-mode="work"] .home-hero .hero-art,
-#view-goals.is-home[data-mode="work"] .home-hero .empty-title,
-#view-goals.is-home[data-mode="work"] .home-hero .empty-desc,
 #view-goals.is-home[data-mode="work"] .home-hero .activity-card {
   display: none;
 }
@@ -822,15 +845,10 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
 }
 
 /* 首页两态的纵向分配：
-   目标模式 —— 问候 + chip + 输入框作为**一列整体居中**（WorkBuddy 的读法：
-     "现在能做什么"和"从哪开始说"必须挨在一起，中间空一大段会把两者读成两屏）；
+   工作模式 —— 画布留白，建议贴着输入框，输入框贴底；
    编程模式 —— 头部本来就空着，滚动区自己吃满，hero 在剩余空间里居中。
-   两种都靠同一组 flex 值切换，JS 不参与。 */
-#view-goals.is-home[data-mode="work"] {
-  justify-content: center;
-}
+   精细比例由 10-shell.css 负责，这里只保留两种模式的结构差异。 */
 #view-goals.is-home[data-mode="work"] .chat-header,
-#view-goals.is-home[data-mode="work"] .chat-scroll,
 #view-goals.is-home[data-mode="work"] .composer,
 #view-goals.is-home[data-mode="work"] .composer-foot-row {
   flex: 0 0 auto;
@@ -1288,8 +1306,10 @@ html[data-theme="dark"] .tok-kw {
     transition: none;
   }
 }
+/* 两侧留白由内部列（header / feed / banner 的 calc(100% - 32px)）统一给，
+   滚动区不再叠一层 16px——否则窄屏下标题与卡片会差出 16px。 */
 .chat-scroll {
-  padding: 0 16px;
+  padding: 0;
 }
 #view-goals.is-home .chat-scroll {
   display: flex;
@@ -1300,6 +1320,19 @@ html[data-theme="dark"] .tok-kw {
 #goal-feed {
   width: min(var(--home-w), 100%);
   margin: 0 auto;
+}
+/* feed 的 gap 已经给了 12px；卡片自带的 16px margin-bottom 会叠成 28px，
+   两张卡之间空出一整行。 */
+#goal-feed .goal-card {
+  margin-bottom: 0;
+}
+/* 失败横幅是滚动区的直接子项，auto 宽度会铺满整个滚动区（比卡片宽一截）：
+   套用同一根 --home-w 列，动作行才和卡片右缘对齐。 */
+#goal-fail-banner {
+  width: calc(100% - 32px);
+  max-width: var(--home-w);
+  margin-left: auto;
+  margin-right: auto;
 }
 .home-hero.empty,
 .chat-scroll .home-hero.empty {
