@@ -3,10 +3,13 @@ package webui
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -211,5 +214,163 @@ func TestTrustedAssetURL(t *testing.T) {
 		if trustedAssetURL(raw) {
 			t.Fatalf("%s must not be trusted", raw)
 		}
+	}
+}
+
+func TestTrustedAssetAPIURL(t *testing.T) {
+	good := "https://api.github.com/repos/gleam-ai/Gleam/releases/assets/1"
+	if !trustedAssetAPIURL(good) {
+		t.Fatalf("%s should be trusted", good)
+	}
+	for _, raw := range []string{
+		"http://api.github.com/repos/gleam-ai/Gleam/releases/assets/1",
+		"https://api.github.com.evil.example/repos/gleam-ai/Gleam/releases/assets/1",
+		"https://api.github.com/repos/other/repo/releases/assets/1",
+		"https://api.github.com/repos/gleam-ai/Gleam/releases",
+		"https://github.com/gleam-ai/Gleam/releases/download/v1/x",
+		"",
+	} {
+		if trustedAssetAPIURL(raw) {
+			t.Fatalf("%s must not be trusted", raw)
+		}
+	}
+}
+
+func TestReleaseAssetDownloadURL(t *testing.T) {
+	api := "https://api.github.com/repos/gleam-ai/Gleam/releases/assets/1"
+	web := "https://github.com/gleam-ai/Gleam/releases/download/v1/x"
+	if got := (releaseAsset{APIURL: api, URL: web}).downloadURL(); got != api {
+		t.Fatalf("API URL should win, got %q", got)
+	}
+	if got := (releaseAsset{URL: web}).downloadURL(); got != web {
+		t.Fatalf("web URL should be the fallback, got %q", got)
+	}
+	if got := (releaseAsset{URL: "https://evil.example/x"}).downloadURL(); got != "" {
+		t.Fatalf("untrusted URL accepted: %q", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func withFakeGitHub(t *testing.T, handler http.HandlerFunc) {
+	t.Helper()
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		handler(rec, r)
+		return rec.Result(), nil
+	})
+	prevUpdate, prevDesktop := updateHTTPClient.Transport, desktopUpdateClient.Transport
+	updateHTTPClient.Transport = rt
+	desktopUpdateClient.Transport = rt
+	t.Cleanup(func() {
+		updateHTTPClient.Transport = prevUpdate
+		desktopUpdateClient.Transport = prevDesktop
+	})
+}
+
+func TestDesktopUpdateAssetProxy(t *testing.T) {
+	body := []byte("version: 0.0.19\npath: Gleam-Setup.exe\n")
+	var assetHits int
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/gleam-ai/Gleam/releases/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tag_name": "v0.0.19",
+				"assets": []map[string]any{{
+					"name":                 "latest.yml",
+					"url":                  "https://api.github.com/repos/gleam-ai/Gleam/releases/assets/1",
+					"browser_download_url": "https://github.com/gleam-ai/Gleam/releases/download/v0.0.19/latest.yml",
+					"size":                 len(body),
+				}},
+			})
+		case "/repos/gleam-ai/Gleam/releases/assets/1":
+			assetHits++
+			if got := r.Header.Get("Accept"); got != "application/octet-stream" {
+				t.Errorf("Accept = %q, want application/octet-stream", got)
+			}
+			if r.Header.Get("Range") == "bytes=0-6" {
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-6/%d", len(body)))
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = w.Write(body[:7])
+				return
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			_, _ = w.Write(body)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	s := &Server{}
+	fetch := func(name, rangeHeader string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/update/desktop/"+name, nil)
+		req.SetPathValue("name", name)
+		if rangeHeader != "" {
+			req.Header.Set("Range", rangeHeader)
+		}
+		rec := httptest.NewRecorder()
+		s.handleDesktopUpdateAsset(rec, req)
+		return rec
+	}
+
+	full := fetch("latest.yml", "")
+	if full.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", full.Code, full.Body.String())
+	}
+	if full.Body.String() != string(body) {
+		t.Fatalf("body = %q", full.Body.String())
+	}
+	if got := full.Header().Get("Content-Length"); got != strconv.Itoa(len(body)) {
+		t.Fatalf("Content-Length = %q", got)
+	}
+
+	part := fetch("latest.yml", "bytes=0-6")
+	if part.Code != http.StatusPartialContent || part.Body.String() != string(body[:7]) {
+		t.Fatalf("range status = %d, body = %q", part.Code, part.Body.String())
+	}
+	if got := part.Header().Get("Content-Range"); !strings.HasPrefix(got, "bytes 0-6/") {
+		t.Fatalf("Content-Range = %q", got)
+	}
+
+	before := assetHits
+	if rec := fetch("evil.exe", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown asset status = %d", rec.Code)
+	}
+	if assetHits != before {
+		t.Fatal("unknown asset reached the upstream")
+	}
+}
+
+func TestDesktopUpdateAssetRejectsUntrustedSource(t *testing.T) {
+	var assetHits int
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/gleam-ai/Gleam/releases/latest":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tag_name": "v0.0.19",
+				"assets": []map[string]any{{
+					"name":                 "Gleam-Setup.exe",
+					"url":                  "https://evil.example/asset",
+					"browser_download_url": "https://evil.example/asset",
+					"size":                 268435456,
+				}},
+			})
+		default:
+			assetHits++
+			http.NotFound(w, r)
+		}
+	})
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/update/desktop/Gleam-Setup.exe", nil)
+	req.SetPathValue("name", "Gleam-Setup.exe")
+	rec := httptest.NewRecorder()
+	s.handleDesktopUpdateAsset(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", rec.Code)
+	}
+	if assetHits != 0 {
+		t.Fatal("untrusted asset was fetched")
 	}
 }

@@ -280,7 +280,7 @@ Web UI の REST エンドポイントはコードに登録されたルートと�
 | `GET /api/import/scan` · `POST /api/import/apply` | 本機の他 AI ツールからメモリとルールを取り込む：スキャンと書き込み |
 | `GET /api/cues` · `POST /api/cues/{id}/adopt` · `POST /api/cues/{id}/dismiss` · `POST /api/cues/unsuppress` | 候補目標：一覧、採用、無視、無視の取り消し |
 | `GET /api/worktrees` · `DELETE /api/worktrees/{id}` | Gleam が管理するタスクコピー：一覧と削除 |
-| `GET /api/update/check` · `POST /api/update/apply` | 更新の確認 / ダウンロードして置換（どちらもあなたが押す） |
+| `GET /api/update/check` · `POST /api/update/apply` · `GET /api/update/desktop/{name}` | 更新の確認 / ダウンロードして置換（どちらもあなたが押す） / デスクトップ版はローカルエンジン経由でリリースを取得 |
 
 ---
 ## ローカルファーストの正直な説明

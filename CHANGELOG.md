@@ -2,6 +2,13 @@
 
 ## 2026-10-23
 
+### 发布 0.0.19：桌面更新改走本机引擎，绕开 github.com 的连接重置
+
+- **检测不再依赖 github.com**：桌面版的更新源改为 `http://127.0.0.1:<引擎端口>/api/update/desktop`，由引擎经 `api.github.com` 读取发布信息并转发 `latest.yml`、安装包与校验数据。此前 electron-updater 直连 github.com，在部分网络上会被重置，弹窗只剩「检查更新失败：net::ERR_CONNECTION_RESET」。
+- **下载同样走本机**：安装包经引擎流式转发，支持 Range 断点；`sha512` 仍由 electron-updater 按 `latest.yml` 校验，中转不降低完整性保证。引擎侧只转发「最新发布里确实存在的资产」，其余名字一律 404。
+- **引擎自更新也更稳**：CLI 的下载同样优先用 `api.github.com` 的资产地址，连不上 github.com 时不再直接失败。
+- **差分下载关闭**：本地更新源没有逐版本 blockmap，改用完整安装包，避免拿错 blockmap 做差分。
+
 ### 发布 0.0.18：桌面更新链路补漏，损坏的 sidecar 可自愈
 
 - **自愈损坏的 sidecar**：桌面版启动时若发现 `resources/bin/gleam.exe` 尺寸异常（>50 MB）且旁边有尺寸合理的 `.old` 备份，自动把备份还原回去。卡在「sidecar binary looks wrong」的用户安装本版即可，不再必须手动重装；数据目录不受影响。

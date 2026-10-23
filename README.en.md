@@ -280,7 +280,7 @@ The Web UI REST endpoints match the routes registered in code one for one; `scri
 | `GET /api/import/scan` · `POST /api/import/apply` | Import memory and rules from other local AI tools: scan and apply |
 | `GET /api/cues` · `POST /api/cues/{id}/adopt` · `POST /api/cues/{id}/dismiss` · `POST /api/cues/unsuppress` | Follow-up goals: list, adopt, dismiss and undo a dismissal |
 | `GET /api/worktrees` · `DELETE /api/worktrees/{id}` | Task copies managed by Gleam: list and delete |
-| `GET /api/update/check` · `POST /api/update/apply` | Check for updates / download and replace (both need your click) |
+| `GET /api/update/check` · `POST /api/update/apply` · `GET /api/update/desktop/{name}` | Check for updates / download and replace (both need your click) / desktop shell's release feed through the local engine |
 
 ---
 ## Local-first honesty

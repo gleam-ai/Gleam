@@ -39,6 +39,8 @@ export interface UpdaterHost {
   allowClose: () => void;
   // Stops the sidecar before the installer overwrites files on disk.
   quitForUpdate: () => Promise<void>;
+  // The local engine, which proxies the release feed around github.com.
+  upstream: () => { addr: string; token: string } | null;
 }
 
 export function installUpdater(host: UpdaterHost): void {
@@ -66,6 +68,10 @@ export function installUpdater(host: UpdaterHost): void {
   };
 
   const check = async () => {
+    if (!configureFeed()) {
+      push({ kind: 'error', version, message: '本机服务还没就绪，请稍后再试' });
+      return;
+    }
     try {
       await autoUpdater.checkForUpdates();
     } catch (err) {
@@ -140,11 +146,34 @@ export function installUpdater(host: UpdaterHost): void {
 
   if (!supported) return;
 
+  // The feed lives behind the local engine, which reads the release through
+  // api.github.com. electron-updater's GitHub provider would hit github.com,
+  // and that host is reset on some networks while the API stays reachable.
+  let feed = '';
+  const configureFeed = (): boolean => {
+    const up = host.upstream();
+    if (!up) return false;
+    const next = `${up.addr}\n${up.token}`;
+    if (next !== feed) {
+      feed = next;
+      autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: `http://${up.addr}/api/update/desktop`,
+      });
+      autoUpdater.requestHeaders = { 'X-Gleam-Token': up.token };
+      log(`feed: local engine (${up.addr})`);
+    }
+    return true;
+  };
+
   autoUpdater.logger = { info: log, warn: log, error: log };
   // Only download after the user clicks update: silently pulling 265 MB at
   // startup wastes bandwidth and disk.
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false; // User must explicitly click restart
+  // The feed has no per-version blockmaps, so a differential download would
+  // diff against the wrong one; always fetch the full installer.
+  autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on('checking-for-update', () => push({ kind: 'checking' }));
   autoUpdater.on('update-available', (info: UpdateInfo) => {

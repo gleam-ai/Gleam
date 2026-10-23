@@ -233,6 +233,10 @@ function run(): void {
             log(`update: sidecar stopped (${how})`);
           }
         },
+        upstream: () =>
+          sidecar?.ready
+            ? { addr: sidecar.ready.addr, token: sidecar.token }
+            : null,
       });
 
     const demo = (process.env.GLEAM_TRAY_ACTION || '')

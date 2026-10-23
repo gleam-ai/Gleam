@@ -177,9 +177,21 @@ func compareIdentifier(a, b string) int {
 type releaseAsset struct {
 	Name   string `json:"name"`
 	URL    string `json:"browser_download_url"`
+	APIURL string `json:"url"`
 	Size   int64  `json:"size"`
 	Digest string `json:"digest,omitempty"`
 }
+
+type releaseInfo struct {
+	TagName     string         `json:"tag_name"`
+	HTMLURL     string         `json:"html_url"`
+	Body        string         `json:"body"`
+	PublishedAt string         `json:"published_at"`
+	Draft       bool           `json:"draft"`
+	Assets      []releaseAsset `json:"assets"`
+}
+
+var updateHTTPClient = &http.Client{Timeout: 12 * time.Second}
 
 func trustedAssetURL(raw string) bool {
 	u, err := url.Parse(raw)
@@ -191,6 +203,52 @@ func trustedAssetURL(raw string) bool {
 		return true
 	}
 	return false
+}
+
+// trustedAssetAPIURL reports whether raw is the release-asset API endpoint for
+// this repo. That endpoint redirects to signed storage, which stays reachable
+// on networks where github.com itself keeps getting reset.
+func trustedAssetAPIURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	if !strings.EqualFold(u.Hostname(), "api.github.com") {
+		return false
+	}
+	return strings.HasPrefix(u.Path, "/repos/"+updateRepo+"/releases/assets/")
+}
+
+func (a releaseAsset) downloadURL() string {
+	if trustedAssetAPIURL(a.APIURL) {
+		return a.APIURL
+	}
+	if trustedAssetURL(a.URL) {
+		return a.URL
+	}
+	return ""
+}
+
+func fetchLatestRelease(ctx context.Context) (releaseInfo, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, updateLatestAPI, nil)
+	if err != nil {
+		return releaseInfo{}, 0, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "gleam/"+buildinfo.Version)
+	resp, err := updateHTTPClient.Do(req)
+	if err != nil {
+		return releaseInfo{}, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return releaseInfo{}, resp.StatusCode, nil
+	}
+	var rel releaseInfo
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
+		return releaseInfo{}, resp.StatusCode, err
+	}
+	return rel, resp.StatusCode, nil
 }
 
 // selectUpdateAsset only accepts the exact engine asset for this platform.
@@ -215,49 +273,28 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	cur := buildinfo.Version
 	res := map[string]any{"current": cur, "repo": updateRepo}
 
-	client := &http.Client{Timeout: 12 * time.Second}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, updateLatestAPI, nil)
+	rel, status, err := fetchLatestRelease(r.Context())
 	if err != nil {
-		res["error"] = "request"
+		if status == 0 {
+			res["error"] = "network"
+		} else {
+			res["error"] = "bad_json"
+		}
 		writeJSON(w, 200, res)
 		return
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "gleam/"+cur)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		res["error"] = "network"
-		writeJSON(w, 200, res)
-		return
-	}
-	defer resp.Body.Close()
 	switch {
-	case resp.StatusCode == http.StatusNotFound:
+	case status == http.StatusNotFound:
 		res["error"] = "no_release"
 		writeJSON(w, 200, res)
 		return
-	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
+	case status == http.StatusForbidden || status == http.StatusTooManyRequests:
 		res["error"] = "rate_limit"
 		writeJSON(w, 200, res)
 		return
-	case resp.StatusCode != http.StatusOK:
+	case status != http.StatusOK:
 		res["error"] = "http"
-		res["status"] = resp.StatusCode
-		writeJSON(w, 200, res)
-		return
-	}
-
-	var rel struct {
-		TagName     string         `json:"tag_name"`
-		HTMLURL     string         `json:"html_url"`
-		Body        string         `json:"body"`
-		PublishedAt string         `json:"published_at"`
-		Draft       bool           `json:"draft"`
-		Assets      []releaseAsset `json:"assets"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
-		res["error"] = "bad_json"
+		res["status"] = status
 		writeJSON(w, 200, res)
 		return
 	}
@@ -313,7 +350,7 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "%v", err)
 		return
 	}
-	if asset.URL == "" {
+	if asset.downloadURL() == "" {
 		writeErr(w, 400, "这个平台在最新版里没有对应的引擎程序")
 		return
 	}
@@ -380,27 +417,12 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pickUpdateAsset(r *http.Request) (releaseAsset, error) {
-	client := &http.Client{Timeout: 12 * time.Second}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, updateLatestAPI, nil)
-	if err != nil {
-		return releaseAsset{}, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "gleam/"+buildinfo.Version)
-	resp, err := client.Do(req)
+	rel, status, err := fetchLatestRelease(r.Context())
 	if err != nil {
 		return releaseAsset{}, fmt.Errorf("连不上更新源：%w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return releaseAsset{}, fmt.Errorf("更新源返回 %d", resp.StatusCode)
-	}
-	var rel struct {
-		TagName string         `json:"tag_name"`
-		Assets  []releaseAsset `json:"assets"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
-		return releaseAsset{}, fmt.Errorf("更新源响应读不动：%w", err)
+	if status != http.StatusOK {
+		return releaseAsset{}, fmt.Errorf("更新源返回 %d", status)
 	}
 	if compareVersions(strings.TrimPrefix(rel.TagName, "v"), buildinfo.Version) <= 0 {
 		return releaseAsset{}, fmt.Errorf("已经是最新版本了")
@@ -413,12 +435,17 @@ func (s *Server) pickUpdateAsset(r *http.Request) (releaseAsset, error) {
 }
 
 func (s *Server) downloadTo(ctx context.Context, a releaseAsset, w io.Writer) (int64, error) {
+	src := a.downloadURL()
+	if src == "" {
+		return 0, fmt.Errorf("没有可信的下载地址")
+	}
 	client := &http.Client{Timeout: 10 * time.Minute}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("User-Agent", "gleam/"+buildinfo.Version)
+	req.Header.Set("Accept", "application/octet-stream")
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
@@ -445,9 +472,92 @@ func (s *Server) downloadTo(ctx context.Context, a releaseAsset, w io.Writer) (i
 		return n, fmt.Errorf("文件只有 %d 字节，不像引擎程序", n)
 	}
 	if s.Agent != nil && s.Agent.Gate != nil {
-		s.Agent.Gate.RecordEgress("update", hostOf(a.URL), int(n))
+		s.Agent.Gate.RecordEgress("update", hostOf(src), int(n))
 	}
 	return n, nil
+}
+
+// desktopUpdateClient streams installers (265 MB) and blockmaps, so it has no
+// overall timeout. The per-phase limits still drop a stalled upstream instead
+// of pinning the connection forever.
+var desktopUpdateClient = func() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = 30 * time.Second
+	return &http.Client{Transport: t}
+}()
+
+// handleDesktopUpdateAsset serves a release asset to the Electron updater.
+// electron-updater's GitHub provider talks to github.com, which some networks
+// keep resetting; the shell now points its generic feed here and this handler
+// fetches through api.github.com, which stays reachable. Only assets that
+// belong to the latest release can be streamed, and Range requests pass
+// through so the updater can resume.
+func (s *Server) handleDesktopUpdateAsset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" || name != filepath.Base(name) {
+		writeErr(w, http.StatusNotFound, "没有这个更新文件")
+		return
+	}
+	rel, status, err := fetchLatestRelease(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "连不上更新源：%v", err)
+		return
+	}
+	if status != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, "更新源返回 %d", status)
+		return
+	}
+	var asset releaseAsset
+	for _, a := range rel.Assets {
+		if a.Name == name {
+			asset = a
+			break
+		}
+	}
+	if asset.Name == "" {
+		writeErr(w, http.StatusNotFound, "最新版里没有 %s", name)
+		return
+	}
+	src := asset.downloadURL()
+	if src == "" {
+		writeErr(w, http.StatusBadGateway, "更新文件的下载地址不可信")
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, src, nil)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "下载请求建不起来：%v", err)
+		return
+	}
+	req.Header.Set("User-Agent", "gleam/"+buildinfo.Version)
+	req.Header.Set("Accept", "application/octet-stream")
+	if rg := r.Header.Get("Range"); rg != "" {
+		req.Header.Set("Range", rg)
+	}
+	resp, err := desktopUpdateClient.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "下载失败：%v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		writeErr(w, http.StatusBadGateway, "下载地址返回 %d", resp.StatusCode)
+		return
+	}
+	h := w.Header()
+	for _, k := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"} {
+		if v := resp.Header.Get(k); v != "" {
+			h.Set(k, v)
+		}
+	}
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(resp.StatusCode)
+	n, err := io.Copy(w, resp.Body)
+	if err != nil || n == 0 {
+		return
+	}
+	if s.Agent != nil && s.Agent.Gate != nil {
+		s.Agent.Gate.RecordEgress("update", hostOf(src), int(n))
+	}
 }
 
 func verifyUpdateBinary(path string, a releaseAsset, goos string) error {
