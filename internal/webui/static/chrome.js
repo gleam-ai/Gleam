@@ -34,7 +34,7 @@ function renderNotes(md) {
         out.push('<ul>');
         inList = true;
       }
-      let content = trimmed.slice(2);
+      const content = trimmed.slice(2);
       out.push('<li>' + bold(content) + '</li>');
     } else if (trimmed === '') {
       if (inList) {
@@ -46,7 +46,7 @@ function renderNotes(md) {
         out.push('</ul>');
         inList = false;
       }
-      let content = trimmed;
+      const content = trimmed;
       out.push('<p>' + bold(content) + '</p>');
     }
   }
