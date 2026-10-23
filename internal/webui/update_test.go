@@ -81,6 +81,36 @@ func TestSelectUpdateAssetRejectsUntrustedHostAndOversize(t *testing.T) {
 	}
 }
 
+func TestSelectUpdateAssetRejectsInstallerSizedEngine(t *testing.T) {
+	asset := releaseAsset{
+		Name: "gleam-windows-amd64.exe",
+		URL:  "https://github.com/gleam-ai/Gleam/releases/download/v1/gleam-windows-amd64.exe",
+		Size: 265059619, // Gleam-Setup.exe 0.0.17
+	}
+	if got, ok := selectUpdateAsset([]releaseAsset{asset}, "windows", "amd64"); ok {
+		t.Fatalf("installer-sized asset accepted: %+v", got)
+	}
+}
+
+func TestInDesktopResources(t *testing.T) {
+	cases := []struct {
+		exe  string
+		want bool
+	}{
+		{`C:\Software\Gleam\resources\bin\gleam.exe`, true},
+		{"/Applications/Gleam.app/Contents/Resources/bin/gleam", true},
+		{`D:\PersonalProject\Gleam\desktop\.sidecar\win32-x64\gleam.exe`, false},
+		{`C:\Tools\gleam.exe`, false},
+		{"/usr/local/bin/gleam", false},
+		{`C:\Software\Gleam\resources\bin\other.exe`, false},
+	}
+	for _, tc := range cases {
+		if got := inDesktopResources(tc.exe); got != tc.want {
+			t.Errorf("inDesktopResources(%q) = %v, want %v", tc.exe, got, tc.want)
+		}
+	}
+}
+
 func TestExecutableMagic(t *testing.T) {
 	cases := []struct {
 		goos string

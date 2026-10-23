@@ -2,11 +2,54 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { createInterface } from 'node:readline';
-import { statSync } from 'node:fs';
+import { renameSync, rmSync, statSync } from 'node:fs';
 import { pathWithRuntimes } from './runtimes';
 
 export const READY_PREFIX = 'GLEAM_READY ';
 const TOKEN_HEADER = 'X-Gleam-Token';
+const MIN_SIDECAR_BYTES = 1 << 20;
+const MAX_SIDECAR_BYTES = 50 << 20;
+
+// Older engines updated themselves with the NSIS installer on Windows and left
+// the previous binary as "<name>.old". Put that binary back instead of
+// dead-ending on a reinstall when the sizes line up.
+export function repairOversizedSidecar(bin: string): string | null {
+  let size = 0;
+  try {
+    size = statSync(bin).size;
+  } catch {
+    return null;
+  }
+  if (size <= MAX_SIDECAR_BYTES) return null;
+  const backup = bin + '.old';
+  let backupSize = 0;
+  try {
+    backupSize = statSync(backup).size;
+  } catch {
+    return null;
+  }
+  if (backupSize < MIN_SIDECAR_BYTES || backupSize > MAX_SIDECAR_BYTES)
+    return null;
+  const bad = bin + '.bad';
+  try {
+    rmSync(bad, { force: true });
+    renameSync(bin, bad);
+  } catch {
+    return null;
+  }
+  try {
+    renameSync(backup, bin);
+  } catch {
+    try {
+      renameSync(bad, bin);
+    } catch {}
+    return null;
+  }
+  try {
+    rmSync(bad, { force: true });
+  } catch {}
+  return `${(size / 1048576).toFixed(0)} MB -> ${(backupSize / 1048576).toFixed(0)} MB from ${backup}`;
+}
 
 export interface SidecarSpec {
   bin: string;
@@ -45,11 +88,14 @@ export class Sidecar extends EventEmitter {
   }
 
   start(timeoutMs = 15_000): Promise<SidecarReady> {
+    const repaired = repairOversizedSidecar(this.spec.bin);
+    if (repaired)
+      console.log(`[sidecar] repaired oversized binary: ${repaired}`);
     // Guard against corrupted sidecar binary (e.g. NSIS installer copied over it).
     // The real sidecar is ~16 MB; the NSIS installer is ~250 MB.
     try {
       const size = statSync(this.spec.bin).size;
-      if (size > 50 * 1024 * 1024) {
+      if (size > MAX_SIDECAR_BYTES) {
         throw new Error(
           `sidecar binary looks wrong (${(size / 1048576).toFixed(0)} MB — expected ~16 MB). ` +
             `This usually means the NSIS installer was copied over the sidecar during an update. ` +

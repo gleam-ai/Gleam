@@ -23,7 +23,10 @@ const updateLatestAPI = "https://api.github.com/repos/" + updateRepo + "/release
 
 const (
 	updateMinBytes = 1 << 20
-	updateMaxBytes = 256 << 20
+	// The engine is ~16 MB; the NSIS installer is ~265 MB. Keeping the ceiling
+	// far below the installer makes a wrong asset fail before anything is
+	// renamed or replaced.
+	updateMaxBytes = 64 << 20
 )
 
 // inMacAppBundle reports whether exe lives inside a .app bundle. Replacing a
@@ -37,6 +40,16 @@ func inMacAppBundle(exe, goos string) bool {
 	return strings.Contains(p, ".app/contents/")
 }
 
+// inDesktopResources reports whether exe is the engine shipped inside an
+// Electron app bundle (resources/bin/gleam[.exe]). The shell owns installation
+// there; an engine-only rewrite leaves shell and sidecar on different versions
+// and has already corrupted installs.
+func inDesktopResources(exe string) bool {
+	p := strings.ToLower(filepath.ToSlash(filepath.Clean(exe)))
+	return strings.HasSuffix(p, "/resources/bin/gleam") ||
+		strings.HasSuffix(p, "/resources/bin/gleam.exe")
+}
+
 func (s *Server) updateManaged() bool {
 	if s.DisableSelfUpdate {
 		return true
@@ -45,7 +58,7 @@ func (s *Server) updateManaged() bool {
 	if err != nil {
 		return false
 	}
-	return inMacAppBundle(exe, runtime.GOOS)
+	return inMacAppBundle(exe, runtime.GOOS) || inDesktopResources(exe)
 }
 
 // assetNamesFor mirrors the no-date names produced by scripts/package.sh.
