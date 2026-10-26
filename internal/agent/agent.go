@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -237,7 +238,11 @@ func normalizeMode(m string) string {
 func planDescriptions(plan types.Plan) []string {
 	out := make([]string, 0, len(plan.Steps))
 	for _, st := range plan.Steps {
-		out = append(out, fmt.Sprintf("%s. %s（%s）", st.ID, st.Describe(), st.Tool))
+		line := fmt.Sprintf("%s. %s（%s）", st.ID, st.Describe(), st.Tool)
+		if args, err := json.Marshal(st.Args); err == nil && len(st.Args) > 0 {
+			line += " · " + string(args)
+		}
+		out = append(out, line)
 	}
 	return out
 }

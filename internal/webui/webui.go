@@ -53,6 +53,8 @@ type taskInfo struct {
 	Status         types.GoalStatus   `json:"status"`
 	Result         *types.GoalResult  `json:"result,omitempty"`
 	Events         []sseEvent         `json:"events,omitempty"`
+	ProgressSeq    uint64             `json:"progress_seq"`
+	ChatText       string             `json:"chat_text"`
 	Started        time.Time          `json:"started_at"`
 	Cancel         context.CancelFunc `json:"-"`
 }
@@ -84,13 +86,25 @@ func NewServer(a *agent.Agent) *Server {
 	return s
 }
 
+type progressEvent struct {
+	types.ProgressEvent
+	Seq uint64 `json:"seq"`
+}
+
 func (s *Server) OnProgress(ev types.ProgressEvent) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	payload := progressEvent{ProgressEvent: ev}
 	if t, ok := s.tasks[ev.TaskID]; ok {
-		t.appendEvent(newEvent("progress", ev))
+		t.ProgressSeq++
+		payload.Seq = t.ProgressSeq
+		if ev.Phase == "chat" && ev.Kind == "llm" {
+			t.ChatText += ev.Message
+		}
+		t.appendEvent(newEvent("progress", payload))
 	}
-	s.mu.Unlock()
-	s.broadcast(newEvent("progress", ev))
+	// Sequence assignment, snapshot text and delivery must share one ordering.
+	s.broadcastLocked(newEvent("progress", payload))
 }
 
 func (s *Server) OnTool(ev types.ToolEvent) {
@@ -208,15 +222,13 @@ func (s *Server) unsubscribe(ch chan sseEvent) {
 
 func (s *Server) broadcast(ev sseEvent) {
 	s.mu.Lock()
-	clients := make([]chan sseEvent, 0, len(s.clients))
+	defer s.mu.Unlock()
+	s.broadcastLocked(ev)
+}
+
+func (s *Server) broadcastLocked(ev sseEvent) {
+	// Slow tabs resync from snapshots; delivery never waits on a client.
 	for ch := range s.clients {
-		clients = append(clients, ch)
-	}
-	s.mu.Unlock()
-	// Non-blocking delivery outside the lock: a slow tab may miss events and
-	// resync on reconnect, but it must not hold the global tasks/approvals lock
-	// and slow down task goroutines.
-	for _, ch := range clients {
 		select {
 		case ch <- ev:
 		default:
@@ -255,6 +267,7 @@ func (s *Server) dropTaskApprovals(taskID, note string) {
 	}
 	s.mu.Unlock()
 	for _, w := range stale {
+		s.broadcast(newEvent("approval_resolved", map[string]any{"id": w.ID}))
 		resp := types.ApprovalResponse{Approved: false, Note: note}
 		select {
 		case w.ch <- resp:

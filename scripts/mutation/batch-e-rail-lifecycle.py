@@ -66,6 +66,7 @@ MUTATIONS = [
         "edits": [
             (
                 """	for _, w := range stale {
+		s.broadcast(newEvent("approval_resolved", map[string]any{"id": w.ID}))
 		resp := types.ApprovalResponse{Approved: false, Note: note}
 		select {
 		case w.ch <- resp:

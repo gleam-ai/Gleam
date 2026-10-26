@@ -33,8 +33,8 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                "\tdec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), true)\n",
-                "\tdec := e.adjudicate(ctx, tool, step.Args, preApproved && !hasRefs(step.Args), true)\n",
+                "\t\tdec := e.adjudicate(ctx, tool, args, pre, true)\n",
+                "\t\tdec := e.adjudicate(ctx, tool, step.Args, pre, true)\n",
             )
         ],
         "targets": [AGENT],
@@ -66,8 +66,8 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                "\tdec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), true)\n",
-                "\tdec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), !hasRefs(step.Args))\n",
+                "\t\tdec := e.adjudicate(ctx, tool, args, pre, true)\n",
+                "\t\tdec := e.adjudicate(ctx, tool, args, pre, !hasRefs(step.Args))\n",
             )
         ],
         "targets": [AGENT],
@@ -77,8 +77,8 @@ MUTATIONS = [
         "file": "internal/agent/executor.go",
         "edits": [
             (
-                "\t\tresolved := step\n\t\tresolved.Args = args\n",
-                "\t\tresolved := step\n",
+                "\t\t\tresolved := step\n\t\t\tresolved.Args = args\n",
+                "\t\t\tresolved := step\n",
             )
         ],
         "targets": [AGENT],

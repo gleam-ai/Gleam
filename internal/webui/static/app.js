@@ -1749,8 +1749,14 @@ function mountStopButton(host, taskID, status) {
 }
 
 function renderTaskCard(info, prepend) {
-  // 去重：SSE 事件与 submit 响应可能并发渲染同一任务
+  // A snapshot requested before completion must not undo the terminal event.
   const existing = tasks.get(info.task_id);
+  if (info.status === 'running' && isTaskFinished(info.task_id)) {
+    if (existing) return existing;
+    info = { ...info, status: finishedTasks.get(info.task_id) };
+  }
+  if (info.status && info.status !== 'running')
+    markTaskFinished(info.task_id, info.status);
   if (existing) {
     // 卡片可能因为切到会话视图而被摘出 feed：回来时必须重新挂上，
     // 否则运行中的任务只活在 tasks 里，屏幕上没有可以审批的那张卡。
@@ -1765,6 +1771,7 @@ function renderTaskCard(info, prepend) {
       existing.info.task_id,
       existing.info.status,
     );
+    syncCardProgress(existing, info);
     if (info.result) applyResult(info.task_id, info.result);
     return existing;
   }
@@ -1830,11 +1837,10 @@ function renderTaskCard(info, prepend) {
   tasks.set(info.task_id, { info, card, slots });
   mountStopButton(card.querySelector('.goal-meta'), info.task_id, info.status);
   ensureElapsedTicker();
-  // 先回放历史事件（会重建工具执行折叠块），再定格结果——
-  // 否则 applyResult 里的 settleRunSection 会在折叠块尚不存在时空跑，回放又把汇总刷成"进行中"
-  (info.events || []).forEach((ev) =>
-    applyEvent(info.task_id, ev.type, ev.data),
-  );
+  syncCardProgress(tasks.get(info.task_id), info);
+  (info.events || []).forEach((ev) => {
+    if (ev.type !== 'progress') applyEvent(info.task_id, ev.type, ev.data);
+  });
   if (info.result) applyResult(info.task_id, info.result);
   refreshWorkbench();
   scrollToBottom(false);
@@ -2087,17 +2093,29 @@ const PHASE_CN = {
   reflect: '复盘',
   budget: '预算',
   context: '上下文',
+  delegate: '委派',
   done: '完成',
 };
 
 function demoteMilestone(live) {
-  if (live && live.state === 'active' && live.el.isConnected) {
+  if (live && live.state === 'active') {
     live.el.className = 'timeline-item timeline-item--done';
     live.state = 'done';
   }
 }
 
 function renderProgressLine(t, tl, data) {
+  if (data.phase === 'delegate' && data.kind === 'llm') {
+    const run = ensureRunSection(t, tl);
+    if (!t.delegateEl) {
+      t.delegateEl = el('div', 'tl-run-item');
+      t.delegateEl.appendChild(el('span', 'tl-kind', PHASE_CN.delegate));
+      run.list.appendChild(t.delegateEl);
+    }
+    t.delegateEl.appendChild(document.createTextNode(data.message || ''));
+    return;
+  }
+  t.delegateEl = null;
   const msg = (data.message || '').trim();
   if (data.phase === 'execute' && msg && !msg.startsWith('开始执行')) {
     addRunStep(t, tl, data, msg);
@@ -2162,7 +2180,13 @@ function addRunStep(t, tl, data, msg) {
 }
 
 function paintRunSummary(p, running) {
-  const bits = [p.runs ? `执行工具 ${p.runs} 次` : '正在执行…'];
+  const bits = [
+    p.runs
+      ? `执行工具 ${p.runs} 次`
+      : running && !p.settled
+        ? '正在执行…'
+        : '执行记录',
+  ];
   if (p.fails) bits.push(`其中 ${p.fails} 次失败`);
   // running 只代表「本次事件到达时仍在跑」；定格（settled）后不再回弹"进行中"——
   // 偶有 progress 事件晚于 completed 到达，否则已完成的卡会重新挂上"进行中"（2026-09-24 交互走查）
@@ -2199,29 +2223,105 @@ async function ensureTask(taskID) {
   return job;
 }
 
+function progressState(target) {
+  return (target.progress ||= { seq: 0, pending: new Map() });
+}
+
+function drainProgress(target, render) {
+  const p = progressState(target);
+  while (p.pending.has(p.seq + 1)) {
+    const data = p.pending.get(++p.seq);
+    p.pending.delete(p.seq);
+    render(data);
+  }
+}
+
+function receiveProgress(target, data, render) {
+  if (!data.seq) return;
+  const p = progressState(target);
+  if (data.seq <= p.seq || p.pending.has(data.seq)) return;
+  p.pending.set(data.seq, data);
+  drainProgress(target, render);
+  if (p.pending.size) void refreshProgress(data.task_id);
+}
+
+function syncProgress(target, info, render, setChat) {
+  const p = progressState(target);
+  const seq = info.progress_seq || 0;
+  if (seq < p.seq) return;
+  for (const ev of info.events || []) {
+    const d = ev.data;
+    if (ev.type !== 'progress' || !d || d.seq <= p.seq || d.seq > seq) continue;
+    if (d.phase !== 'chat' || d.kind !== 'llm') render(d);
+  }
+  p.seq = seq;
+  for (const n of p.pending.keys()) if (n <= seq) p.pending.delete(n);
+  setChat(info.chat_text || '');
+  drainProgress(target, render);
+}
+
+const progressJobs = new Map();
+async function refreshProgress(taskID) {
+  if (isTaskFinished(taskID) || progressJobs.has(taskID)) return;
+  const job = (async () => {
+    try {
+      const info = await api('GET', '/api/goals/' + taskID);
+      if (isTaskFinished(taskID)) return;
+      renderTaskCard(info, false);
+      if (info.status !== 'running') {
+        if (convoLive.has(taskID))
+          convoComplete(
+            taskID,
+            info.result || { task_id: taskID, status: info.status },
+          );
+      } else replayLiveProgress(taskID, info);
+    } catch {
+      // Reconnect or the next snapshot can retry a failed recovery.
+    } finally {
+      progressJobs.delete(taskID);
+    }
+  })();
+  progressJobs.set(taskID, job);
+  return job;
+}
+
+function setCardChat(t, text) {
+  t.streamBuf = text;
+  if (!text || t.info.status !== 'running') return;
+  const sum = t.slots.summary;
+  sum.classList.add('streaming');
+  sum.dataset.typed = text;
+  sum.innerHTML = renderMarkdown(text);
+}
+
+function renderCardProgress(t, data) {
+  if (data.phase === 'chat') {
+    if (data.kind === 'llm') setCardChat(t, (t.streamBuf || '') + data.message);
+    return;
+  }
+  const tl = t.card.querySelector('[data-role="timeline"]');
+  renderProgressLine(t, tl, data);
+  tl.scrollTop = tl.scrollHeight;
+}
+
+function syncCardProgress(t, info) {
+  syncProgress(
+    t,
+    info,
+    (d) => renderCardProgress(t, d),
+    (text) => setCardChat(t, text),
+  );
+}
+
 function applyEvent(taskID, type, data) {
   const t = tasks.get(taskID);
   if (!t) return;
+  if ((type === 'progress' || type === 'approval') && isTaskFinished(taskID))
+    return;
   const tl = t.slots ? t.card.querySelector('[data-role="timeline"]') : null;
   if (!tl) return;
   if (type === 'progress') {
-    // 对话模式：后端按 LLM 增量片段推送，直接累积流式渲染到回复区，不刷时间线噪声
-    if (data.phase === 'chat') {
-      // 定格之后不再收增量：晚到的片段会把已完成的回复重新刷成"进行中"
-      if (t.info.status && t.info.status !== 'running') return;
-      if (data.kind === 'llm' && data.message) {
-        t.streamBuf = (t.streamBuf || '') + data.message;
-        const sum = t.slots.summary;
-        sum.classList.add('streaming');
-        sum.dataset.typed = t.streamBuf;
-        sum.innerHTML = renderMarkdown(t.streamBuf);
-        scrollToBottom();
-      }
-      // chat 的 info（思考中/已回复）与 error 交给 completed 事件统一展示
-      return;
-    }
-    renderProgressLine(t, tl, data);
-    tl.scrollTop = tl.scrollHeight;
+    receiveProgress(t, data, (d) => renderCardProgress(t, d));
     scrollToBottom();
   } else if (type === 'approval') {
     renderApproval(t, data);
@@ -2852,67 +2952,51 @@ function connectSSE() {
   es.addEventListener('progress', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
-    LiveRail.observe(d);
-    const contextNote = d.phase === 'context' || isContextNote(d.message);
-    if (contextNote) loadContext();
-    if (viewingConvo) {
-      // A task can start before its submit response returns, so the live bubble
-      // may not exist yet. Adopt only tasks that belong to this conversation;
-      // anything else must not paint a goal card into the conversation feed.
-      if (!convoLive.has(d.task_id)) {
-        const t = await ensureTask(d.task_id);
-        if (
-          !t ||
-          !viewingConvo ||
-          !currentConvo ||
-          (t.info.conversation_id || '') !== currentConvo.id
-        )
-          return;
-        appendLiveConvoTurn(t.info.goal, d.task_id, t.info.task_mode);
-      }
-      if (d.phase === 'chat' && d.kind === 'llm' && d.message)
-        convoStream(d.task_id, d.message);
-      else if (d.message && (d.phase === 'context' || isContextNote(d.message)))
-        convoNotice(d.task_id, d.message);
-      return;
-    }
+    if (d.phase === 'context' || isContextNote(d.message)) loadContext();
+    if (isTaskFinished(d.task_id)) return;
     const t = await ensureTask(d.task_id);
-    if (t) applyEvent(d.task_id, 'progress', d);
+    if (!t || isTaskFinished(d.task_id)) return;
+    if (!d.seq || d.seq > progressState(t).seq) LiveRail.observe(d);
+    if (
+      viewingConvo &&
+      currentConvo &&
+      t.info.conversation_id === currentConvo.id &&
+      !convoLive.has(d.task_id)
+    ) {
+      appendLiveConvoTurn(t.info.goal, d.task_id, t.info.task_mode);
+      replayLiveProgress(d.task_id, t.info);
+    }
+    applyEvent(d.task_id, 'progress', d);
+    const live = convoLive.get(d.task_id);
+    if (live)
+      receiveProgress(live, d, (data) => renderConvoProgress(live, data));
   });
   es.addEventListener('approval', async (e) => {
     const ap = sseData(e);
-    if (!ap) return;
-    LiveRail.approval(ap);
+    if (!ap || isTaskFinished(ap.task_id)) return;
     if (!ap.task_id) {
+      LiveRail.approval(ap);
       renderStandaloneApproval(ap);
       return;
     }
+    const t = await ensureTask(ap.task_id);
+    if (!t || isTaskFinished(ap.task_id)) return;
+    LiveRail.approval(ap);
     if (viewingConvo) {
       if (!convoLive.has(ap.task_id)) {
-        const t = await ensureTask(ap.task_id);
-        if (
-          !t ||
-          !viewingConvo ||
-          !currentConvo ||
-          (t.info.conversation_id || '') !== currentConvo.id
-        ) {
+        if (!currentConvo || t.info.conversation_id !== currentConvo.id) {
           pendingApprovals++;
           updateApprovalBadge(0);
           toast('有新的审批请求，请前往目标视图', 'info');
           return;
         }
         appendLiveConvoTurn(t.info.goal, ap.task_id, t.info.task_mode);
+        replayLiveProgress(ap.task_id, t.info);
       }
       convoApproval(ap);
       return;
     }
-    const t = await ensureTask(ap.task_id);
-    if (t) renderApproval(t, ap);
-    else {
-      pendingApprovals++;
-      updateApprovalBadge(0);
-      toast('有新的审批请求，请前往目标视图', 'info');
-    }
+    renderApproval(t, ap);
   });
   es.addEventListener('approval_resolved', (e) => {
     const d = sseData(e);
@@ -2921,6 +3005,7 @@ function connectSSE() {
   es.addEventListener('completed', async (e) => {
     const r = sseData(e);
     if (!r) return;
+    markTaskFinished(r.task_id, r.status);
     LiveRail.result(r);
     loadCues().catch(() => {});
     if (tasks.has(r.task_id)) applyResult(r.task_id, r);
@@ -2989,6 +3074,8 @@ function connectSSE() {
 // approvals raised during the outage all need to be replayed from current
 // server state, or the UI stays frozen on the last frame before the drop.
 async function resyncAfterReconnect() {
+  const viewSeq = convoLoadSeq;
+  const completionVersion = taskCompletionVersion;
   loadCues().catch(() => {});
   loadSchedules().catch(() => {});
   loadContext();
@@ -2998,6 +3085,7 @@ async function resyncAfterReconnect() {
     goals = (await api('GET', '/api/goals')).goals || [];
     goalsLoaded = true;
   } catch {}
+  if (viewSeq !== convoLoadSeq) return;
 
   const inConvo = !!(viewingConvo && currentConvo);
   if (inConvo) {
@@ -3009,37 +3097,23 @@ async function resyncAfterReconnect() {
       );
       // The user may have switched away during the resync; a late response
       // must not overwrite the new view.
-      if (!currentConvo || currentConvo.id !== convoId) return;
-      renderConvoMessages(c);
+      if (
+        viewSeq !== convoLoadSeq ||
+        !currentConvo ||
+        currentConvo.id !== convoId
+      )
+        return;
+      // A history response read before an SSE completion lacks its reply.
+      if (completionVersion === taskCompletionVersion) renderConvoMessages(c);
       if (c.title && c.title !== currentConvo.title) {
         currentConvo.title = c.title;
         $('#goals-title').textContent = c.title;
       }
     } catch {}
-    for (const info of goals) {
-      if (info.status !== 'running' || info.conversation_id !== convoId)
-        continue;
-      const cached = tasks.get(info.task_id);
-      if (cached) cached.info = info;
-      if (convoLive.has(info.task_id)) continue;
-      appendLiveConvoTurn(info.goal, info.task_id, info.task_mode, {
-        skipUser: true,
-      });
-      replayLiveProgress(info.task_id, info.events);
-    }
-    // Finished during the outage: retire its live bubble (and stop button).
-    for (const info of goals) {
-      if (info.status === 'running' || !convoLive.has(info.task_id)) continue;
-      convoComplete(
-        info.task_id,
-        info.result || { task_id: info.task_id, status: info.status },
-      );
-    }
+    if (viewSeq !== convoLoadSeq) return;
+    recoverConvoTasks(convoId, goals);
     loadConvoList(convoId);
   } else if (goals.length) {
-    // The workbench only patches state, never replays events: chat deltas in
-    // applyEvent carry no idempotency marker, so replaying a whole card would
-    // duplicate the same text. New tasks get their cards separately.
     for (const info of goals) {
       if (tasks.has(info.task_id)) {
         // Full idempotent refresh: status badge, stop button, result slots.
@@ -3074,7 +3148,8 @@ async function resyncAfterReconnect() {
 
   try {
     const { approvals } = await api('GET', '/api/approvals');
-    const list = approvals || [];
+    if (viewSeq !== convoLoadSeq) return;
+    const list = (approvals || []).filter((ap) => !isTaskFinished(ap.task_id));
     pendingApprovals = list.length;
     updateApprovalBadge(0);
     LiveRail.approvals(list);
@@ -3097,6 +3172,8 @@ async function resyncAfterReconnect() {
     }
     const goalById = new Map(goals.map((g) => [g.task_id, g]));
     for (const ap of list) {
+      if (viewSeq !== convoLoadSeq) return;
+      if (isTaskFinished(ap.task_id)) continue;
       if (!ap.task_id) {
         renderStandaloneApproval(ap);
         continue;
@@ -5092,13 +5169,20 @@ const convoLive = new Map();
 // not resurrect a running card or conversation bubble.
 const finishedTasks = new Map();
 const FINISHED_TASK_CAP = 200;
+let taskCompletionVersion = 0;
 function markTaskFinished(taskID, status) {
-  if (!taskID || !status) return;
+  if (!taskID || !status || status === 'running') return;
+  if (finishedTasks.get(taskID) !== status) taskCompletionVersion++;
   finishedTasks.delete(taskID);
   finishedTasks.set(taskID, status);
   while (finishedTasks.size > FINISHED_TASK_CAP) {
     finishedTasks.delete(finishedTasks.keys().next().value);
   }
+}
+
+function isTaskFinished(taskID) {
+  const status = tasks.get(taskID)?.info.status;
+  return finishedTasks.has(taskID) || !!(status && status !== 'running');
 }
 
 const CONVO_ICONS = {
@@ -5523,12 +5607,27 @@ function renderConvoMessages(c) {
       .filter((m) => m.role === 'assistant' && m.task_id)
       .map((m) => m.task_id),
   );
+  for (const m of msgs) {
+    if (m.role === 'assistant' && m.task_id)
+      markTaskFinished(m.task_id, m.status || 'success');
+  }
   for (const [taskID, live] of convoLive) {
-    if (persisted.has(taskID) && !live.approvalEl) {
+    if (persisted.has(taskID)) {
+      if (live.approvalEl) live.approvalEl.remove();
       convoLive.delete(taskID);
       continue;
     }
     if (live.convoId && live.convoId !== c.id) continue;
+    if (isTaskFinished(taskID)) {
+      const info = tasks.get(taskID)?.info;
+      convoComplete(
+        taskID,
+        info?.result || {
+          task_id: taskID,
+          status: finishedTasks.get(taskID) || info?.status,
+        },
+      );
+    }
     feed.appendChild(live.wrap);
     if (live.approvalEl) feed.appendChild(live.approvalEl);
   }
@@ -5624,14 +5723,55 @@ async function openTaskDetail(taskID) {
   }
 }
 
-function replayLiveProgress(taskID, events) {
-  for (const ev of events || []) {
-    if (ev.type !== 'progress' || !ev.data) continue;
-    const d = ev.data;
-    if (d.phase === 'chat' && d.kind === 'llm' && d.message)
-      convoStream(taskID, d.message);
-    else if (d.message && (d.phase === 'context' || isContextNote(d.message)))
-      convoNotice(taskID, d.message);
+function renderConvoProgress(live, data) {
+  if (data.phase === 'chat') {
+    if (data.kind === 'llm') convoStream(data.task_id, data.message);
+    else if (isContextNote(data.message))
+      convoNotice(data.task_id, data.message);
+    return;
+  }
+  if (!live.timeline) {
+    live.timeline = el('div', 'timeline');
+    live.timeline.setAttribute('role', 'log');
+    live.bodyEl.insertBefore(live.timeline, live.assistantEl);
+  }
+  renderProgressLine(live, live.timeline, data);
+  scrollToBottom();
+}
+
+function replayLiveProgress(taskID, info) {
+  const live = convoLive.get(taskID);
+  if (!live || isTaskFinished(taskID)) return;
+  syncProgress(
+    live,
+    info,
+    (d) => renderConvoProgress(live, d),
+    (text) => {
+      live.buf = text;
+      if (text) live.assistantEl.innerHTML = renderMarkdown(text);
+    },
+  );
+}
+
+function recoverConvoTasks(convoId, goals) {
+  for (const info of goals) {
+    if (info.conversation_id !== convoId) continue;
+    renderTaskCard(info, false);
+    if (isTaskFinished(info.task_id)) {
+      if (convoLive.has(info.task_id))
+        convoComplete(
+          info.task_id,
+          tasks.get(info.task_id)?.info.result || {
+            task_id: info.task_id,
+            status: finishedTasks.get(info.task_id) || info.status,
+          },
+        );
+      continue;
+    }
+    appendLiveConvoTurn(info.goal, info.task_id, info.task_mode, {
+      skipUser: true,
+    });
+    replayLiveProgress(info.task_id, info);
   }
 }
 
@@ -5648,14 +5788,7 @@ async function attachRunningTasksToConvo(convoId) {
     return;
   }
   if (!stillHere()) return;
-  for (const info of goals) {
-    if (info.status !== 'running' || info.conversation_id !== convoId) continue;
-    if (convoLive.has(info.task_id)) continue;
-    appendLiveConvoTurn(info.goal, info.task_id, info.task_mode, {
-      skipUser: true,
-    });
-    replayLiveProgress(info.task_id, info.events);
-  }
+  recoverConvoTasks(convoId, goals);
   try {
     const { approvals } = await api('GET', '/api/approvals');
     if (!stillHere()) return;
@@ -5667,7 +5800,7 @@ async function attachRunningTasksToConvo(convoId) {
 }
 
 function appendLiveConvoTurn(goal, taskID, taskMode, opts = {}) {
-  if (convoLive.has(taskID)) return;
+  if (convoLive.has(taskID) || isTaskFinished(taskID)) return;
   const feed = $('#goal-feed');
   const empty = $('#goals-empty');
   if (empty) empty.remove();
@@ -5695,7 +5828,7 @@ function appendLiveConvoTurn(goal, taskID, taskMode, opts = {}) {
 
 function convoApproval(ap) {
   const live = convoLive.get(ap.task_id);
-  if (!live) return;
+  if (!live || isTaskFinished(ap.task_id)) return;
   // One task can request approval several times; once the old card is decided
   // it no longer takes up space.
   if (live.approvalEl) {
@@ -5739,7 +5872,7 @@ function convoNotice(taskID, text) {
   if (!live || !text || live.lastNotice === text) return;
   live.lastNotice = text;
   const note = el('div', 'msg-status msg-status--running', text);
-  live.wrap.before(note);
+  live.bodyEl.insertBefore(note, live.assistantEl);
   scrollToBottom();
 }
 
@@ -5760,6 +5893,9 @@ function convoComplete(taskID, result) {
     live.assistantEl.classList.remove('streaming');
     live.assistantEl.innerHTML = renderMarkdown(text || '（无回复内容）');
     if (live.approvalEl) live.approvalEl.remove();
+    live.approvalEl = null;
+    demoteMilestone(live.msLive);
+    settleRunSection(live);
     appendMsgActs(live.bodyEl, { task_id: taskID, mode: live.taskMode });
     if (cancelled && text && text !== (result.error || '')) {
       live.bodyEl.appendChild(

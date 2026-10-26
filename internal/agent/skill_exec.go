@@ -191,12 +191,17 @@ func (a *Agent) Delegate(ctx context.Context, goal string, role string) (string,
 		Messages:    []llm.Message{{Role: llm.RoleUser, Content: goal}},
 		Temperature: 0.3,
 		MaxTokens:   2000,
+		TaskID:      taskIDFrom(ctx),
 	}
-	client := a.LLM
-	if a.FastLLM != nil {
-		client = a.FastLLM
-	}
-	text, err := client.Chat(dctx, req)
+	onDelta, flush := DeltaThrottle(40, func(text string) {
+		if a.Notifier != nil {
+			a.Notifier.OnProgress(types.ProgressEvent{
+				TaskID: req.TaskID, Phase: "delegate", Message: text, Progress: 55, Kind: "llm",
+			})
+		}
+	})
+	text, err := a.taskHelperLLM(ctx).ChatStream(dctx, req, onDelta)
+	flush()
 	if err != nil {
 		return "", fmt.Errorf("委派调用失败: %w", err)
 	}

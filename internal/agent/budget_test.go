@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gleam/internal/llm"
+	"gleam/internal/tools/std"
 	"gleam/pkg/types"
 )
 
@@ -108,5 +109,75 @@ func TestBudget_ClearedWithTask(t *testing.T) {
 	f.a.usageMu.Unlock()
 	if left {
 		t.Fatal("任务淘汰后预算记录应被清除")
+	}
+}
+
+func TestDelegateUsageReachesParentBudget(t *testing.T) {
+	for _, limit := range []string{"calls", "tokens"} {
+		t.Run(limit, func(t *testing.T) {
+			f := newFixture(t, []llm.Scripted{
+				planScript(`{"steps":[{"id":"delegate","description":"independent analysis","tool":"agent.delegate","args":{"goal":"analyze independently"}}]}`),
+				reflectScript(95, "done", "finished"),
+			})
+			f.a.Cfg.Agent.ContextCompress = false
+			f.a.Cfg.Agent.GEOEnabled = false
+			f.a.Cfg.Agent.MaxReplans = 0
+			f.a.Cfg.Agent.MaxToolSchemas = 0
+			f.a.Cfg.Agent.MaxLLMCallsPerTask = 0
+			f.a.Cfg.Agent.MaxTokensPerTask = 0
+			f.a.Cfg.Agent.MaxTaskDurationSecs = 0
+			f.a.Cfg.Safety.AIReview = false
+			f.a.Cfg.Safety.DeepReview = false
+			if limit == "calls" {
+				f.a.Cfg.Agent.MaxLLMCallsPerTask = 2
+			} else {
+				f.a.Cfg.Agent.MaxTokensPerTask = 100000
+			}
+			var delegated []llm.ChatRequest
+			f.a.FastLLM = &lifecycleClient{chat: func(_ context.Context, req llm.ChatRequest) (string, error) {
+				delegated = append(delegated, req)
+				llm.ReportUsage(req, "independent result", llm.Usage{PromptTokens: 100000, CompletionTokens: 3})
+				return "independent result", nil
+			}}
+			f.a.Reg.MustRegister(std.NewAgentDelegate(f.a))
+			if !f.a.Gate.TrustForSession("agent.delegate") {
+				t.Fatal("delegate test setup could not preapprove the tool")
+			}
+			taskID := types.NewID()
+			res := f.a.RunGoal(context.Background(), types.GoalRequest{
+				TaskID: taskID, Goal: "delegate an independent analysis", Mode: "auto", TaskMode: types.TaskWork,
+			})
+			if len(delegated) != 1 {
+				t.Fatalf("delegate calls=%d, want 1; result=%+v", len(delegated), res)
+			}
+			if llm.KindOf(delegated[0].System) != "chat" || len(delegated[0].Messages) != 1 || delegated[0].Messages[0].Content != "analyze independently" {
+				t.Fatalf("helper call was not the isolated delegate request: %+v", delegated[0])
+			}
+			if delegated[0].TaskID != taskID {
+				t.Errorf("delegate TaskID=%q, want parent %q", delegated[0].TaskID, taskID)
+			}
+			u := f.a.usageOf(taskID)
+			if want := len(f.llm.Calls) + len(delegated); u.LLMCalls != want {
+				t.Errorf("parent LLMCalls=%d, want %d including delegate", u.LLMCalls, want)
+			}
+			if u.PromptTokens < 100000 || u.CompletionTokens < 3 {
+				t.Errorf("parent usage lost delegate tokens: prompt=%d completion=%d, want at least 100000/3", u.PromptTokens, u.CompletionTokens)
+			}
+			reflections := 0
+			for _, req := range f.llm.Calls {
+				if llm.KindOf(req.System) == "reflect" {
+					reflections++
+				}
+			}
+			budgetApprovals := 0
+			for _, req := range f.notify.approvals {
+				if req.TaskID == taskID && strings.Contains(req.Reason, "预算") {
+					budgetApprovals++
+				}
+			}
+			if res.Status != types.GoalFailed || !strings.Contains(res.Error, "超出任务预算") || reflections != 0 || budgetApprovals != 1 {
+				t.Errorf("delegate bypassed post-execute budget: status=%s reflections=%d budget_approvals=%d error=%q; want failed, 0, 1, budget error", res.Status, reflections, budgetApprovals, res.Error)
+			}
+		})
 	}
 }

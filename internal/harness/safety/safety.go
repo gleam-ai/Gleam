@@ -86,10 +86,14 @@ var sessionTrustTools = map[string]bool{
 	"agent.delegate":         true,
 }
 
+func (g *Gate) CanTrustForSession(name string) bool {
+	return sessionTrustTools[name]
+}
+
 // TrustForSession applies only to allowlisted tools and reports whether the
 // trust was actually recorded.
 func (g *Gate) TrustForSession(name string) bool {
-	if !sessionTrustTools[name] {
+	if !g.CanTrustForSession(name) {
 		return false
 	}
 	g.mu.Lock()
@@ -102,6 +106,8 @@ type Decision struct {
 	NeedApproval bool
 	Risk         string
 	Reason       string
+	// Approved paths become exact execution roots, never their parent directories.
+	Outside []string
 }
 
 type AuditEntry struct {
@@ -140,9 +146,25 @@ func (g *Gate) EvaluateStepIn(ctx context.Context, t types.Tool, args map[string
 
 func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, preApproved bool) Decision {
 	perm := g.effectivePermission(t)
-	switch perm {
-	case types.PermissionReadOnly:
-		return Decision{NeedApproval: false, Risk: "low", Reason: "只读操作"}
+	paths := g.pathsOf(ctx, t, args)
+	outside := g.filterOutside(ctx, paths)
+
+	if perm == types.PermissionReadOnly {
+		if len(outside) == 0 {
+			return Decision{NeedApproval: false, Risk: "low", Reason: "只读操作"}
+		}
+		// Reading outside the workspace is still a data-access decision: the
+		// user picks a workspace, not "whatever path the model names". Ask
+		// once here; approval widens the read boundary for this task. A whole
+		// plan already approved with the same paths is that one answer.
+		if preApproved {
+			return Decision{NeedApproval: false, Risk: "medium", Reason: "计划已获用户批准", Outside: outside}
+		}
+		return Decision{
+			NeedApproval: true, Risk: "medium",
+			Reason:  "只读访问工作区外的路径：" + briefPaths(outside),
+			Outside: outside,
+		}
 	}
 
 	g.mu.RLock()
@@ -159,35 +181,85 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 	}
 
 	if risk == "high" {
-		return Decision{NeedApproval: true, Risk: risk, Reason: "高风险操作，必须人工确认"}
+		return Decision{NeedApproval: true, Risk: risk, Reason: "高风险操作，必须人工确认", Outside: outside}
 	}
 
-	if trustedTool {
+	if trustedTool && len(outside) == 0 {
 		return Decision{NeedApproval: false, Risk: risk, Reason: fmt.Sprintf("工具 %s 在信任白名单中", t.Name())}
 	}
 
 	if preApproved {
-		return Decision{NeedApproval: false, Risk: risk, Reason: "计划已获用户批准"}
+		return Decision{NeedApproval: false, Risk: risk, Reason: "计划已获用户批准", Outside: outside}
 	}
 
 	if mode == "plan_first" || mode == "interactive" {
-		return Decision{NeedApproval: true, Risk: risk, Reason: fmt.Sprintf("%s 模式下所有写操作都需要确认", mode)}
+		return Decision{NeedApproval: true, Risk: risk, Reason: fmt.Sprintf("%s 模式下所有写操作都需要确认", mode), Outside: outside}
 	}
 
-	if pa, ok := t.(types.PathAware); ok {
-		paths := pa.Paths(ctx, args)
+	if _, ok := t.(types.PathAware); ok {
 		if len(paths) == 0 {
 			return Decision{NeedApproval: true, Risk: risk, Reason: "无法确认操作路径，需要人工确认"}
 		}
-		roots := toolutil.RootsFrom(ctx, nil)
-		for _, p := range paths {
-			if !g.pathTrusted(p) && !pathInRoots(roots, p) {
-				return Decision{NeedApproval: true, Risk: risk, Reason: fmt.Sprintf("路径 %s 不在信任路径内", p)}
+		if len(outside) > 0 {
+			return Decision{
+				NeedApproval: true, Risk: risk,
+				Reason:  "路径在工作区外：" + briefPaths(outside),
+				Outside: outside,
 			}
 		}
 		return Decision{NeedApproval: false, Risk: risk, Reason: "操作路径均在信任路径内"}
 	}
 	return Decision{NeedApproval: true, Risk: risk, Reason: "无法确认操作范围，需要人工确认"}
+}
+
+func (g *Gate) pathsOf(ctx context.Context, t types.Tool, args map[string]any) []string {
+	pa, ok := t.(types.PathAware)
+	if !ok {
+		return nil
+	}
+	return pa.Paths(ctx, args)
+}
+
+// filterOutside returns the absolute paths that no current root covers.
+// Relative inputs are anchored the way tools anchor them (first root), so the
+// approval names the same location the tool will touch.
+func (g *Gate) filterOutside(ctx context.Context, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	roots := toolutil.RootsFrom(ctx, nil)
+	var out []string
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if filepath.IsAbs(p) {
+			p = filepath.Clean(p)
+		} else if len(roots) > 0 {
+			p = filepath.Clean(filepath.Join(roots[0], p))
+		}
+		if len(roots) > 0 {
+			if _, err := toolutil.ResolveInRoots(p, roots); err == nil {
+				continue
+			}
+		} else if g.pathTrusted(p) {
+			continue
+		}
+		if real, err := toolutil.CanonicalPath(p); err == nil {
+			p = real
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func briefPaths(paths []string) string {
+	const max = 3
+	if len(paths) <= max {
+		return strings.Join(paths, "、")
+	}
+	return strings.Join(paths[:max], "、") + fmt.Sprintf(" 等 %d 个路径", len(paths))
 }
 
 func (g *Gate) pathTrusted(p string) bool {
@@ -209,25 +281,6 @@ func (g *Gate) pathTrusted(p string) bool {
 	}
 	for _, root := range trusted {
 		if pathWithin(root, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func pathInRoots(roots []string, path string) bool {
-	if path == "" || !filepath.IsAbs(path) {
-		return false
-	}
-	for _, root := range roots {
-		if strings.TrimSpace(root) == "" {
-			continue
-		}
-		rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
-		if err != nil {
-			continue
-		}
-		if rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)) {
 			return true
 		}
 	}

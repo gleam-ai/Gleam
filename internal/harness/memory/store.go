@@ -306,6 +306,7 @@ type Manager struct {
 
 	mu           sync.Mutex
 	overflow     []Turn
+	pending      []Turn
 	summary      string
 	savedTok     int
 	pinned       []string
@@ -319,9 +320,28 @@ type Manager struct {
 	cursor       int
 }
 
+func (m *Manager) Generation() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.gen
+}
+
+func (m *Manager) CarryTurnsForGeneration(gen int) (int, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gen != gen {
+		return 0, false
+	}
+	return m.carryTurnsLocked(), true
+}
+
 func (m *Manager) CarryTurns() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.carryTurnsLocked()
+}
+
+func (m *Manager) carryTurnsLocked() int {
 	if m.carry <= 0 {
 		return CarryFull
 	}
@@ -329,19 +349,28 @@ func (m *Manager) CarryTurns() int {
 }
 
 func (m *Manager) SetCarryTurns(n int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.setCarryTurnsLocked(n)
+}
+
+func (m *Manager) SetCarryTurnsForGeneration(gen, n int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gen != gen {
+		return false
+	}
+	return m.setCarryTurnsLocked(n)
+}
+
+func (m *Manager) setCarryTurnsLocked(n int) bool {
 	if n < CarryTight {
 		n = CarryTight
 	}
 	if n > CarryFull {
 		n = CarryFull
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	old := m.carry
-	if old <= 0 {
-		old = CarryFull
-	}
-	if old == n {
+	if m.carryTurnsLocked() == n {
 		return false
 	}
 	m.carry = n
@@ -386,10 +415,14 @@ func (m *Manager) Omission() (turns, runes int) {
 func (m *Manager) SummaryAnnotated() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if strings.TrimSpace(m.summary) == "" {
-		return ""
+	var parts []string
+	if strings.TrimSpace(m.summary) != "" {
+		parts = append(parts, fmt.Sprintf("%s\n（已自动压缩：累计省略 %d 轮 / 约 %d 字）", m.summary, m.omittedTurns, m.omittedRunes))
 	}
-	return fmt.Sprintf("%s\n（已自动压缩：累计省略 %d 轮 / 约 %d 字）", m.summary, m.omittedTurns, m.omittedRunes)
+	if len(m.pending)+len(m.overflow) > 0 {
+		parts = append(parts, "（待压缩原文摘录，尚未计入压缩）\n"+extractiveSummary(renderTurns(m.pending)+renderTurns(m.overflow)))
+	}
+	return strings.Join(parts, "\n")
 }
 
 const overflowCap = 100
@@ -464,20 +497,22 @@ func hitsAny(s string, subs []string) bool {
 }
 
 func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool {
+	return m.CompressForGeneration(m.Generation(), summarize)
+}
+
+func (m *Manager) CompressForGeneration(gen int, summarize func(overflow string) (string, error)) bool {
 	m.mu.Lock()
-	// Only one compression at a time: summarization can take tens of seconds,
-	// and concurrent runs would burn tokens on the same overflow twice.
-	if m.compressing || len(m.overflow) == 0 {
+	// Only one compression at a time, and never start a stale worker on a new conversation.
+	if m.gen != gen || m.compressing || len(m.overflow) == 0 {
 		m.mu.Unlock()
 		return false
 	}
 	m.compressing = true
 	turns := m.overflow
 	text := renderTurns(turns)
+	m.pending = turns
 	m.overflow = nil
-	m.omittedTurns += len(turns)
-	m.omittedRunes += len([]rune(text))
-	gen := m.gen
+	m.saveContextLocked()
 	raw := 0
 	for _, t := range turns {
 		raw += types.EstimateTokens(t.Content)
@@ -500,10 +535,11 @@ func (m *Manager) Compress(summarize func(overflow string) (string, error)) bool
 	defer m.mu.Unlock()
 	m.compressing = false
 	if m.gen != gen {
-		// The context was cleared or switched during summarization; the old
-		// summary must not be written into the new conversation.
 		return false
 	}
+	m.pending = nil
+	m.omittedTurns += len(turns)
+	m.omittedRunes += len([]rune(text))
 	m.savedTok += maxInt(0, raw-types.EstimateTokens(summary))
 
 	prevLen := len([]rune(m.summary))
@@ -558,7 +594,7 @@ func (m *Manager) Stats() ContextStats {
 		ShortTurns:   m.Short.Len(),
 		ShortCap:     m.Short.cap,
 		FillPct:      fillPct(m.Short.Len(), m.Short.cap),
-		Overflow:     len(m.overflow),
+		Overflow:     len(m.pending) + len(m.overflow),
 		SummaryRunes: len([]rune(m.summary)),
 		Summary:      m.summary,
 		SavedTokens:  m.savedTok,
@@ -569,9 +605,12 @@ func (m *Manager) ClearSummary() {
 	m.mu.Lock()
 	m.gen++
 	m.overflow = nil
+	m.pending = nil
 	m.summary = ""
 	m.savedTok = 0
 	m.pinned = nil
+	m.omittedTurns = 0
+	m.omittedRunes = 0
 	m.removeContextLocked()
 	m.mu.Unlock()
 }
@@ -615,6 +654,7 @@ func (m *Manager) SwitchConversation(convoID string) {
 	m.saveContextLocked()
 	m.convoID = convoID
 	m.gen++
+	m.pending = nil
 	if st, ok := m.loadContextLocked(convoID); ok {
 		m.overflow = st.Overflow
 		m.summary = st.Summary
@@ -655,6 +695,7 @@ func (m *Manager) SaveContext() {
 
 func (m *Manager) resetContextLocked() {
 	m.overflow = nil
+	m.pending = nil
 	m.summary = ""
 	m.savedTok = 0
 	m.pinned = nil
@@ -715,7 +756,7 @@ func (m *Manager) saveContextLocked() {
 		return
 	}
 	data, err := json.Marshal(contextSnapshot{
-		Overflow: m.overflow, Summary: m.summary, SavedToken: m.savedTok,
+		Overflow: append(append([]Turn(nil), m.pending...), m.overflow...), Summary: m.summary, SavedToken: m.savedTok,
 		Pinned: m.pinned, OmittedTurns: m.omittedTurns, OmittedRunes: m.omittedRunes,
 		Carry: m.carry, Cursor: m.cursor,
 	})

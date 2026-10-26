@@ -60,6 +60,25 @@
     config: '配置不完整',
   };
 
+  // The backend's error text is the only place the vendor says what it did not
+  // like ("model not exist", quota, ...). Dropping it left the user with a
+  // generic "API error" and no clue which part was wrong.
+  function providerDetail(message) {
+    let text = String(message || '').trim();
+    if (!text) return '';
+    text = text
+      .replace(/^llm:\s*/i, '')
+      .replace(/^HTTP \d{3}:\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.length > 240 ? text.slice(0, 240) + '…' : text;
+  }
+
+  function modelListBrief(ids) {
+    const head = ids.slice(0, 4).join('、');
+    return ids.length > 4 ? `${head} 等 ${ids.length} 个` : head;
+  }
+
   let PROVS = null;
   async function providers() {
     if (!PROVS) PROVS = (await api('GET', '/api/providers')).providers || [];
@@ -314,6 +333,13 @@
     // (or carry a protocol override). Only a provider/plan switch may replace
     // those stored values; renaming the entry must keep them.
     let endpointDirty = false;
+    // Fetched models outlive one paint(): switching a provider or plan rebuilds
+    // the picker, and the validation result must still know what the vendor
+    // actually returned.
+    let fetched = [];
+    let fetchedHost = '';
+    let manual = false;
+    let query = '';
     const touch = () => {
       dirty = true;
     };
@@ -432,6 +458,8 @@
                 st.prov = id;
                 st.plan = '';
                 endpointDirty = true;
+                manual = false;
+                query = '';
                 touch();
                 if (CUSTOM[id]) {
                   st.apiType = CUSTOM[id].types[0].value;
@@ -622,10 +650,6 @@
     }
 
     function modelField() {
-      let fetched = [];
-      let fetchedHost = '';
-      let manual = false;
-      let query = '';
       let optsBox = null;
 
       const wrap = h('div', { class: 's2-picker' });
@@ -776,10 +800,10 @@
         const c = cached();
         srcNote.textContent = !ids.length
           ? '没有可用的模型列表，请手动填写模型 ID'
-          : fetched.length
-            ? '已并入本次拉取到的模型'
+          : fetchedHost === host() && fetched.length
+            ? `已从厂商接口拉到 ${fetched.length} 个模型（${fetchedHost}），下拉已更新`
             : c
-              ? `内置兜底 + 上次拉取（${ago(c.at)}）`
+              ? `内置兜底 ＋ 上次拉取（${ago(c.at)}）`
               : '内置兜底（点「拉取可用模型」可拿到该厂商的完整列表）';
         if (!ids.length) {
           close();
@@ -865,21 +889,40 @@
           if (r.ok && Array.isArray(r.models) && r.models.length) {
             const ids = r.models.map((m) => m.id);
             catPut(cacheKey, ids);
-            if (host() === cacheKey) {
+            const applied = host() === cacheKey;
+            if (applied) {
               fetched = ids;
               fetchedHost = cacheKey;
               query = '';
+              // Only fill an empty field automatically; a name the user typed
+              // stays put, but the message below calls out that it is not in
+              // the vendor's list.
+              if (!st.modelName) {
+                st.modelName = ids[0];
+                manual = false;
+                custom.value = ids[0];
+              }
               paintModel();
             }
+            const brief = modelListBrief(ids);
+            const missing =
+              st.modelName && !ids.includes(st.modelName)
+                ? `\n当前填写的 “${st.modelName}” 不在其中，保存后很可能被厂商拒绝。`
+                : '';
             showResult(
-              'ok',
-              `拉到 ${r.models.length} 个模型（已缓存，下次打开仍可见）`,
+              applied && !missing ? 'ok' : 'fail',
+              applied
+                ? `已从厂商接口拉到 ${ids.length} 个模型：${brief}。下拉已更新。${missing}`
+                : `已从厂商接口拉到 ${ids.length} 个模型：${brief}。\n当前供应商已切换，这份列表只缓存给 ${cacheKey}。`,
             );
           } else {
+            const detail = providerDetail(r.message);
             showResult(
               'fail',
               (TEST_HINTS[r.kind] || '拉取失败') +
-                '：这个入口可能不提供模型列表，从列表里选或手填即可',
+                `${r.http_status ? `（HTTP ${r.http_status}）` : ''}` +
+                (detail ? `\n${detail}` : '') +
+                '\n这个入口可能不提供模型列表，从下拉里选或手填即可。',
             );
           }
         } catch (err) {
@@ -1027,6 +1070,8 @@
               (v) => {
                 st.plan = v;
                 endpointDirty = true;
+                manual = false;
+                query = '';
                 const pl = curPlan();
                 st.modelName = pl
                   ? pl.model || (curProv().models || [])[0] || ''
@@ -1051,10 +1096,21 @@
         showResult('pending', `正在校验 ${t.model}（一次真实的最小请求）…`);
         const r = await api('POST', '/api/llm/test', t);
         if (!r.ok) {
-          showResult(
-            'fail',
+          const lines = [
             `${t.model}：${TEST_HINTS[r.kind] || '校验失败'}${r.http_status ? `（HTTP ${r.http_status}）` : ''}`,
-          );
+          ];
+          const detail = providerDetail(r.message);
+          if (detail) lines.push(detail);
+          if (
+            fetchedHost === host() &&
+            fetched.length &&
+            !fetched.includes(t.model)
+          ) {
+            lines.push(
+              `这个 ID 不在刚拉到的模型列表里（${modelListBrief(fetched)}），先下拉选一个再试。`,
+            );
+          }
+          showResult('fail', lines.join('\n'));
           return;
         }
         if (st.editing) {

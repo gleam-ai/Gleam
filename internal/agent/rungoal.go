@@ -283,6 +283,9 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	var last *types.GoalResult
 	var usedTools []string  // tools actually used across rounds (schemas force-attached on replan in menu mode)
 	var acceptance []string // acceptance criteria: once set they follow this goal, restated or not
+	// Outside directories the user approved stay approved across replans of
+	// this task; re-planning is not a reason to ask the same question again.
+	grants := &pathGrants{}
 	planned := false
 	attempts := a.Cfg.Agent.MaxReplans + 1
 	if attempts < 1 {
@@ -376,9 +379,11 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			usedTools = appendUnique(usedTools, st.Tool)
 		}
 
-		// plan_first: show the full plan first, one approval.
+		// plan_first: show the full plan first, one approval. A plan made only
+		// of read-only steps (chat replies, file reads) changes nothing, so
+		// asking for it turns plain conversation into a permission dialog.
 		preApproved := false
-		if mode == string(types.ModePlanFirst) {
+		if mode == string(types.ModePlanFirst) && planMaxRisk(a.Reg, plan) != "low" {
 			resp := askApproval(ctx, a.Notifier, types.ApprovalRequest{
 				TaskID: taskID, Plan: planDescriptions(plan), WholePlan: true,
 				Risk: planMaxRisk(a.Reg, plan), Reason: "plan_first 模式：执行前需要确认完整计划",
@@ -419,6 +424,8 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			// keeping it is noise).
 			Sink: NewRunLog(a.Cfg.DataDir),
 			Goal: goal,
+			// Directories approved outside the workspace are reused on replan.
+			Grants: grants,
 			// The reviewer model is enabled only when an auxiliary model is
 			// really configured: screening with the main model just costs an
 			// extra copy.
@@ -567,8 +574,8 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	}
 	if a.Mem != nil {
 		a.Mem.AddTurn("user", goal)
-		if a.Cfg.Agent.ContextCompress && a.Mem.Compress(a.CompressSummarizer(ctx)) {
-			notify("chat", "已自动压缩早期上下文", 15, "info")
+		if a.Cfg.Agent.ContextCompress && a.Mem.Compress(a.CompressSummarizer(ctx, taskID)) {
+			notify("context", "已自动压缩早期上下文", 15, "info")
 		}
 	}
 	name := a.Cfg.Persona.Name
@@ -611,7 +618,7 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 
 	notify("chat", "思考中…", 30, "info")
 	onDelta, flush := DeltaThrottle(40, func(text string) {
-		notify("chat", strings.TrimSpace(text), 55, "llm")
+		notify("chat", text, 55, "llm")
 	})
 	text, err := a.taskTierLLM(ctx, role).ChatStream(ctx, llm.ChatRequest{
 		System:      "你是 " + name + " 的对话管线。" + llm.MarkerChat + "\n\n" + sys,
@@ -689,11 +696,12 @@ func (a *Agent) finalize(ctx context.Context, taskID string, result *types.GoalR
 		// already be cancelled (the user pressed stop, or the task ended in
 		// failure), while "summarize the early context" should happen
 		// regardless of task failure.
-		ctxC, cancelC := context.WithTimeout(context.Background(), 30*time.Second)
+		gen := a.Mem.Generation()
+		ctxC, cancelC := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		go func() {
 			defer cancelC()
-			if compressed, tightened := a.compressAfterTask(ctxC, taskID); compressed || tightened {
-				a.notifyContextAction(compressed, tightened, false)
+			if compressed, tightened := a.compressAfterTask(ctxC, taskID, gen); compressed || tightened {
+				a.notifyContextAction(taskID, gen, compressed, tightened, false)
 			}
 		}()
 	}

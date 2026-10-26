@@ -6,6 +6,7 @@ import (
 
 	"gleam/internal/config"
 	"gleam/internal/llm"
+	"gleam/internal/tools/std"
 	"gleam/pkg/types"
 )
 
@@ -55,5 +56,65 @@ func TestCompressSummarizerUsesTaskHelperSnapshot(t *testing.T) {
 	}
 	if len(old.Calls) != 1 || len(replacement.Calls) != 0 {
 		t.Fatalf("压缩应使用任务快照: old=%d replacement=%d", len(old.Calls), len(replacement.Calls))
+	}
+}
+
+func TestDelegateUsesTaskHelperSnapshot(t *testing.T) {
+	for _, fast := range []bool{false, true} {
+		name := "main_fallback"
+		if fast {
+			name = "fast_model"
+		}
+		t.Run(name, func(t *testing.T) {
+			old := llm.NewMock()
+			old.Enqueue("chat", "pinned result")
+			replacement := llm.NewMock()
+			replacement.Enqueue("chat", "live result")
+			a := &Agent{LLM: old, Notifier: NopNotifier{}}
+			if fast {
+				a.FastLLM = old
+			}
+			ctx := withTaskModels(context.Background(), a.snapshotTaskModels("general"))
+			a.LLM = replacement
+			if fast {
+				a.FastLLM = replacement
+			}
+
+			out, err := std.NewAgentDelegate(a).Execute(ctx, map[string]any{"goal": "analyze independently", "role": "analyst"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.(map[string]any)["result"] != "pinned result" || len(old.Calls) != 1 || len(replacement.Calls) != 0 {
+				t.Errorf("delegate used live settings: result=%v pinned_calls=%d live_calls=%d; want pinned result, 1, 0", out, len(old.Calls), len(replacement.Calls))
+			}
+		})
+	}
+}
+
+func TestDelegateDirectWithoutNotifier(t *testing.T) {
+	for _, fast := range []bool{false, true} {
+		name := "main_fallback"
+		if fast {
+			name = "fast_model"
+		}
+		t.Run(name, func(t *testing.T) {
+			client := llm.NewMock()
+			client.Enqueue("chat", "direct result")
+			a := &Agent{LLM: client}
+			if fast {
+				a.LLM = llm.NewMock()
+				a.FastLLM = client
+			}
+			text, err := a.Delegate(context.Background(), "analyze independently", "")
+			if err != nil || text != "direct result" {
+				t.Fatalf("direct delegate: text=%q err=%v", text, err)
+			}
+			if len(client.Calls) != 1 || client.Calls[0].TaskID != "" {
+				t.Fatalf("direct delegate calls=%+v, want one call without a task ID", client.Calls)
+			}
+			if fast && len(a.LLM.(*llm.MockClient).Calls) != 0 {
+				t.Fatal("direct delegate used main model instead of live helper")
+			}
+		})
 	}
 }

@@ -17,6 +17,20 @@ type taskModels struct {
 
 type taskModelsKey struct{}
 
+type taskIDKey struct{}
+
+func withTaskID(ctx context.Context, taskID string) context.Context {
+	return context.WithValue(ctx, taskIDKey{}, taskID)
+}
+
+func taskIDFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	taskID, _ := ctx.Value(taskIDKey{}).(string)
+	return taskID
+}
+
 type memoryScopeKey struct{}
 
 func withMemoryScope(ctx context.Context, scope string) context.Context {

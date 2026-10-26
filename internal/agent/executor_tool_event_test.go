@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gleam/internal/harness/safety"
+	"gleam/internal/llm"
+	"gleam/internal/tools/std"
 	"gleam/pkg/types"
 )
 
@@ -243,5 +245,130 @@ func TestFanoutForwardsToolEvents(t *testing.T) {
 	lone := fanout{NopNotifier{}}
 	if tn, ok := toolSink(lone); ok {
 		tn.OnTool(types.ToolEvent{TaskID: "t1"})
+	}
+}
+
+type delegateEventClient struct {
+	entered chan context.Context
+	release chan struct{}
+}
+
+func (*delegateEventClient) Name() string { return "delegate-event-test" }
+func (c *delegateEventClient) Chat(ctx context.Context, req llm.ChatRequest) (string, error) {
+	return c.respond(ctx, req, nil)
+}
+func (c *delegateEventClient) ChatStream(ctx context.Context, req llm.ChatRequest, delta func(string)) (string, error) {
+	return c.respond(ctx, req, delta)
+}
+func (c *delegateEventClient) respond(ctx context.Context, req llm.ChatRequest, delta func(string)) (string, error) {
+	text := strings.Repeat("independent analysis. ", 20)
+	if delta != nil {
+		delta(text)
+		delta(" done ")
+	}
+	text += " done "
+	c.entered <- ctx
+	select {
+	case <-ctx.Done():
+		return text, ctx.Err()
+	case <-c.release:
+		llm.ReportUsage(req, text, llm.Usage{})
+		return text, nil
+	}
+}
+
+func TestDelegateStreamsBeforeCompletion(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		name := "success"
+		if cancelled {
+			name = "cancelled"
+		}
+		t.Run(name, func(t *testing.T) {
+			n := &toolRecordingNotifier{}
+			n.approveAll = true
+			client := &delegateEventClient{entered: make(chan context.Context, 1), release: make(chan struct{})}
+			a := &Agent{LLM: client, Notifier: n}
+			reg := newTestRegistry()
+			reg.MustRegister(std.NewAgentDelegate(a))
+			e := &Executor{
+				Reg: reg, Gate: safety.New("auto", nil, nil, nil, time.Second),
+				Notifier: n, StepTimeout: 2 * time.Minute,
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			taskID := types.NewID()
+			done := make(chan *Result, 1)
+			go func() {
+				done <- e.Execute(ctx, types.Plan{Steps: []types.Step{{
+					ID: "delegate", Tool: "agent.delegate", Args: map[string]any{"goal": "analyze independently"},
+				}}}, taskID, "auto", false)
+			}()
+			var callCtx context.Context
+			select {
+			case callCtx = <-client.entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("delegate never reached the model")
+			}
+			if deadline, ok := callCtx.Deadline(); !ok || time.Until(deadline) > 60*time.Second {
+				t.Error("delegate must retain its 60-second deadline inside a longer tool timeout")
+			}
+			n.mu.Lock()
+			events := append([]types.ProgressEvent(nil), n.progress...)
+			n.mu.Unlock()
+			streamed := 0
+			for _, ev := range events {
+				if ev.Kind == "llm" && ev.Message != "" {
+					streamed++
+					if ev.TaskID != taskID || ev.Phase != "delegate" {
+						t.Errorf("delegate progress must belong to the parent tool task in delegate phase: %+v", ev)
+					}
+				}
+			}
+			if streamed == 0 {
+				t.Error("delegate stream events before completion=0, want >0")
+			}
+			if cancelled {
+				cancel()
+			} else {
+				close(client.release)
+			}
+			var result *Result
+			select {
+			case result = <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("delegate did not finish after release/cancellation")
+			}
+			wantStatus := types.ToolDone
+			if cancelled {
+				wantStatus = types.ToolSkipped
+				if callCtx.Err() != context.Canceled || !result.Cancelled {
+					t.Errorf("parent cancellation not propagated: context=%v result=%+v", callCtx.Err(), result)
+				}
+			} else if result.Succeeded != 1 {
+				t.Errorf("delegate did not succeed: %+v", result)
+			}
+			n.mu.Lock()
+			events = append([]types.ProgressEvent(nil), n.progress...)
+			n.mu.Unlock()
+			var streamedText strings.Builder
+			for _, ev := range events {
+				if ev.Kind == "llm" {
+					if ev.TaskID != taskID || ev.Phase != "delegate" {
+						t.Errorf("delegate flush lost parent task or phase: %+v", ev)
+					}
+					streamedText.WriteString(ev.Message)
+				}
+			}
+			if want := strings.Repeat("independent analysis. ", 20) + " done "; streamedText.String() != want {
+				t.Errorf("delegate did not flush exact final text: got %q, want %q", streamedText.String(), want)
+			}
+			toolEvents := n.byStep(t)["delegate"]
+			if len(toolEvents) != 2 {
+				t.Fatalf("delegate tool events=%+v, want one start/end pair", toolEvents)
+			}
+			if toolEvents[0].Phase != types.ToolStart || toolEvents[1].Phase != types.ToolEnd || toolEvents[1].Status != wantStatus || toolEvents[0].TaskID != taskID || toolEvents[1].TaskID != taskID {
+				t.Errorf("delegate tool event correlation/status incorrect: %+v", toolEvents)
+			}
+		})
 	}
 }

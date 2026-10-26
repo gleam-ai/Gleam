@@ -48,6 +48,25 @@ func TestRunGoal_ChatAnswerStoredOnce(t *testing.T) {
 	}
 }
 
+func TestRunGoal_ChatStreamPreservesWhitespace(t *testing.T) {
+	answer := strings.Repeat("word ", 16) + "\n\n```go\n\tfmt.Println(\"ok\")\n```\n"
+	f := newFixture(t, []llm.Scripted{{Kind: "chat_mode", Texts: []string{answer}}})
+	f.a.Cfg.Agent.ContextCompress = false
+	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "你好", TaskMode: types.TaskChat})
+	if res.Status != types.GoalSuccess {
+		t.Fatalf("chat failed: %+v", res)
+	}
+	var streamed strings.Builder
+	for _, ev := range f.notify.progress {
+		if ev.Phase == "chat" && ev.Kind == "llm" {
+			streamed.WriteString(ev.Message)
+		}
+	}
+	if streamed.String() != answer {
+		t.Fatalf("stream changed whitespace: got %q want %q", streamed.String(), answer)
+	}
+}
+
 type partialCancelClient struct {
 	cancel context.CancelFunc
 }

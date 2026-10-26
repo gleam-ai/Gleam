@@ -837,6 +837,7 @@ html[data-blur="on"] .s2-dialog-overlay {
   border-radius: 8px;
   font-size: 12px;
   line-height: 18px;
+  white-space: pre-line;
 }
 .s2-dialog-result.is-pending {
   color: var(--color-fg-muted);

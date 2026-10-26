@@ -38,6 +38,30 @@ func TestGate_ReadOnlyAlwaysAllowed(t *testing.T) {
 	}
 }
 
+func TestGate_ReadOnlyOutsideWorkspaceNeedsApproval(t *testing.T) {
+	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
+	tool := &fakeTool{name: "file.list", perm: types.PermissionReadOnly}
+
+	inside := g.Evaluate(tool, map[string]any{"path": `D:\ws\sub`})
+	if inside.NeedApproval {
+		t.Errorf("工作区内只读应放行: %+v", inside)
+	}
+	out := g.Evaluate(tool, map[string]any{"path": `C:\Users\Public\Desktop`})
+	if !out.NeedApproval {
+		t.Fatalf("工作区外只读应审批: %+v", out)
+	}
+	if len(out.Outside) != 1 || out.Outside[0] != `C:\Users\Public\Desktop` {
+		t.Errorf("Outside = %v", out.Outside)
+	}
+	pre := g.EvaluateStep(tool, map[string]any{"path": `C:\Users\Public\Desktop`}, true)
+	if pre.NeedApproval {
+		t.Errorf("整份计划已批准时不该再问同一条路径: %+v", pre)
+	}
+	if len(pre.Outside) != 1 {
+		t.Errorf("已批准的外部路径仍要交给执行器扩根: %+v", pre)
+	}
+}
+
 func TestGate_SessionTrustOnlyForSensitiveNoPathTools(t *testing.T) {
 	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
 

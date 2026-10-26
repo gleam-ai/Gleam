@@ -268,6 +268,27 @@ func TestRunGoal_PlanFirstWholePlanApproval(t *testing.T) {
 	}
 }
 
+func TestRunGoal_PlanFirstReadOnlySkipsWholePlanApproval(t *testing.T) {
+	f := newFixture(t, []llm.Scripted{
+		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"我是 Gleam"}}]}`),
+		reflectScript(92, "done", "已介绍"),
+	})
+	// approveAll stays false: any approval request is auto-rejected, so a
+	// prompt here would surface as a cancelled task instead of a reply.
+	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "介绍一下你自己", Mode: "plan_first"})
+	if res.Status != types.GoalSuccess {
+		t.Fatalf("纯只读计划不应要求授权: %s %s", res.Status, res.Error)
+	}
+	if res.Summary != "我是 Gleam" {
+		t.Errorf("summary = %q", res.Summary)
+	}
+	f.notify.mu.Lock()
+	defer f.notify.mu.Unlock()
+	if len(f.notify.approvals) != 0 {
+		t.Errorf("只读计划不应弹授权: %+v", f.notify.approvals)
+	}
+}
+
 func TestRunGoal_SuggestSkillOnSuccess(t *testing.T) {
 	f := newFixture(t, []llm.Scripted{
 		planScript(`{"steps":[

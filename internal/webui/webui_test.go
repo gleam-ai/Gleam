@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,6 +174,81 @@ func TestTaskInfoSnapshotIsIndependent(t *testing.T) {
 	snapshot.Events[0] = newEvent("completed", map[string]any{"score": 100})
 	if original.Events[0].Type != "progress" {
 		t.Fatal("快照与原任务共享事件切片")
+	}
+}
+
+func TestProgressSnapshotSurvivesEventRing(t *testing.T) {
+	f := newFixture(t, nil)
+	const id = "stream-ring"
+	f.srv.tasks[id] = &taskInfo{ID: id, Status: types.GoalRunning}
+	client := f.srv.subscribe()
+	defer f.srv.unsubscribe(client)
+	var want strings.Builder
+	for i := 1; i <= 700; i++ {
+		phase := "delegate"
+		message := fmt.Sprintf("委派输出 %d ", i)
+		if i%2 == 0 {
+			phase = "chat"
+			message = fmt.Sprintf("主回复 %d\n", i)
+			want.WriteString(message)
+		}
+		f.srv.OnProgress(types.ProgressEvent{TaskID: id, Phase: phase, Kind: "llm", Message: message})
+		var payload progressEvent
+		ev := <-client
+		if err := json.Unmarshal(ev.Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if ev.Type != "progress" || payload.Seq != uint64(i) || payload.Message != message || payload.Phase != phase || payload.TaskID != id {
+			t.Fatalf("transport lost identity, text or ordering: %+v", payload)
+		}
+	}
+	for _, path := range []string{"/api/goals/" + id, "/api/goals"} {
+		out := f.call("GET", path, nil)
+		if path == "/api/goals" {
+			out = out["goals"].([]any)[0].(map[string]any)
+		}
+		if out["progress_seq"] != float64(700) || out["chat_text"] != want.String() {
+			t.Fatalf("%s lost full text or watermark: seq=%v text length=%d", path, out["progress_seq"], len(fmt.Sprint(out["chat_text"])))
+		}
+		events := out["events"].([]any)
+		if len(events) != 300 || events[0].(map[string]any)["data"].(map[string]any)["seq"] != float64(401) {
+			t.Fatalf("event ring is not bounded/ordered: %v", events)
+		}
+	}
+	before := f.srv.tasks[id].snapshot()
+	f.srv.OnProgress(types.ProgressEvent{TaskID: id, Phase: "chat", Kind: "llm", Message: "末尾"})
+	if before.ProgressSeq != 700 || before.ChatText != want.String() {
+		t.Fatal("later progress mutated an in-flight snapshot")
+	}
+}
+
+func TestConcurrentProgressDeliveryMatchesSnapshot(t *testing.T) {
+	const id = "concurrent-stream"
+	s := &Server{tasks: map[string]*taskInfo{id: {ID: id}}, clients: map[chan sseEvent]struct{}{}}
+	client := s.subscribe()
+	defer s.unsubscribe(client)
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			s.OnProgress(types.ProgressEvent{TaskID: id, Phase: "chat", Kind: "llm", Message: fmt.Sprintf("%d ", i)})
+		}(i)
+	}
+	wg.Wait()
+	var text strings.Builder
+	for i := 1; i <= 100; i++ {
+		var payload progressEvent
+		if err := json.Unmarshal((<-client).Data, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Seq != uint64(i) {
+			t.Fatalf("progress broadcast reordered: got %d, want %d", payload.Seq, i)
+		}
+		text.WriteString(payload.Message)
+	}
+	if snapshot := s.tasks[id].snapshot(); snapshot.ProgressSeq != 100 || snapshot.ChatText != text.String() {
+		t.Fatal("snapshot text/watermark disagrees with delivered stream")
 	}
 }
 

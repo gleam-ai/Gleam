@@ -46,6 +46,10 @@ func ResolveInRoots(p string, roots []string) (string, error) {
 	return "", fmt.Errorf("路径 %q 超出允许的工作区范围", p)
 }
 
+func CanonicalPath(path string) (string, error) {
+	return resolveExistingAncestor(path)
+}
+
 func resolveExistingAncestor(path string) (string, error) {
 	var suffix []string
 	for {

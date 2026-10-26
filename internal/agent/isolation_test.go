@@ -211,7 +211,7 @@ func TestWorkspaceSwitchMustNotRetargetApprovedStep(t *testing.T) {
 			a := &Agent{Cfg: cfg, FileTools: ft, Gate: gate}
 			n := &queuedToolNotifier{queued: make(chan struct{}, 1)}
 			e := &Executor{Reg: reg, Gate: gate, Notifier: n, DataDir: data}
-			state := &execState{snap: newSnapshotter(data, "switch")}
+			state := &execState{snap: newSnapshotter(data, "switch"), grants: &pathGrants{}}
 			sem := make(chan struct{}, 1)
 			sem <- struct{}{}
 			ctx := context.Background()

@@ -75,23 +75,24 @@ func (a *Agent) windowReading() windowReading {
 	return rd
 }
 
-func (a *Agent) compressAfterTask(ctx context.Context, taskID string) (compressed, tightened bool) {
+func (a *Agent) compressAfterTask(ctx context.Context, taskID string, gen int) (compressed, tightened bool) {
 	if !a.compressionOn() {
 		return false, false
 	}
 	rd := a.windowReading()
-	return a.applyCompression(ctx, taskID, rd.Pct >= compressAtEndPct)
+	return a.applyCompression(ctx, taskID, gen, rd.Pct >= compressAtEndPct)
 }
 
 func (a *Agent) compressMidTask(ctx context.Context, taskID string) (compressed, tightened bool) {
 	if !a.compressionOn() {
 		return false, false
 	}
+	gen := a.Mem.Generation()
 	if a.windowReading().Pct < compressMidPct {
-		a.Mem.SetCarryTurns(memory.CarryFull)
+		a.Mem.SetCarryTurnsForGeneration(gen, memory.CarryFull)
 		return false, false
 	}
-	return a.applyCompression(ctx, taskID, true)
+	return a.applyCompression(ctx, taskID, gen, true)
 }
 
 func (a *Agent) compressionOn() bool {
@@ -99,7 +100,10 @@ func (a *Agent) compressionOn() bool {
 }
 
 func (a *Agent) contextActionText(compressed, tightened, mid bool) string {
-	rd := a.windowReading()
+	return contextActionText(a.windowReading(), compressed, tightened, mid)
+}
+
+func contextActionText(rd windowReading, compressed, tightened, mid bool) string {
 	var b strings.Builder
 	switch {
 	case compressed && tightened:
@@ -117,16 +121,19 @@ func (a *Agent) contextActionText(compressed, tightened, mid bool) string {
 	return b.String()
 }
 
-func (a *Agent) notifyContextAction(compressed, tightened, mid bool) {
-	if a.Notifier == nil {
+func (a *Agent) notifyContextAction(taskID string, gen int, compressed, tightened, mid bool) {
+	if a.Notifier == nil || a.Mem == nil || (!compressed && !tightened) {
 		return
 	}
-	phase := "done"
-	if mid {
-		phase = "context"
+	rd := a.windowReading()
+	carry, current := a.Mem.CarryTurnsForGeneration(gen)
+	if !current {
+		return
 	}
+	rd.CarryTurns = carry
+	// Notifier may lock task admission; never call it while holding memory's lock.
 	a.Notifier.OnProgress(types.ProgressEvent{
-		Phase: phase, Message: a.contextActionText(compressed, tightened, mid), Progress: 100, Kind: "info",
+		TaskID: taskID, Phase: "context", Message: contextActionText(rd, compressed, tightened, mid), Progress: 100, Kind: "info",
 	})
 }
 
@@ -137,10 +144,10 @@ func humanTokens(n int) string {
 	return strconv.Itoa(n)
 }
 
-func (a *Agent) applyCompression(ctx context.Context, taskID string, tighten bool) (compressed, tightened bool) {
-	compressed = a.Mem.Compress(a.CompressSummarizer(ctx, taskID))
+func (a *Agent) applyCompression(ctx context.Context, taskID string, gen int, tighten bool) (compressed, tightened bool) {
+	compressed = a.Mem.CompressForGeneration(gen, a.CompressSummarizer(ctx, taskID))
 	if tighten {
-		tightened = a.Mem.SetCarryTurns(memory.CarryTight)
+		tightened = a.Mem.SetCarryTurnsForGeneration(gen, memory.CarryTight)
 	}
 	return compressed, tightened
 }

@@ -7,6 +7,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -462,26 +463,512 @@ def run_submit_checks(base, output):
         )
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--binary", required=True)
-    parser.add_argument("--output", default="tmp/ui-shell-check")
-    parser.add_argument(
-        "--suite", choices=["all", "shell", "terminal", "submit"], default="all"
+def capture_stream_fixture(browser, base, mode="chat"):
+    page = new_test_page(browser, base)
+    try:
+        conversation = create_test_conversation(page, "Stream regression")
+        submitted = page.evaluate(
+            """({id, mode}) => api('POST', '/api/goals', {
+                goal: '回显流式回归检查：甲乙丙丁戊己庚辛壬癸。',
+                task_mode: mode, mode: 'auto', conversation_id: id
+            })""",
+            {"id": conversation["id"], "mode": mode},
+        )
+        deadline = time.monotonic() + 30
+        while True:
+            detail = page.evaluate(
+                "id => api('GET', '/api/goals/' + id)", submitted["task_id"]
+            )
+            if detail["status"] != "running" and detail.get("result"):
+                break
+            assert time.monotonic() < deadline, "mock task did not finish"
+            page.evaluate("""async () => {
+                const {approvals} = await api('GET', '/api/approvals');
+                for (const ap of approvals || [])
+                    await api('POST', '/api/approvals/' + ap.id, {approved: true});
+            }""")
+            time.sleep(0.05)
+        conversation = page.evaluate(
+            "id => api('GET', '/api/conversations/' + id)", conversation["id"]
+        )
+        return detail, conversation
+    finally:
+        page.close()
+
+
+def running_snapshot(detail, events):
+    snapshot = {
+        **detail,
+        "status": "running",
+        "events": events,
+        "progress_seq": max(
+            (event["data"]["seq"] for event in events), default=0
+        ),
+        "chat_text": "".join(
+            event["data"]["message"]
+            for event in events
+            if event["data"].get("phase") == "chat"
+            and event["data"].get("kind") == "llm"
+        ),
+    }
+    snapshot.pop("result", None)
+    return snapshot
+
+
+def stream_replay_page(browser, base, detail, conversation):
+    deltas = [
+        event
+        for event in detail["events"]
+        if event["type"] == "progress"
+        and event["data"].get("phase") == "chat"
+        and event["data"].get("kind") == "llm"
+    ]
+    assert len(deltas) >= 2, "mock capture must contain multiple real deltas"
+    # Control timing and snapshots, never invent model or reasoning content.
+    running = running_snapshot(detail, deltas[:1])
+    page, state = replay_page(browser, base, detail, conversation, running)
+    expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+        deltas[0]["data"]["message"]
     )
-    args = parser.parse_args()
-    binary = str(Path(args.binary).resolve())
-    output = Path(args.output).resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    return page, state, deltas
+
+
+def replay_page(browser, base, detail, conversation, running):
+    archived = {
+        **conversation,
+        "messages": [
+            message
+            for message in conversation["messages"]
+            if message["role"] == "user"
+        ],
+    }
+    state = {"goal": running, "conversation": archived}
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page.route(
+        "**/api/goals",
+        lambda route: route.fulfill(json={"goals": [state["goal"]]}),
+    )
+    page.route(
+        f"**/api/goals/{detail['task_id']}",
+        lambda route: route.fulfill(json=state["goal"]),
+    )
+    for suffix in ("", "/activate"):
+        page.route(
+            f"**/api/conversations/{conversation['id']}{suffix}",
+            lambda route: route.fulfill(json=state["conversation"]),
+        )
+    page.goto(base)
+    page.wait_for_load_state("networkidle")
+    page.wait_for_function("() => sseConnection.readyState === 1")
+    select_test_conversation(page, conversation)
+    return page, state
+
+
+def deliver_stream_event(page, event):
+    # Replay captured transport data through the real registered SSE listeners.
+    page.evaluate(
+        """event => sseConnection.dispatchEvent(new MessageEvent(event.type, {
+            data: JSON.stringify(event.data)
+        }))""",
+        event,
+    )
+
+
+def run_stream_checks(base, output):
+    failures = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            detail, conversation = capture_stream_fixture(browser, base)
+            (output / "stream-capture.json").write_text(
+                json.dumps(detail, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            for case in (
+                "reconnect",
+                "workbench-return",
+                "snapshot-overlap",
+                "stale-snapshot",
+                "late-completion",
+                "stale-running-snapshot",
+            ):
+                page, state, deltas = stream_replay_page(
+                    browser, base, detail, conversation
+                )
+                errors = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                try:
+                    expected = "".join(d["data"]["message"] for d in deltas)
+                    if case == "reconnect":
+                        page.evaluate("() => sseConnection.close()")
+                        state["goal"] = running_snapshot(detail, deltas)
+                        with page.expect_response("**/api/goals") as snapshot:
+                            page.evaluate("() => connectSSE()")
+                        assert (
+                            snapshot.value.json()["goals"][0]["events"]
+                            == deltas
+                        )
+                        page.wait_for_load_state("networkidle")
+                        expect(
+                            page.locator(".msg--assistant .msg-content")
+                        ).to_have_text(expected)
+                    elif case == "workbench-return":
+                        page.locator('.primary-nav [data-goto="goals"]').click()
+                        page.wait_for_load_state("networkidle")
+                        expect(page.locator("#view-goals")).not_to_have_class(
+                            re.compile(r"\bthread-mode\b")
+                        )
+                        for event in deltas[1:]:
+                            deliver_stream_event(page, event)
+                        state["goal"] = running_snapshot(detail, deltas)
+                        expect(page.locator(".goal-summary")).to_have_text(
+                            expected
+                        )
+                        select_test_conversation(page, conversation)
+                        expect(
+                            page.locator(".msg--assistant .msg-content")
+                        ).to_have_text(expected)
+                    elif case in ("snapshot-overlap", "stale-snapshot"):
+                        held = []
+                        hold_snapshot = lambda route: held.append(route)
+                        page.route("**/api/goals", hold_snapshot)
+                        with page.expect_request("**/api/goals"):
+                            page.evaluate(
+                                "() => { window.recovery = resyncAfterReconnect(); }"
+                            )
+                        if case == "snapshot-overlap":
+                            deliver_stream_event(page, deltas[-1])
+                            page.wait_for_function(
+                                "id => convoLive.get(id).progress.pending.size > 0 && progressJobs.size === 0",
+                                arg=detail["task_id"],
+                            )
+                        else:
+                            for event in deltas[1:]:
+                                deliver_stream_event(page, event)
+                        held[0].fulfill(
+                            json={
+                                "goals": [running_snapshot(detail, deltas[:-1])]
+                            }
+                        )
+                        page.evaluate("() => window.recovery")
+                        page.unroute("**/api/goals", hold_snapshot)
+                        state["goal"] = running_snapshot(detail, deltas)
+                        expect(
+                            page.locator(".msg--assistant .msg-content")
+                        ).to_have_text(expected)
+                    else:
+                        held = []
+                        if case == "stale-running-snapshot":
+                            hold_snapshot = lambda route: held.append(route)
+                            page.route("**/api/goals", hold_snapshot)
+                            with page.expect_request("**/api/goals"):
+                                page.evaluate(
+                                    "() => { window.recovery = resyncAfterReconnect(); }"
+                                )
+                        for event in deltas[1:-1]:
+                            deliver_stream_event(page, event)
+                        state.update(goal=detail, conversation=conversation)
+                        deliver_stream_event(
+                            page,
+                            {"type": "completed", "data": detail["result"]},
+                        )
+                        expect(
+                            page.locator(".msg--assistant .msg-content")
+                        ).to_have_text(detail["result"]["summary"])
+                        expect(
+                            page.locator('#goal-feed [data-act="cancel"]')
+                        ).to_have_count(0)
+                        if held:
+                            held[0].fulfill(
+                                json={
+                                    "goals": [running_snapshot(detail, deltas)]
+                                }
+                            )
+                            page.evaluate("() => window.recovery")
+                            page.unroute("**/api/goals", hold_snapshot)
+                        deliver_stream_event(page, deltas[-1])
+                        page.wait_for_load_state("networkidle")
+                        expect(page.locator(".msg--assistant")).to_have_count(1)
+                        expect(
+                            page.locator('#goal-feed [data-act="cancel"]')
+                        ).to_have_count(0)
+                        expect(
+                            page.locator(".msg--assistant .streaming")
+                        ).to_have_count(0)
+                    if state["goal"]["status"] == "running":
+                        for _ in range(3):
+                            page.evaluate("() => resyncAfterReconnect()")
+                            page.evaluate(
+                                "id => attachRunningTasksToConvo(id)",
+                                conversation["id"],
+                            )
+                        for event in deltas:
+                            deliver_stream_event(page, event)
+                        expect(
+                            page.locator(".msg--assistant .msg-content")
+                        ).to_have_text(expected)
+                        expect(page.locator(".msg--assistant")).to_have_count(1)
+                        expect(
+                            page.locator('#goal-feed [data-act="cancel"]')
+                        ).to_have_count(1)
+                    assert not errors, errors
+                    print(f"PASS: stream {case}", flush=True)
+                except AssertionError as error:
+                    failures.append(case)
+                    print(f"FAIL: stream {case}: {error}", flush=True)
+                finally:
+                    page.screenshot(path=str(output / f"stream-{case}.png"))
+                    page.close()
+            run_completion_history_overlap(browser, base, detail, conversation)
+            run_work_stream_checks(browser, base, output)
+            run_long_stream_checks(browser, base, output)
+        finally:
+            browser.close()
+    assert not failures, f"stream regressions: {', '.join(failures)}"
+
+
+def run_completion_history_overlap(browser, base, detail, conversation):
+    page, state, _ = stream_replay_page(browser, base, detail, conversation)
+    held = []
+    stale = state["conversation"]
+
+    def hold_history(route):
+        if not held:
+            held.append(route)
+        else:
+            route.fulfill(json=state["conversation"])
+
+    pattern = f"**/api/conversations/{conversation['id']}"
+    page.route(pattern, hold_history)
+    try:
+        with page.expect_request(pattern):
+            page.evaluate("() => { window.recovery = resyncAfterReconnect(); }")
+        state.update(goal=detail, conversation=conversation)
+        deliver_stream_event(
+            page, {"type": "completed", "data": detail["result"]}
+        )
+        expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+            detail["result"]["summary"]
+        )
+        held[0].fulfill(json=stale)
+        page.evaluate("() => window.recovery")
+        expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+            detail["result"]["summary"]
+        )
+        expect(page.locator(".msg--assistant")).to_have_count(1)
+        expect(page.locator('#goal-feed [data-act="cancel"]')).to_have_count(0)
+        print(
+            "PASS: completion wins over in-flight stale conversation history",
+            flush=True,
+        )
+    finally:
+        page.close()
+
+
+def run_work_stream_checks(browser, base, output):
+    detail, conversation = capture_stream_fixture(browser, base, "work")
+    (output / "work-stream-capture.json").write_text(
+        json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    progress = [
+        event for event in detail["events"] if event["type"] == "progress"
+    ]
+    delegate = [
+        event for event in progress if event["data"]["phase"] == "delegate"
+    ]
+    approvals = [
+        event for event in detail["events"] if event["type"] == "approval"
+    ]
+    assert len(delegate) >= 2 and approvals, (
+        "capture must include real delegate stream and approval"
+    )
+    assert all(event["data"]["kind"] == "llm" for event in delegate)
+    text = "".join(event["data"]["message"] for event in delegate)
+    for status in ("success", "failed", "cancelled", "archived"):
+        page, state = replay_page(
+            browser,
+            base,
+            detail,
+            conversation,
+            running_snapshot(detail, progress[:1]),
+        )
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        try:
+            for event in progress[1:]:
+                deliver_stream_event(page, event)
+            output_row = page.locator(".msg-body .tl-run-item:has(.tl-kind)")
+            expect(output_row).to_have_text("委派" + text)
+            expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+                "执行中…"
+            )
+            expect(
+                page.locator(".msg-body .tl-kind").filter(has_text="规划")
+            ).to_have_count(1)
+            run = page.locator(".msg-body .tl-run")
+            expect(run).to_have_attribute("open", "")
+            before = run.inner_text()
+            state["goal"] = running_snapshot(detail, progress)
+            for _ in range(3):
+                page.evaluate("() => resyncAfterReconnect()")
+            expect(output_row).to_have_text("委派" + text)
+            assert run.inner_text() == before, (
+                "snapshot duplicated execution/delegate progress"
+            )
+            if status == "success":
+                page.screenshot(
+                    path=str(output / "work-stream-live.png"),
+                    animations="disabled",
+                )
+                page.locator('.primary-nav [data-goto="goals"]').click()
+                select_test_conversation(page, conversation)
+                expect(output_row).to_have_text("委派" + text)
+            deliver_stream_event(page, approvals[0])
+            expect(page.locator(".convo-approval")).to_be_visible()
+            terminal = {
+                **detail["result"],
+                "status": "success" if status == "archived" else status,
+            }
+            state.update(
+                goal={
+                    **detail,
+                    "status": terminal["status"],
+                    "result": terminal,
+                },
+                conversation=conversation,
+            )
+            if status == "archived":
+                page.evaluate("c => renderConvoMessages(c)", conversation)
+            else:
+                deliver_stream_event(
+                    page, {"type": "completed", "data": terminal}
+                )
+                expect(run).not_to_have_attribute("open", "")
+                expect(run).not_to_contain_text("进行中")
+                expect(
+                    page.locator(".msg-body .timeline-item--active")
+                ).to_have_count(0)
+            expect(
+                page.locator('#goal-feed [data-act="cancel"]')
+            ).to_have_count(0)
+            expect(page.locator(".convo-approval")).to_have_count(0)
+            expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+                detail["result"]["summary"]
+            )
+            page.evaluate("""() => {
+                window.lateRailCalls = 0;
+                window.contextRefreshes = 0;
+                LiveRail.observe = () => window.lateRailCalls++;
+                LiveRail.approval = () => window.lateRailCalls++;
+                const original = loadContext;
+                window.loadContext = () => { window.contextRefreshes++; return original(); };
+            }""")
+            for event in (delegate[-1], progress[0], approvals[0]):
+                deliver_stream_event(page, event)
+            # Only the event kind is synthetic; no model/reasoning text is invented.
+            deliver_stream_event(
+                page,
+                {
+                    "type": "progress",
+                    "data": {
+                        "task_id": detail["task_id"],
+                        "phase": "context",
+                        "message": "",
+                    },
+                },
+            )
+            assert page.evaluate("() => window.contextRefreshes") > 0
+            assert page.evaluate("() => window.lateRailCalls") == 0
+            # The server status must also protect a page with no terminal cache.
+            page.evaluate("() => { tasks.clear(); finishedTasks.clear(); }")
+            deliver_stream_event(page, approvals[0])
+            page.wait_for_function(
+                "id => ensureJobs.size === 0 && finishedTasks.has(id)",
+                arg=detail["task_id"],
+            )
+            deliver_stream_event(page, delegate[-1])
+            assert page.evaluate("() => window.lateRailCalls") == 0
+            expect(page.locator(".msg--assistant")).to_have_count(1)
+            expect(
+                page.locator('#goal-feed [data-act="cancel"]')
+            ).to_have_count(0)
+            expect(
+                page.locator(".msg--assistant .streaming, .convo-approval")
+            ).to_have_count(0)
+            assert not errors, errors
+            print(
+                f"PASS: work/delegate timeline and late {status} progress/approval",
+                flush=True,
+            )
+        finally:
+            page.screenshot(path=str(output / f"work-stream-{status}.png"))
+            page.close()
+
+
+def run_long_stream_checks(browser, base, output):
+    detail, conversation = capture_stream_fixture(browser, base)
+    (output / "long-stream-capture.json").write_text(
+        json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    assert len(detail["events"]) == 300 and detail["progress_seq"] > 300
+    assert detail["chat_text"] == detail["result"]["summary"]
+    deltas = [
+        event
+        for event in detail["events"]
+        if event["type"] == "progress" and event["data"]["kind"] == "llm"
+    ]
+    suffix = "".join(event["data"]["message"] for event in deltas[1:])
+    initial = running_snapshot(detail, deltas[:1])
+    initial["chat_text"] = detail["chat_text"][: -len(suffix)]
+    assert len(initial["chat_text"]) > len(deltas[0]["data"]["message"])
+    page, state = replay_page(browser, base, detail, conversation, initial)
+    try:
+        state["goal"] = {**detail, "status": "running"}
+        state["goal"].pop("result")
+        for _ in range(3):
+            page.evaluate("() => resyncAfterReconnect()")
+            deliver_stream_event(page, deltas[-1])
+        assert (
+            page.evaluate("id => convoLive.get(id).buf", detail["task_id"])
+            == detail["chat_text"]
+        )
+        expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+            detail["chat_text"]
+        )
+        page.locator('.primary-nav [data-goto="goals"]').click()
+        expect(page.locator(".goal-summary")).to_have_text(detail["chat_text"])
+        select_test_conversation(page, conversation)
+        expect(page.locator(".msg--assistant .msg-content")).to_have_text(
+            detail["chat_text"]
+        )
+        print(
+            "PASS: full chat text survives 300-event ring, repeated recovery and duplicate SSE",
+            flush=True,
+        )
+    finally:
+        page.screenshot(path=str(output / "long-stream.png"))
+        page.close()
+
+
+@contextmanager
+def isolated_mock_server(binary, output, scripts=None):
     with tempfile.TemporaryDirectory(prefix="gleam-shell-") as directory:
         root = Path(directory)
         workspace = root / "workspace"
         workspace.mkdir()
+        extra = []
+        if scripts:
+            script = root / "mock-script.json"
+            script.write_text(
+                json.dumps(scripts, ensure_ascii=False), encoding="utf-8"
+            )
+            extra = ["--mock-script", str(script)]
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
-        with (output / "server.log").open("w", encoding="utf-8") as log:
+        log_name = "stream-server.log" if scripts else "server.log"
+        with (output / log_name).open("w", encoding="utf-8") as log:
             server = subprocess.Popen(
                 [
                     binary,
@@ -493,6 +980,7 @@ def main():
                     "--data-dir",
                     str(root / "data"),
                     "--mock-llm",
+                    *extra,
                 ],
                 stdout=log,
                 stderr=log,
@@ -511,15 +999,72 @@ def main():
                 else:
                     raise RuntimeError("test server did not become ready")
                 print(f"Isolated mock server: {base}", flush=True)
-                if args.suite in ("all", "shell"):
-                    run_checks(base, output)
-                if args.suite in ("all", "terminal"):
-                    run_terminal_checks(base, output)
-                if args.suite in ("all", "submit"):
-                    run_submit_checks(base, output)
+                yield base
             finally:
                 server.terminate()
                 server.wait(timeout=10)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--binary", required=True)
+    parser.add_argument("--output", default="tmp/ui-shell-check")
+    parser.add_argument(
+        "--suite",
+        choices=["all", "shell", "terminal", "submit", "stream"],
+        default="all",
+    )
+    args = parser.parse_args()
+    binary = str(Path(args.binary).resolve())
+    output = Path(args.output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    if args.suite != "stream":
+        with isolated_mock_server(binary, output) as base:
+            if args.suite in ("all", "shell"):
+                run_checks(base, output)
+            if args.suite in ("all", "terminal"):
+                run_terminal_checks(base, output)
+            if args.suite in ("all", "submit"):
+                run_submit_checks(base, output)
+    if args.suite in ("all", "stream"):
+        # Plain public outputs, emitted by the real mock engine before replay.
+        scripts = [
+            {
+                "kind": "chat_mode",
+                "texts": [
+                    "流式回归片段 0123456789 " * 12,
+                    "完整长回复片段 0123456789 " * 900,
+                ],
+            },
+            {"kind": "chat", "texts": ["子任务公开结果：样本校验通过。 " * 8]},
+            {
+                "kind": "plan",
+                "texts": [
+                    json.dumps(
+                        {
+                            "steps": [
+                                {
+                                    "id": "d1",
+                                    "description": "独立校验",
+                                    "tool": "agent.delegate",
+                                    "args": {"goal": "返回公开的样本校验结果"},
+                                },
+                                {
+                                    "id": "r1",
+                                    "description": "回复",
+                                    "tool": "reply",
+                                    "args": {"text": "主任务已完成"},
+                                    "depends_on": ["d1"],
+                                },
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                ],
+            },
+        ]
+        with isolated_mock_server(binary, output, scripts) as base:
+            run_stream_checks(base, output)
 
 
 if __name__ == "__main__":

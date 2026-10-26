@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -31,6 +32,9 @@ type Executor struct {
 	OnUsage        func(taskID string, toolCalls, retries, deduped int)
 	Carried        map[string]types.StepResult
 	Sink           StepSink
+	// Grants carries user-approved outside directories across replans of the
+	// same task; nil starts a fresh boundary.
+	Grants *pathGrants
 }
 
 type StepSink interface {
@@ -146,7 +150,52 @@ type execState struct {
 	failed   map[string]string
 	inflight map[string]chan struct{}
 
-	snap *snapshotter
+	grants *pathGrants
+	snap   *snapshotter
+}
+
+// Grants never outlive a task; write approval covers only the current step.
+type pathGrants struct {
+	approvalMu sync.Mutex
+	mu         sync.Mutex
+	reads      []string
+	denied     map[string]bool
+}
+
+func (g *pathGrants) add(paths []string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reads = appendRoots(g.reads, paths...)
+}
+
+func (g *pathGrants) roots(base []string, readOnly bool) []string {
+	out := append([]string(nil), base...)
+	if g == nil || !readOnly {
+		return out
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return appendRoots(out, g.reads...)
+}
+
+func appendRoots(roots []string, dirs ...string) []string {
+	for _, d := range dirs {
+		if strings.TrimSpace(d) == "" {
+			continue
+		}
+		d = filepath.Clean(d)
+		seen := false
+		for _, have := range roots {
+			if filepath.Clean(have) == d {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			roots = append(roots, d)
+		}
+	}
+	return roots
 }
 
 func (s *execState) tryAcquire(fp string) (chan struct{}, bool) {
@@ -216,6 +265,7 @@ func (e *Executor) record(taskID string, r types.StepResult) {
 }
 
 func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode string, preApproved bool) *Result {
+	ctx = withTaskID(ctx, taskID)
 	res := &Result{Total: len(plan.Steps), ByID: map[string]*types.StepResult{}}
 	if res.Total == 0 {
 		return res
@@ -244,7 +294,11 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 		done:     map[string]cachedCall{},
 		failed:   map[string]string{},
 		inflight: map[string]chan struct{}{},
+		grants:   e.Grants,
 		snap:     newSnapshotter(e.DataDir, taskID),
+	}
+	if state.grants == nil {
+		state.grants = &pathGrants{}
 	}
 	for i := range state.finished {
 		state.finished[i] = make(chan struct{})
@@ -544,11 +598,6 @@ func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskI
 
 func (e *Executor) runStep(ctx context.Context, state *execState, step types.Step, taskID, mode string, preApproved bool, timeout time.Duration, sem chan struct{}) types.StepResult {
 	start := time.Now()
-	if toolutil.RootsFrom(ctx, nil) == nil && e.Gate != nil {
-		// Pin the approval boundary at dispatch: the step may wait for its
-		// semaphore slot while a workspace switch rewrites the live roots.
-		ctx = toolutil.WithRoots(ctx, e.Gate.RootSnapshot())
-	}
 	r := types.StepResult{StepID: step.ID, Tool: step.Tool, Status: types.StepRunning, StartedAt: start}
 	dispatched := false
 	finalize := func() types.StepResult {
@@ -566,6 +615,19 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		r.Error = fmt.Sprintf("工具 %q 不存在", step.Tool)
 		r.ErrorKind = types.ErrNotFound
 		return finalize()
+	}
+
+	// Pin the approval boundary at dispatch: the step may wait for its
+	// semaphore slot while a workspace switch rewrites the live roots. The
+	// task's grants overlay it so a directory the user already approved in
+	// this task is not asked about again.
+	baseRoots := toolutil.RootsFrom(ctx, nil)
+	if baseRoots == nil && e.Gate != nil {
+		baseRoots = e.Gate.RootSnapshot()
+	}
+	readOnlyTool := e.readOnly(tool)
+	if len(baseRoots) > 0 {
+		ctx = toolutil.WithRoots(ctx, state.grants.roots(baseRoots, readOnlyTool))
 	}
 
 	ctx = safety.WithMode(ctx, mode)
@@ -601,17 +663,68 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		return finalize()
 	}
 
-	dec := e.adjudicate(ctx, tool, args, preApproved && !hasRefs(step.Args), true)
-	if dec.NeedApproval {
-		resolved := step
-		resolved.Args = args
-		if approved, cancelled := e.awaitApproval(ctx, &r, taskID, resolved, dec); cancelled || !approved {
-			return finalize()
+	if !func() bool {
+		pre := preApproved && !hasRefs(step.Args)
+		boundary := e.Gate.EvaluateStepIn(ctx, tool, args, pre)
+		if len(boundary.Outside) > 0 || (boundary.NeedApproval && e.Gate.CanTrustForSession(tool.Name())) {
+			// Concurrent steps recheck shared grants after the first answer arrives.
+			state.grants.approvalMu.Lock()
+			defer state.grants.approvalMu.Unlock()
+			ctx = toolutil.WithRoots(ctx, state.grants.roots(baseRoots, readOnlyTool))
 		}
-	} else if dec.Risk != "low" && e.Gate != nil {
-		e.Gate.Record(safety.AuditEntry{
-			Tool: step.Tool, Risk: dec.Risk, Action: "auto", Reason: dec.Reason,
-		})
+		if ctx.Err() != nil {
+			r.Status, r.Error = types.StepSkipped, "任务已取消"
+			return false
+		}
+		dec := e.adjudicate(ctx, tool, args, pre, true)
+		var denialKeys []string
+		for _, p := range dec.Outside {
+			denialKeys = append(denialKeys, fmt.Sprintf("%t:%s", readOnlyTool, p))
+		}
+		if e.Gate.CanTrustForSession(tool.Name()) {
+			denialKeys = append(denialKeys, "tool:"+tool.Name())
+		}
+		state.grants.mu.Lock()
+		denied := false
+		for _, key := range denialKeys {
+			denied = denied || state.grants.denied[key]
+		}
+		state.grants.mu.Unlock()
+		if denied {
+			r.Status, r.ErrorKind, r.Error = types.StepFailed, types.ErrPermission, types.ErrStepRejected.Error()
+			return false
+		}
+		if dec.NeedApproval {
+			resolved := step
+			resolved.Args = args
+			if approved, cancelled := e.awaitApproval(ctx, &r, taskID, resolved, dec); cancelled || !approved {
+				if !cancelled && len(denialKeys) > 0 {
+					state.grants.mu.Lock()
+					if state.grants.denied == nil {
+						state.grants.denied = map[string]bool{}
+					}
+					for _, key := range denialKeys {
+						state.grants.denied[key] = true
+					}
+					state.grants.mu.Unlock()
+				}
+				return false
+			}
+		} else if dec.Risk != "low" && e.Gate != nil {
+			e.Gate.Record(safety.AuditEntry{
+				Tool: step.Tool, Risk: dec.Risk, Action: "auto", Reason: dec.Reason,
+			})
+		}
+		if len(dec.Outside) > 0 {
+			if readOnlyTool {
+				state.grants.add(dec.Outside)
+			}
+			roots := state.grants.roots(baseRoots, readOnlyTool)
+			ctx = toolutil.WithRoots(ctx, appendRoots(roots, dec.Outside...))
+		}
+		return true
+	}() {
+		return finalize()
 	}
 
 	dedupable := e.Dedupe && step.Tool != "reply"

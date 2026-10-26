@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestManager_OverflowCapturedWhenRingFull(t *testing.T) {
@@ -135,5 +137,163 @@ func TestManager_StatsAndClearSummary(t *testing.T) {
 	m2, _ := Open(m.dir, 3, 64, 100)
 	if s := m2.Summary(); s != "" {
 		t.Errorf("清空后重开仍有摘要: %q", s)
+	}
+}
+
+func TestAutoCompressionReproSwitchRecovery(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("model_failure=%v", fail), func(t *testing.T) {
+			dir := t.TempDir()
+			m, err := Open(dir, 2, 64, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.SwitchConversation("convo-a")
+			m.AddTurn("user", "A_EARLY_MARKER")
+			m.AddTurn("assistant", "recent answer")
+			m.AddTurn("user", "recent question")
+			m.AdvanceCursor(3)
+			entered, release := make(chan struct{}), make(chan struct{})
+			done := make(chan bool, 1)
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			defer unblock()
+			go func() {
+				done <- m.Compress(func(text string) (string, error) {
+					close(entered)
+					<-release
+					if fail {
+						return "", errors.New("offline")
+					}
+					return text, nil
+				})
+			}()
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("summarizer not entered")
+			}
+			if turns, runes := m.Omission(); turns != 0 || runes != 0 {
+				t.Errorf("in-flight batch counted as omitted: %d/%d", turns, runes)
+			}
+			if s := m.SummaryAnnotated(); !strings.Contains(s, "A_EARLY_MARKER") || strings.Contains(s, "已自动压缩") {
+				t.Errorf("in-flight prompt fallback missing or misleading: %q", s)
+			}
+			reopened, err := Open(dir, 2, 64, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reopened.SwitchConversation("convo-a")
+			if s := reopened.SummaryAnnotated(); !strings.Contains(s, "A_EARLY_MARKER") {
+				t.Errorf("in-flight original was not persisted: %q", s)
+			}
+			m.SwitchConversation("convo-b")
+			m.AddTurn("user", "B_ONLY_MARKER")
+			unblock()
+			select {
+			case compressed := <-done:
+				if compressed {
+					t.Error("stale batch reported committed compression")
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("compression did not finish")
+			}
+			if s := m.SummaryAnnotated(); strings.Contains(s, "A_EARLY_MARKER") {
+				t.Fatalf("stale A summary contaminated B: %q", s)
+			}
+			m.SwitchConversation("convo-a")
+			// A failed or invalidated batch must remain recoverable by its owner.
+			available := m.Summary() + renderTurns(m.overflow) + renderTurns(m.Short.Recent(0))
+			if !strings.Contains(available, "A_EARLY_MARKER") {
+				t.Errorf("A lost in-flight turn: summary=%q overflow=%d short=%d cursor=%d",
+					m.Summary(), m.Stats().Overflow, m.Short.Len(), m.Cursor())
+			}
+			if turns, runes := m.Omission(); turns != 0 || runes != 0 {
+				t.Errorf("invalidated batch counted as omitted after restore: %d/%d", turns, runes)
+			}
+			if !m.Compress(nil) {
+				t.Fatal("restored original should remain compressible")
+			}
+			if turns, _ := m.Omission(); turns != 1 {
+				t.Errorf("restored batch should be counted exactly once: %d", turns)
+			}
+		})
+	}
+}
+
+func TestCompressionPendingSurvivesOverflowCap(t *testing.T) {
+	dir := t.TempDir()
+	m, err := Open(dir, 2, 64, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.AddTurn("user", "IN_FLIGHT_MARKER")
+	m.AddTurn("assistant", "recent answer")
+	m.AddTurn("user", "recent question")
+	if !m.Compress(func(string) (string, error) {
+		for i := 0; i < overflowCap+10; i++ {
+			m.AddTurn("user", strings.Repeat("new history", 100))
+		}
+		if s := m.SummaryAnnotated(); !strings.Contains(s, "IN_FLIGHT_MARKER") || len([]rune(s)) > 800 {
+			t.Errorf("in-flight fallback missing or unbounded: %q", s)
+		}
+		if m.Compress(nil) {
+			t.Error("another compression started before the pending batch committed")
+		}
+		m.SaveContext()
+		reopened, err := Open(dir, 2, 64, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := reopened.Stats(); got.Overflow != overflowCap+1 || got.SavedTokens != 0 || got.Summary != "" {
+			t.Errorf("pending and queued originals not persisted: %+v", got)
+		}
+		if got := reopened.overflow[0].Content; got != "IN_FLIGHT_MARKER" {
+			t.Errorf("pending original was evicted: %q", got)
+		}
+		return "committed in-flight summary", nil
+	}) {
+		t.Fatal("pending batch should commit")
+	}
+	if got := m.Stats().Overflow; got != overflowCap {
+		t.Errorf("commit consumed newly queued turns: overflow=%d", got)
+	}
+	if turns, _ := m.Omission(); turns != 1 {
+		t.Errorf("commit counted uncompressed turns: %d", turns)
+	}
+}
+
+func TestCompressionGenerationGuards(t *testing.T) {
+	m, err := Open(t.TempDir(), 2, 64, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := m.Generation()
+	m.SwitchConversation("new-conversation")
+	for i := 0; i < 3; i++ {
+		m.AddTurn("user", "new conversation")
+	}
+	called := false
+	if m.CompressForGeneration(gen, func(string) (string, error) {
+		called = true
+		return "stale worker summary", nil
+	}) || called {
+		t.Error("stale worker started summarizing the new generation")
+	}
+	if m.SetCarryTurnsForGeneration(gen, CarryTight) || m.CarryTurns() != CarryFull {
+		t.Error("stale action tightened the new generation")
+	}
+	if _, current := m.CarryTurnsForGeneration(gen); current {
+		t.Error("stale generation returned a notification snapshot")
+	}
+	gen = m.Generation()
+	if !m.SetCarryTurnsForGeneration(gen, CarryTight) {
+		t.Error("current generation should allow tightening")
+	}
+	if carry, current := m.CarryTurnsForGeneration(gen); !current || carry != CarryTight {
+		t.Errorf("notification snapshot=%d/%v want=%d/true", carry, current, CarryTight)
+	}
+	if !m.CompressForGeneration(gen, nil) {
+		t.Error("current generation should remain compressible")
 	}
 }
