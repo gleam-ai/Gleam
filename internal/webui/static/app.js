@@ -1471,6 +1471,10 @@ const STATUS_LABEL = {
   cancelled: '已取消',
 };
 let currentGoalFilter = 'all';
+// 首页默认只铺「要你处理的 + 最近几条已完成」，完整历史留在左侧任务记录。
+// 展开是显式动作：每次打开先被旧记录淹没，输入框就不再是主角。
+const RECENT_DONE_ON_HOME = 2;
+let goalFeedExpanded = false;
 
 // 审批卡只有在任务还活着时才算"需要处理"。任务已经定格（成功/失败/取消）却还留着一张
 // "需要你的批准"，是在向用户要一个已经不存在的决定——超时自动拒绝、或在另一个窗口里批掉，
@@ -1620,13 +1624,45 @@ function refreshWorkbench() {
     all.filter((task) => approvalCardOf(task)).length +
     document.querySelectorAll('.approval-card.standalone-approval').length;
 
+  let recentDone = null;
+  if (currentGoalFilter === 'all' && !goalFeedExpanded) {
+    const completedAt = (task) =>
+      Date.parse(task.info.result?.finished_at || task.info.started_at || '') ||
+      0;
+    recentDone = new Set(
+      all
+        .filter((task) => taskGroup(task) === 'done')
+        .sort((a, b) => completedAt(b) - completedAt(a))
+        .slice(0, RECENT_DONE_ON_HOME)
+        .map((task) => task.info.task_id),
+    );
+  }
   all.forEach((task) => {
     const group = taskGroup(task);
-    task.card.hidden =
-      currentGoalFilter !== 'all' && group !== currentGoalFilter;
+    const inFilter = currentGoalFilter === 'all' || group === currentGoalFilter;
+    const inWindow =
+      !recentDone || group !== 'done' || recentDone.has(task.info.task_id);
+    task.card.hidden = !(inFilter && inWindow);
   });
   const visible = all.filter((task) => !task.card.hidden).length;
   $('#goals-filtered-empty').hidden = all.length === 0 || visible > 0;
+
+  const doneCount = all.filter((task) => taskGroup(task) === 'done').length;
+  const more = $('#goals-more');
+  if (more) {
+    // 会话线程里没有列表可展开：按钮挂在 feed 外，不隐藏会跟着消息流落到末尾。
+    const foldable =
+      !viewingConvo &&
+      currentGoalFilter === 'all' &&
+      doneCount > RECENT_DONE_ON_HOME;
+    more.hidden = !foldable;
+    if (foldable) {
+      more.textContent = goalFeedExpanded
+        ? `只看最近 ${RECENT_DONE_ON_HOME} 条`
+        : `查看全部 ${all.length} 条记录`;
+      more.setAttribute('aria-expanded', String(goalFeedExpanded));
+    }
+  }
 
   const feed = $('#goal-feed');
   // Conversation view owns the feed: task cards live in `tasks` and must not be
@@ -1650,6 +1686,11 @@ function refreshWorkbench() {
   LiveRail.summary(counts, attention);
   paintFailBanner();
 }
+
+$('#goals-more').addEventListener('click', () => {
+  goalFeedExpanded = !goalFeedExpanded;
+  refreshWorkbench();
+});
 
 $('#goal-filters').addEventListener('click', (event) => {
   const button = event.target.closest('button[data-filter]');
@@ -1874,7 +1915,13 @@ function renderChecks(t, result) {
   const head = checks.length
     ? `验收清单 ${passed}/${checks.length} 项通过`
     : '验收清单';
-  slot.innerHTML = `<div class="checks"><div class="checks-head">${head}</div><ul class="check-list">${rows.join('')}</ul></div>`;
+  // 失败卡默认收起逐条清单：失败本身已经在卡片上写清楚了，细节点开再看。
+  // 用户展开过就保持展开，别在进度重绘时把视线折回去。
+  const failed =
+    t.info && (t.info.status === 'failed' || t.info.status === 'partial');
+  const current = slot.querySelector('details');
+  const open = !failed || (current && current.open);
+  slot.innerHTML = `<details class="checks"${open ? ' open' : ''}><summary class="checks-head">${head}</summary><ul class="check-list">${rows.join('')}</ul></details>`;
   slot.hidden = false;
 }
 

@@ -3843,6 +3843,26 @@ details.schema pre {
 .empty--filtered {
   min-height: 220px;
 }
+/* 首页收起更早的完成记录：显式展开，不把整段历史铺在输入框上方。 */
+.goals-more {
+  display: block;
+  margin: 0 auto var(--space-4);
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--color-fg-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.goals-more:hover {
+  border-color: var(--color-border-subtle);
+  color: var(--color-fg);
+}
+.goals-more:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 
 @media (max-width: 700px) {
   .goal-filters {
@@ -5301,6 +5321,16 @@ html[data-theme="light"] .goal-summary tr:nth-child(even) td {
   font-weight: 600;
   color: var(--color-fg-muted);
   margin-bottom: var(--space-2);
+}
+.checks > summary.checks-head {
+  cursor: pointer;
+}
+.checks:not([open]) > .checks-head {
+  margin-bottom: 0;
+}
+.checks > summary.checks-head:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 .check-list {
   list-style: none;

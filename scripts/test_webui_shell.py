@@ -289,6 +289,179 @@ def run_checks(base, output):
         )
 
 
+def run_home_feed_checks(base, output):
+    goals = [
+        {
+            "task_id": "run00001",
+            "goal": "正在执行的归档任务",
+            "status": "running",
+            "mode": "auto",
+            "task_mode": "execute",
+            "started_at": "2026-10-26T10:00:00Z",
+        },
+        {
+            "task_id": "fail0001",
+            "goal": "失败的部署任务",
+            "status": "failed",
+            "mode": "auto",
+            "task_mode": "execute",
+            "started_at": "2026-10-26T09:00:00Z",
+            "result": {
+                "task_id": "fail0001",
+                "status": "failed",
+                "summary": "部署失败",
+                "error": "HTTP 401 unauthorized",
+                "score": 40,
+                "acceptance": ["服务可访问", "日志已归档"],
+                "checks": [
+                    {
+                        "criterion": "服务可访问",
+                        "passed": False,
+                        "note": "连接被拒绝",
+                    },
+                    {"criterion": "日志已归档", "passed": True},
+                ],
+            },
+        },
+    ]
+    finished = {1: "09:10", 2: "08:40", 3: "09:50", 4: "06:50"}
+    for index in range(1, 5):
+        goals.append(
+            {
+                "task_id": f"done000{index}",
+                "goal": f"已完成的归档任务 {index}",
+                "status": "success",
+                "mode": "auto",
+                "task_mode": "execute",
+                "started_at": f"2026-10-26T0{9 - index}:30:00Z",
+                "result": {
+                    "task_id": f"done000{index}",
+                    "status": "success",
+                    "summary": f"归档完成 {index}",
+                    "score": 100,
+                    "finished_at": f"2026-10-26T{finished[index]}:00Z",
+                    "acceptance": ["文件已归档"],
+                    "checks": [{"criterion": "文件已归档", "passed": True}],
+                },
+            }
+        )
+    goals.append(
+        {
+            "task_id": "cancel01",
+            "goal": "已取消的清理任务",
+            "status": "cancelled",
+            "mode": "auto",
+            "task_mode": "execute",
+            "started_at": "2026-10-26T04:00:00Z",
+        }
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route(
+            "**/api/goals", lambda route: route.fulfill(json={"goals": goals})
+        )
+        try:
+            page.goto(base)
+            page.wait_for_load_state("networkidle")
+            expect(page.locator(".goal-card")).to_have_count(7)
+            # Running and failed stay visible; completions are capped by finish
+            # time, so task 3 wins over task 2 despite starting earlier.
+            expect(page.locator(".goal-card:visible")).to_have_count(4)
+            for text in ("失败的部署任务", "正在执行的归档任务"):
+                expect(
+                    page.locator(".goal-card", has_text=text)
+                ).to_be_visible()
+            for index in (1, 3):
+                expect(
+                    page.locator(
+                        ".goal-card", has_text=f"已完成的归档任务 {index}"
+                    )
+                ).to_be_visible()
+            for text in (
+                "已完成的归档任务 2",
+                "已完成的归档任务 4",
+                "已取消的清理任务",
+            ):
+                expect(page.locator(".goal-card", has_text=text)).to_be_hidden()
+
+            more = page.locator("#goals-more")
+            expect(more).to_be_visible()
+            expect(more).to_have_text("查看全部 7 条记录")
+            expect(more).to_have_attribute("aria-expanded", "false")
+            more.scroll_into_view_if_needed()
+            page.screenshot(
+                path=str(output / "home-feed-default.png"),
+                animations="disabled",
+            )
+
+            failed = page.locator(".goal-card", has_text="失败的部署任务")
+            checks = failed.locator("details.checks")
+            expect(checks.locator("summary")).to_have_text(
+                "验收清单 1/2 项通过"
+            )
+            assert not checks.evaluate("node => node.open")
+            expect(checks.locator(".check-list")).to_be_hidden()
+            checks.locator("summary").click()
+            assert checks.evaluate("node => node.open")
+            expect(checks.locator(".check-list")).to_be_visible()
+            # A redraw must not collapse a checklist the user already opened.
+            page.evaluate(
+                "() => applyResult('fail0001', tasks.get('fail0001').info.result)"
+            )
+            assert checks.evaluate("node => node.open")
+            page.screenshot(
+                path=str(output / "home-feed-failure-details.png"),
+                full_page=True,
+                animations="disabled",
+            )
+
+            passed_card = page.locator(
+                ".goal-card", has_text="已完成的归档任务 1"
+            )
+            assert passed_card.locator("details.checks").evaluate(
+                "node => node.open"
+            ), "successful acceptance list must stay open"
+
+            more.click()
+            expect(page.locator(".goal-card:visible")).to_have_count(7)
+            expect(more).to_have_text("只看最近 2 条")
+            expect(more).to_have_attribute("aria-expanded", "true")
+            more.click()
+            expect(page.locator(".goal-card:visible")).to_have_count(4)
+            expect(more).to_have_text("查看全部 7 条记录")
+
+            page.locator('#goal-filters button[data-filter="done"]').click()
+            expect(page.locator(".goal-card:visible")).to_have_count(5)
+            expect(more).to_be_hidden()
+            page.locator(
+                '#goal-filters button[data-filter="attention"]'
+            ).click()
+            expect(page.locator(".goal-card:visible")).to_have_count(1)
+            expect(
+                page.locator(".goal-card", has_text="失败的部署任务")
+            ).to_be_visible()
+            page.locator('#goal-filters button[data-filter="all"]').click()
+            expect(page.locator(".goal-card:visible")).to_have_count(4)
+            expect(more).to_be_visible()
+            # No list to expand inside a thread: the button must not trail the
+            # messages.
+            page.evaluate("() => { setThreadMode(true); refreshWorkbench(); }")
+            expect(more).to_be_hidden()
+            page.evaluate("() => { setThreadMode(false); refreshWorkbench(); }")
+            expect(more).to_be_visible()
+            assert not errors, errors
+        finally:
+            page.close()
+            browser.close()
+        print(
+            "PASS: home feed keeps attention tasks and two latest completions",
+            flush=True,
+        )
+
+
 def new_test_page(browser, base):
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     page.goto(base)
@@ -1011,7 +1184,7 @@ def main():
     parser.add_argument("--output", default="tmp/ui-shell-check")
     parser.add_argument(
         "--suite",
-        choices=["all", "shell", "terminal", "submit", "stream"],
+        choices=["all", "shell", "home", "terminal", "submit", "stream"],
         default="all",
     )
     args = parser.parse_args()
@@ -1022,6 +1195,8 @@ def main():
         with isolated_mock_server(binary, output) as base:
             if args.suite in ("all", "shell"):
                 run_checks(base, output)
+            if args.suite in ("all", "home"):
+                run_home_feed_checks(base, output)
             if args.suite in ("all", "terminal"):
                 run_terminal_checks(base, output)
             if args.suite in ("all", "submit"):
