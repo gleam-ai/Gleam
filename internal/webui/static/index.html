@@ -612,32 +612,13 @@
         </section>
         <!-- ===== 目标视图 ===== -->
         <section
-          class="view view-chat active"
+          class="view view-chat active is-home"
           id="view-goals"
           aria-labelledby="goals-title"
         >
           <div class="chat-header">
             <div class="chat-title-row">
               <h1 class="view-title" id="goals-title">目标</h1>
-              <div
-                class="segmented goal-filters"
-                id="goal-filters"
-                role="group"
-                aria-label="筛选任务"
-              >
-                <button aria-pressed="true" data-filter="all">
-                  全部 <span data-count="all">0</span>
-                </button>
-                <button aria-pressed="false" data-filter="active">
-                  进行中 <span data-count="active">0</span>
-                </button>
-                <button aria-pressed="false" data-filter="done">
-                  已完成 <span data-count="done">0</span>
-                </button>
-                <button aria-pressed="false" data-filter="attention">
-                  需处理 <span data-count="attention">0</span>
-                </button>
-              </div>
               <div class="chat-tools">
                 <button
                   class="ws-chip"
@@ -717,18 +698,6 @@
           </div>
 
           <div class="chat-scroll" id="chat-scroll">
-            <!-- 失败横幅：区块级统一入口。N 张失败卡时动作只在这里给一次，
-                 卡片本身只留"摘要 + 可展开原文"作为记录，不每卡各喊各的。
-                 主次按错误类型排（鉴权类主推去配置，其他主推重新提交），
-                 由 app.js 的 paintFailBanner() 渲染，无失败时整块 hidden。 -->
-            <div class="goal-fail-banner" id="goal-fail-banner" hidden>
-              <span class="gfb-dot" aria-hidden="true"></span>
-              <div class="gfb-main">
-                <div class="gfb-title" id="gfb-title">任务失败</div>
-                <div class="gfb-sub" id="gfb-sub"></div>
-              </div>
-              <div class="gfb-actions" id="gfb-actions"></div>
-            </div>
             <div class="row-list" id="goal-feed" aria-live="polite">
               <div class="empty home-hero" id="goals-empty">
                 <p class="page-eyebrow">
@@ -772,17 +741,6 @@
                   hidden
                 ></section>
               </div>
-            </div>
-            <button
-              class="goals-more"
-              id="goals-more"
-              type="button"
-              aria-controls="goal-feed"
-              hidden
-            ></button>
-            <div class="empty empty--filtered" id="goals-filtered-empty" hidden>
-              <div class="empty-title">这个筛选下没有任务</div>
-              <p class="empty-desc">切换到其他状态继续查看。</p>
             </div>
           </div>
 

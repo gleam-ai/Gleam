@@ -280,11 +280,6 @@ html[data-history="open"] .sidebar {
   border-radius: 0;
   background: transparent;
 }
-#goal-fail-banner {
-  width: 100%;
-  max-width: none;
-  margin: 12px 0 4px;
-}
 html[data-view="goals"] .cue-deck {
   width: 100%;
   margin: 0 0 12px;
@@ -327,6 +322,11 @@ html[data-view="goals"] .cue-deck {
 }
 #view-goals.is-home #goal-feed {
   padding: 0;
+}
+/* The start screen shows the hero only. Task cards stay mounted off-screen so
+   approvals and progress keep a DOM home; records are browsed in the sidebar. */
+#view-goals.is-home #goal-feed > .goal-card {
+  display: none;
 }
 #goals-empty {
   margin: 0;

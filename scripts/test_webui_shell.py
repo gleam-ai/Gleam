@@ -290,71 +290,126 @@ def run_checks(base, output):
 
 
 def run_home_feed_checks(base, output):
+    conversations = [
+        {"id": "c-run", "title": "正在跑的归档", "space_id": "default"},
+        {"id": "c-fail", "title": "失败的部署", "space_id": "default"},
+        {"id": "c-ok", "title": "完成的归档", "space_id": "default"},
+        {"id": "c-stop", "title": "停下的清理", "space_id": "default"},
+        {"id": "c-wait", "title": "等待批准的发布", "space_id": "default"},
+        {"id": "c-part", "title": "半途而废的巡检", "space_id": "default"},
+        {"id": "c-idle", "title": "还没有任务的对话", "space_id": "default"},
+    ]
+    failed = {
+        "task_id": "fail0001",
+        "goal": "失败的部署任务",
+        "conversation_id": "c-fail",
+        "status": "failed",
+        "mode": "auto",
+        "task_mode": "execute",
+        "started_at": "2026-10-26T09:00:00Z",
+        "result": {
+            "task_id": "fail0001",
+            "status": "failed",
+            "summary": "部署失败",
+            "error": "HTTP 401 unauthorized",
+            "score": 40,
+            "finished_at": "2026-10-26T09:10:00Z",
+            "acceptance": ["服务可访问", "日志已归档"],
+            "checks": [
+                {
+                    "criterion": "服务可访问",
+                    "passed": False,
+                    "note": "连接被拒绝",
+                },
+                {"criterion": "日志已归档", "passed": True},
+            ],
+        },
+    }
     goals = [
         {
             "task_id": "run00001",
             "goal": "正在执行的归档任务",
+            "conversation_id": "c-run",
             "status": "running",
             "mode": "auto",
             "task_mode": "execute",
             "started_at": "2026-10-26T10:00:00Z",
         },
+        failed,
         {
-            "task_id": "fail0001",
-            "goal": "失败的部署任务",
-            "status": "failed",
+            "task_id": "done0001",
+            "goal": "已完成的归档任务 1",
+            "conversation_id": "c-ok",
+            "status": "success",
             "mode": "auto",
             "task_mode": "execute",
-            "started_at": "2026-10-26T09:00:00Z",
+            "started_at": "2026-10-26T08:30:00Z",
             "result": {
-                "task_id": "fail0001",
-                "status": "failed",
-                "summary": "部署失败",
-                "error": "HTTP 401 unauthorized",
-                "score": 40,
-                "acceptance": ["服务可访问", "日志已归档"],
-                "checks": [
-                    {
-                        "criterion": "服务可访问",
-                        "passed": False,
-                        "note": "连接被拒绝",
-                    },
-                    {"criterion": "日志已归档", "passed": True},
-                ],
+                "task_id": "done0001",
+                "status": "success",
+                "summary": "归档完成 1",
+                "score": 100,
+                "finished_at": "2026-10-26T08:40:00Z",
             },
         },
-    ]
-    finished = {1: "09:10", 2: "08:40", 3: "09:50", 4: "06:50"}
-    for index in range(1, 5):
-        goals.append(
-            {
-                "task_id": f"done000{index}",
-                "goal": f"已完成的归档任务 {index}",
+        {
+            "task_id": "done0002",
+            "goal": "已完成的归档任务 2",
+            "conversation_id": "c-ok",
+            "status": "success",
+            "mode": "auto",
+            "task_mode": "execute",
+            "started_at": "2026-10-26T09:20:00Z",
+            "result": {
+                "task_id": "done0002",
                 "status": "success",
-                "mode": "auto",
-                "task_mode": "execute",
-                "started_at": f"2026-10-26T0{9 - index}:30:00Z",
-                "result": {
-                    "task_id": f"done000{index}",
-                    "status": "success",
-                    "summary": f"归档完成 {index}",
-                    "score": 100,
-                    "finished_at": f"2026-10-26T{finished[index]}:00Z",
-                    "acceptance": ["文件已归档"],
-                    "checks": [{"criterion": "文件已归档", "passed": True}],
-                },
-            }
-        )
-    goals.append(
+                "summary": "归档完成 2",
+                "score": 100,
+                "finished_at": "2026-10-26T09:30:00Z",
+            },
+        },
         {
             "task_id": "cancel01",
             "goal": "已取消的清理任务",
+            "conversation_id": "c-stop",
             "status": "cancelled",
             "mode": "auto",
             "task_mode": "execute",
             "started_at": "2026-10-26T04:00:00Z",
-        }
-    )
+        },
+        {
+            "task_id": "wait0001",
+            "goal": "等待批准的发布任务",
+            "conversation_id": "c-wait",
+            "status": "running",
+            "mode": "auto",
+            "task_mode": "execute",
+            "started_at": "2026-10-26T09:40:00Z",
+        },
+        {
+            "task_id": "part0001",
+            "goal": "只完成一半的巡检任务",
+            "conversation_id": "c-part",
+            "status": "partial",
+            "mode": "auto",
+            "task_mode": "execute",
+            "started_at": "2026-10-26T07:30:00Z",
+            "result": {
+                "task_id": "part0001",
+                "status": "partial",
+                "summary": "巡检完成 3/5 项",
+                "score": 60,
+                "finished_at": "2026-10-26T07:50:00Z",
+            },
+        },
+    ]
+    tags = {
+        "c-run": ("处理中", "running"),
+        "c-fail": ("失败", "failed"),
+        "c-ok": ("成功", "success"),
+        "c-stop": ("已停止", "cancelled"),
+        "c-part": ("部分完成", "partial"),
+    }
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 900})
@@ -363,101 +418,136 @@ def run_home_feed_checks(base, output):
         page.route(
             "**/api/goals", lambda route: route.fulfill(json={"goals": goals})
         )
+        page.route("**/api/goals/*", lambda route: route.fulfill(json=failed))
+        page.route(
+            "**/api/spaces",
+            lambda route: route.fulfill(
+                json={
+                    "active_id": "default",
+                    "spaces": [
+                        {
+                            "id": "default",
+                            "name": "默认空间",
+                            "is_default": True,
+                        }
+                    ],
+                }
+            ),
+        )
+        page.route(
+            "**/api/conversations",
+            lambda route: route.fulfill(json={"conversations": conversations}),
+        )
         try:
             page.goto(base)
             page.wait_for_load_state("networkidle")
-            expect(page.locator(".goal-card")).to_have_count(7)
-            # Running and failed stay visible; completions are capped by finish
-            # time, so task 3 wins over task 2 despite starting earlier.
-            expect(page.locator(".goal-card:visible")).to_have_count(4)
-            for text in ("失败的部署任务", "正在执行的归档任务"):
-                expect(
-                    page.locator(".goal-card", has_text=text)
-                ).to_be_visible()
-            for index in (1, 3):
-                expect(
-                    page.locator(
-                        ".goal-card", has_text=f"已完成的归档任务 {index}"
-                    )
-                ).to_be_visible()
-            for text in (
-                "已完成的归档任务 2",
-                "已完成的归档任务 4",
-                "已取消的清理任务",
+            # The start screen is the hero plus composer. Task cards stay
+            # mounted as a state holder but never render above the input.
+            expect(page.locator("#goals-empty")).to_be_visible()
+            expect(page.locator("#goals-empty")).to_contain_text("把想法")
+            expect(page.locator(".goal-card")).to_have_count(len(goals))
+            expect(page.locator(".goal-card:visible")).to_have_count(0)
+            for removed in (
+                "#goal-filters",
+                "#goals-more",
+                "#goal-fail-banner",
+                "#goals-filtered-empty",
             ):
-                expect(page.locator(".goal-card", has_text=text)).to_be_hidden()
-
-            more = page.locator("#goals-more")
-            expect(more).to_be_visible()
-            expect(more).to_have_text("查看全部 7 条记录")
-            expect(more).to_have_attribute("aria-expanded", "false")
-            more.scroll_into_view_if_needed()
+                expect(page.locator(removed)).to_have_count(0)
             page.screenshot(
-                path=str(output / "home-feed-default.png"),
+                path=str(output / "home-start.png"),
                 animations="disabled",
             )
 
-            failed = page.locator(".goal-card", has_text="失败的部署任务")
-            checks = failed.locator("details.checks")
-            expect(checks.locator("summary")).to_have_text(
-                "验收清单 1/2 项通过"
-            )
-            assert not checks.evaluate("node => node.open")
-            expect(checks.locator(".check-list")).to_be_hidden()
-            checks.locator("summary").click()
-            assert checks.evaluate("node => node.open")
-            expect(checks.locator(".check-list")).to_be_visible()
-            # A redraw must not collapse a checklist the user already opened.
-            page.evaluate(
-                "() => applyResult('fail0001', tasks.get('fail0001').info.result)"
-            )
-            assert checks.evaluate("node => node.open")
-            page.screenshot(
-                path=str(output / "home-feed-failure-details.png"),
-                full_page=True,
-                animations="disabled",
-            )
-
-            passed_card = page.locator(
-                ".goal-card", has_text="已完成的归档任务 1"
-            )
-            assert passed_card.locator("details.checks").evaluate(
-                "node => node.open"
-            ), "successful acceptance list must stay open"
-
-            more.click()
-            expect(page.locator(".goal-card:visible")).to_have_count(7)
-            expect(more).to_have_text("只看最近 2 条")
-            expect(more).to_have_attribute("aria-expanded", "true")
-            more.click()
-            expect(page.locator(".goal-card:visible")).to_have_count(4)
-            expect(more).to_have_text("查看全部 7 条记录")
-
-            page.locator('#goal-filters button[data-filter="done"]').click()
-            expect(page.locator(".goal-card:visible")).to_have_count(5)
-            expect(more).to_be_hidden()
-            page.locator(
-                '#goal-filters button[data-filter="attention"]'
-            ).click()
-            expect(page.locator(".goal-card:visible")).to_have_count(1)
+            page.locator("#sidebar-toggle").click()
+            expect(page.locator("#sidebar")).to_be_visible()
+            for convo_id, (label, tone) in tags.items():
+                tag = page.locator(
+                    f'.convo-item[data-convo-id="{convo_id}"] .convo-status'
+                )
+                expect(tag).to_have_text(label)
+                expect(tag).to_have_attribute("data-status", tone)
             expect(
-                page.locator(".goal-card", has_text="失败的部署任务")
+                page.locator(
+                    '.convo-item[data-convo-id="c-idle"] .convo-status'
+                )
+            ).to_have_count(0)
+            page.screenshot(
+                path=str(output / "home-sidebar-tags.png"),
+                animations="disabled",
+            )
+
+            # Finishing a task must not push a card back onto the start screen;
+            # the sidebar tag is the record instead.
+            page.evaluate("""() => {
+                const t = tasks.get('run00001');
+                const result = {
+                    task_id: 'run00001',
+                    status: 'success',
+                    summary: '归档完成',
+                    score: 100,
+                    finished_at: '2026-10-26T10:05:00Z',
+                };
+                t.info.status = 'success';
+                t.info.result = result;
+                applyResult('run00001', result);
+                refreshWorkbench();
+            }""")
+            expect(page.locator(".goal-card:visible")).to_have_count(0)
+            expect(page.locator("#goals-empty")).to_be_visible()
+            expect(
+                page.locator('.convo-item[data-convo-id="c-run"] .convo-status')
+            ).to_have_text("成功")
+
+            # A pending approval is the loudest state and outranks the status.
+            page.evaluate("""() => {
+                const card = tasks.get('wait0001').card;
+                const ap = document.createElement('div');
+                ap.className = 'approval-card';
+                card.appendChild(ap);
+                paintConvoStatus();
+            }""")
+            waiting = page.locator(
+                '.convo-item[data-convo-id="c-wait"] .convo-status'
+            )
+            expect(waiting).to_have_text("待批准")
+            expect(waiting).to_have_attribute("data-status", "attention")
+            page.evaluate("""() => {
+                tasks.get('wait0001').card.querySelector('.approval-card').remove();
+                paintConvoStatus();
+            }""")
+            expect(waiting).to_have_text("处理中")
+
+            # Hover swaps the tag for rename/delete so the row keeps one
+            # affordance.
+            failed_item = page.locator('.convo-item[data-convo-id="c-fail"]')
+            failed_item.hover()
+            expect(failed_item.locator(".convo-status")).to_be_hidden()
+            expect(failed_item.locator(".convo-item-ops")).to_be_visible()
+
+            page.locator("#history-close").click()
+            expect(page.locator("#sidebar")).not_to_be_visible()
+            page.evaluate("() => openTaskDetail('fail0001')")
+            overlay = page.locator("#modal-overlay")
+            expect(overlay).to_be_visible()
+            expect(page.locator("#modal")).to_contain_text("失败的部署任务")
+            expect(
+                page.locator("#modal").get_by_role(
+                    "button", name="去配置 API Key"
+                )
             ).to_be_visible()
-            page.locator('#goal-filters button[data-filter="all"]').click()
-            expect(page.locator(".goal-card:visible")).to_have_count(4)
-            expect(more).to_be_visible()
-            # No list to expand inside a thread: the button must not trail the
-            # messages.
-            page.evaluate("() => { setThreadMode(true); refreshWorkbench(); }")
-            expect(more).to_be_hidden()
-            page.evaluate("() => { setThreadMode(false); refreshWorkbench(); }")
-            expect(more).to_be_visible()
+            expect(page.locator("#modal")).to_contain_text("不会自动提交")
+            page.locator("#modal").get_by_role(
+                "button", name="重新填写"
+            ).click()
+            expect(overlay).to_be_hidden()
+            expect(page.locator("#goal-input")).to_have_value("失败的部署任务")
             assert not errors, errors
         finally:
             page.close()
             browser.close()
         print(
-            "PASS: home feed keeps attention tasks and two latest completions",
+            "PASS: start screen keeps only the hero; sidebar tags expose running, failure, completion, cancel, partial and approval state",
             flush=True,
         )
 

@@ -749,16 +749,7 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
   align-items: center;
   gap: 4px;
 }
-/* 筛选是列表页的工具，和标题同排：标题左、筛选靠右、工具收尾。
-   首页与会话态没有"列表"可筛，整组收起（计数只属于任务列表）。 */
-#goal-filters {
-  margin-left: auto;
-}
-#view-goals.is-home #goal-filters,
-#view-goals.thread-mode #goal-filters {
-  display: none;
-}
-#view-goals.is-home .chat-tools,
+/* 会话态没有列表可筛，工具收在标题右侧。 */
 #view-goals.thread-mode .chat-tools {
   margin-left: auto;
 }
@@ -1326,14 +1317,6 @@ html[data-theme="dark"] .tok-kw {
 #goal-feed .goal-card {
   margin-bottom: 0;
 }
-/* 失败横幅是滚动区的直接子项，auto 宽度会铺满整个滚动区（比卡片宽一截）：
-   套用同一根 --home-w 列，动作行才和卡片右缘对齐。 */
-#goal-fail-banner {
-  width: calc(100% - 32px);
-  max-width: var(--home-w);
-  margin-left: auto;
-  margin-right: auto;
-}
 .home-hero.empty,
 .chat-scroll .home-hero.empty {
   display: flex;
@@ -1623,7 +1606,6 @@ html[data-theme="light"] .composer-meta-btn {
   margin-right: auto;
 }
 .view-chat #goal-feed,
-.view-chat .empty--filtered,
 .view-chat > .composer,
 .view-chat > .composer-foot {
   width: calc(100% - 32px);

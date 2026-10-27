@@ -386,6 +386,37 @@ body::before {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The sidebar is the record surface: one state tag per conversation, sourced
+   from its latest task. Ops replace the tag on hover so the row stays calm. */
+.convo-status {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--color-muted);
+  color: var(--color-fg-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.convo-status[data-status="running"] {
+  background: rgba(var(--accent-rgb) / 0.12);
+  color: var(--color-accent);
+}
+.convo-status[data-status="attention"],
+.convo-status[data-status="partial"] {
+  background: rgba(var(--warning-rgb) / 0.13);
+  color: var(--color-warning);
+}
+.convo-status[data-status="failed"],
+.convo-status[data-status="cancelled"] {
+  background: rgba(var(--danger-rgb) / 0.13);
+  color: var(--color-destructive);
+}
+.convo-item:hover .convo-status,
+.convo-item:focus-within .convo-status {
+  display: none;
+}
 .convo-item-ops {
   display: none;
   flex-shrink: 0;
@@ -3821,68 +3852,6 @@ details.schema pre {
   }
 }
 
-/* ============ 任务列表：筛选 ============ */
-/* 「准备就绪」状态行已退休（见 03-align.css 的首页形态），筛选是它唯一留下的能力，
-   现在挂在列表态头部：有任务才出现，四个 tab 带计数。 */
-.goal-filters {
-  flex: none;
-}
-.goal-filters button {
-  gap: 6px;
-}
-.goal-filters [data-count] {
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-full);
-  background: rgba(var(--ink-rgb) / 0.07);
-  color: inherit;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-.empty--filtered {
-  min-height: 220px;
-}
-/* 首页收起更早的完成记录：显式展开，不把整段历史铺在输入框上方。 */
-.goals-more {
-  display: block;
-  margin: 0 auto var(--space-4);
-  padding: 6px 14px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-full);
-  background: none;
-  color: var(--color-fg-muted);
-  font-size: var(--fs-sm);
-  cursor: pointer;
-}
-.goals-more:hover {
-  border-color: var(--color-border-subtle);
-  color: var(--color-fg);
-}
-.goals-more:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-@media (max-width: 700px) {
-  .goal-filters {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    width: 100%;
-  }
-  .goal-filters button {
-    min-width: 0;
-    min-height: 44px;
-    padding-inline: 5px;
-    font-size: 11px;
-  }
-}
-@media (max-width: 380px) {
-  .goal-filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 /* ============ 目标视图：聊天布局 ============ */
 .view-chat {
   display: none;
@@ -4768,9 +4737,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
 }
 html[data-theme="light"] .quick-card:hover {
   background: rgba(var(--ink-rgb) / 0.05);
-}
-html[data-theme="light"] .goal-filters [data-count] {
-  background: rgba(var(--ink-rgb) / 0.07);
 }
 html[data-theme="light"] .goal-summary tr:nth-child(even) td {
   background: rgba(var(--ink-rgb) / 0.025);
@@ -6223,15 +6189,6 @@ html[data-theme="light"] .flow::-webkit-scrollbar-thumb {
   .flow-row--new {
     animation: none;
   }
-}
-
-/* 从现场栏点进某个任务：给一次短暂高亮，否则滚动停了也不知道是哪张卡。
-   摘掉由 JS 的定时器负责——这里不放动画，reduced-motion 下动画事件不会来。 */
-.goal-card--flash {
-  border-color: rgba(var(--accent-rgb) / 0.55) !important;
-  box-shadow:
-    0 0 0 3px rgba(var(--accent-rgb) / 0.14),
-    var(--shadow-2) !important;
 }
 
 /* ------------------------------------------------------------------

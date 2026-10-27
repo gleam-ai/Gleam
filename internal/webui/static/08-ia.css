@@ -218,75 +218,8 @@ html[data-theme="light"] {
   pointer-events: none;
 }
 
-/* ---------- C1：失败横幅（区块级统一入口） ----------
-   动作只有一个声音：N 张失败卡时入口在这里，卡片只留记录。
-   红色仅出现于左侧 3px 记号线与圆点——失败态专属，不蔓延到按钮。 */
-.goal-fail-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 12px;
-  padding: 9px 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--color-destructive);
-  border-radius: var(--row-r);
-}
-.gfb-dot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: var(--radius-full);
-  background: var(--color-destructive);
-}
-/* 标题与说明同排：横幅只回答"出了什么事 + 怎么办"，两行竖排会把它撑成一块面板。 */
-.gfb-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 2px 8px;
-}
-.gfb-title {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--color-fg);
-  white-space: nowrap;
-}
-.gfb-sub {
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  color: var(--color-fg-muted);
-}
-.gfb-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: none;
-}
-.gfb-note {
-  font-size: var(--fs-xs);
-  color: var(--color-fg-faint);
-}
-/* 窄屏放不下一行时把动作换到下一行：标题列被压到几十像素后，
-   nowrap 的标题会逐字竖排，横幅反而比卡片还高。 */
-@media (max-width: 560px) {
-  .goal-fail-banner {
-    flex-wrap: wrap;
-  }
-  .gfb-main {
-    flex-basis: calc(100% - 18px);
-  }
-  .gfb-actions {
-    width: 100%;
-    padding-left: 18px;
-  }
-}
-
 /* ---------- C2：失败卡 = 一行记录 + 可展开原文 ----------
-   摘要与动作已经由横幅统一给过，卡片再放一块粉色感叹号就是同一句话说两遍。
+   卡片本身已经是记录面，摘要用一行，原文收在折叠里。
    这里用一条分隔线把记录接在卡片正文后：颜色只留在图标上。 */
 .fail-note {
   display: flex;
@@ -343,27 +276,6 @@ html[data-theme="light"] {
   color: var(--color-fg-muted);
   white-space: pre-wrap;
   word-break: break-all;
-}
-
-/* ---------- D：筛选标签栏选中态 ----------
-   计数不新写：refreshWorkbench 的 [data-count] 与工作台、审批徽标同源
-   （taskGroup 一套口径，"需处理"= 有待审批 + failed + partial，
-   失败卡计入需处理，横幅的失败数永远是它的子集，不会双态不一致）。
-   这里只做选中态：实底 + 主文字 + 内描边；0 计数不禁用——禁用像坏了。 */
-#goal-filters button {
-  color: var(--color-fg-muted);
-}
-#goal-filters button [data-count] {
-  color: var(--color-fg-faint);
-  font-variant-numeric: tabular-nums;
-}
-#goal-filters button[aria-pressed="true"] {
-  background: var(--surface);
-  color: var(--color-fg);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-}
-#goal-filters button[aria-pressed="true"] [data-count] {
-  color: var(--color-fg);
 }
 
 /* ---------- E：卡片响度三档 ----------
