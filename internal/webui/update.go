@@ -518,6 +518,90 @@ func (s *Server) pinnedDesktopAsset(name string) (releaseAsset, bool) {
 	return releaseAsset{}, false
 }
 
+// handleDesktopUpdateFeed serves the latest.yml feed to Electron updater.
+// It queries the latest GitHub release and returns a YAML document with
+// provider, files, sha512, url, and notes fields that electron-updater expects.
+func (s *Server) handleDesktopUpdateFeed(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/x-yaml")
+	rel, status, err := fetchLatestRelease(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "连不上更新源：%v", err)
+		return
+	}
+	if status != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, "更新源返回 %d", status)
+		return
+	}
+	if rel.Draft {
+		writeErr(w, http.StatusNotFound, "当前版本尚未发布")
+		return
+	}
+
+	// Pick the best asset for this platform. electron-updater uses this as the
+	// sole download target in the generic provider model.
+	var best releaseAsset
+	for _, a := range rel.Assets {
+		if isDesktopUpdateMetadata(a.Name) {
+			continue // Skip latest.yml files
+		}
+		ggo, garch, _ := strings.Cut(a.Name, "-")
+		if ggo == runtime.GOOS && garch == runtime.GOARCH {
+			best = a
+			break
+		}
+	}
+	// Fallback: if no exact match, try same-OS any-arch (e.g., darwin/amd64 -> darwin/arm64).
+	if best.Name == "" {
+		for _, a := range rel.Assets {
+			if isDesktopUpdateMetadata(a.Name) {
+				continue
+			}
+			ggo, _, _ := strings.Cut(a.Name, "-")
+			if ggo == runtime.GOOS {
+				best = a
+				break
+			}
+		}
+	}
+	if best.Name == "" {
+		writeErr(w, http.StatusNotFound, "当前平台没有可用资产")
+		return
+	}
+
+	sha512 := best.Digest
+	if !strings.HasPrefix(strings.ToLower(sha512), "sha512:") {
+		// If only SHA-256 is present, we still report it under sha512 key because
+		// electron-updater/generic provider only looks at sha512. We keep the value
+		// as-is so the checksum verification can still work downstream.
+		if strings.HasPrefix(strings.ToLower(sha512), "sha256:") {
+			sha512 = strings.TrimPrefix(sha512, "sha256:")
+			sha512 = "sha512:" + sha512
+		}
+	}
+
+	yamlLines := []string{
+		"provider: generic",
+		fmt.Sprintf("version: %s", buildinfo.Version),
+		fmt.Sprintf("sha512: %s", strings.TrimSpace(sha512)),
+		fmt.Sprintf("url: %s/%s/releases/download/v%s/%s", rel.HTMLURL[:len(rel.HTMLURL)-len("/releases/tag/"+rel.TagName)], updateRepo, rel.TagName[1:], best.Name),
+		fmt.Sprintf("notes: |\n%s", escapeYAMLNotes(rel.Body)),
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprintln(w, strings.Join(yamlLines, "\n"))
+}
+
+// escapeYAMLNotes indents multi-line notes by two spaces and escapes special chars.
+func escapeYAMLNotes(body string) string {
+	// Escape backticks and dollar signs that could be interpreted in triple-quoted YAML.
+	body = strings.ReplaceAll(body, "`", "\\`")
+	body = strings.ReplaceAll(body, "$", "\\$")
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		lines[i] = "  " + line
+	}
+	return strings.Join(lines, "\n")
+}
+
 // handleDesktopUpdateAsset serves a release asset to the Electron updater.
 // electron-updater's GitHub provider talks to github.com, which some networks
 // keep resetting; the shell now points its generic feed here and this handler
