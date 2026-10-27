@@ -451,6 +451,12 @@ const I18N_EN = {
   当前等级: 'Current level',
   待分析内容: 'Content to analyze',
   待批准: 'Awaiting approval',
+  处理中: 'Working',
+  已停止: 'Stopped',
+  重新填写: 'Refill goal',
+  '去配置 API Key': 'Configure API key',
+  '目标会填回输入框，不会自动提交':
+    'The goal will be filled back into the input; it is not submitted automatically',
   '很多站点（Google、GitHub、需要登录的页面）拒绝被嵌在这里，一直空白就是被拒了——用「在系统浏览器打开」。':
     'Many sites (Google, GitHub, pages that require sign-in) refuse to be embedded here; a permanently blank pane means they refused — use "Open in system browser".',
   循环与上下文治理: 'Loop and context governance',
@@ -1050,8 +1056,8 @@ const I18N_EN = {
   有改动: 'Has changes',
   '有新的实验功能时会出现在这里。':
     'New experimental features will show up here.',
-  '有新的审批请求，请前往目标视图':
-    'New approval request — go to the Goals view',
+  '有新的审批请求，请在左侧任务记录中打开对应对话':
+    'New approval request — open its conversation in Task history',
   未命名内容: 'Untitled',
   未命名空间: 'Untitled space',
   未接入: 'Not connected',

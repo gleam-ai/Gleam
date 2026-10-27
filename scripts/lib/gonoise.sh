@@ -12,6 +12,10 @@
 
 GO_FLAKE_RE='is not in std \('
 
+# 真实失败要在输出里点得出名字。`go test ./...` 每个包一行结果，失败包名常常
+# 落在 `tail -25` 之外——第 4 层红过两次却叫不出是哪个包，就是这条被截掉了。
+GO_FAIL_RE='^(FAIL|--- FAIL|panic:|# )|\.go:[0-9]+:'
+
 # 最多尝试几次（含首次）。默认 3。
 GO_FLAKE_ATTEMPTS="${GLEAM_GO_FLAKE_ATTEMPTS:-3}"
 # 两次尝试之间的间隔秒数。默认 3。
@@ -78,6 +82,7 @@ go_retry() {
   done
 
   if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$out" | grep -E "$GO_FAIL_RE" | grep -vE "$GO_FLAKE_RE" | head -12 | sed 's/^/  ✘ /' >&2 || true
     printf '%s\n' "$out" | tail -25 | sed 's/^/    /' >&2
   fi
   return "$rc"

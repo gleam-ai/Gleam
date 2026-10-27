@@ -518,7 +518,6 @@ html[data-theme="light"] .convo-item.active {
 /* 宽屏：内容固定最大宽度并居中，侧栏收起时也不铺满 */
 .view-chat > .chat-header,
 .view-chat #goal-feed,
-.view-chat .empty--filtered,
 .view-chat > .composer,
 .view-chat > .composer-foot {
   width: 100%;

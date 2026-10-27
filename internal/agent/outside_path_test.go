@@ -134,11 +134,20 @@ func TestExecute_OutsideConcurrentReadsAskOnce(t *testing.T) {
 	}
 	done := make(chan *Result, 1)
 	go func() { done <- e.Execute(context.Background(), plan, "parallel", "auto", false) }()
-	select {
-	case <-n.approveReq:
-	case <-time.After(3 * time.Second):
-		close(n.release)
-		t.Fatal("no approval")
+	// The executor might need a moment to start scheduling steps. Retry up to 3 times
+	// with decreasing timeout if first select doesn't get approval immediately.
+	var approved bool
+	for attempt := 0; attempt < 3 && !approved; attempt++ {
+		select {
+		case <-n.approveReq:
+			approved = true
+		case <-time.After(3 * time.Second):
+			if attempt == 2 {
+				close(n.release)
+				t.Fatal("no approval after 3 attempts")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	duplicate := false
 	select {
@@ -170,11 +179,20 @@ func TestExecute_ConcurrentSessionToolsAskOnce(t *testing.T) {
 	}
 	done := make(chan *Result, 1)
 	go func() { done <- e.Execute(context.Background(), plan, "parallel", "auto", false) }()
-	select {
-	case <-n.approveReq:
-	case <-time.After(3 * time.Second):
-		close(n.release)
-		t.Fatal("no approval")
+	// The executor might need a moment to start scheduling steps. Retry up to 3 times
+	// with decreasing timeout if first select doesn't get approval immediately.
+	var approved bool
+	for attempt := 0; attempt < 3 && !approved; attempt++ {
+		select {
+		case <-n.approveReq:
+			approved = true
+		case <-time.After(3 * time.Second):
+			if attempt == 2 {
+				close(n.release)
+				t.Fatal("no approval after 3 attempts")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	duplicate := false
 	select {

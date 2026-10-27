@@ -1470,11 +1470,6 @@ const STATUS_LABEL = {
   failed: '失败',
   cancelled: '已取消',
 };
-let currentGoalFilter = 'all';
-// 首页默认只铺「要你处理的 + 最近几条已完成」，完整历史留在左侧任务记录。
-// 展开是显式动作：每次打开先被旧记录淹没，输入框就不再是主角。
-const RECENT_DONE_ON_HOME = 2;
-let goalFeedExpanded = false;
 
 // 审批卡只有在任务还活着时才算"需要处理"。任务已经定格（成功/失败/取消）却还留着一张
 // "需要你的批准"，是在向用户要一个已经不存在的决定——超时自动拒绝、或在另一个窗口里批掉，
@@ -1493,7 +1488,7 @@ function taskGroup(task) {
 }
 
 // 失败分流只做最粗一档：鉴权类 vs 其他。当前 100% 真实故障（HTTP 401）落在
-// 鉴权类；匹配不上走"其他"默认给重新提交。不做分类树——一档覆盖全部真实
+// 鉴权类；匹配不上走"其他"默认给重新填写。不做分类树——一档覆盖全部真实
 // 场景，复杂分类只会养活永远不会走到的分支。
 const FAIL_AUTH_RE = /401|403|Authentication|unauthorized|invalid.{0,20}key/i;
 function failKind(error) {
@@ -1506,115 +1501,11 @@ function failSummary(error) {
   return line ? line.trim().slice(0, 60) : '任务失败';
 }
 
-// 失败横幅：动作只有一个声音。N 张失败卡时统一入口在这里，卡片只留记录。
-// 两个按钮常驻、主次按错误类型排，不随"配置是否已完成"切换——
-// 没有可靠的"配完了"信号，切换逻辑会骗人（用户要求的保底选项）。
-function paintFailBanner() {
-  const banner = $('#goal-fail-banner');
-  if (!banner) return;
-  const failed = [...tasks.values()].filter(
-    (t) => t.info.status === 'failed' || t.info.status === 'partial',
-  );
-  if (!failed.length) {
-    banner.hidden = true;
-    return;
-  }
-  // 横幅是 feed 的摘要，跟着筛选走：切到"已完成"时 feed 里一张失败卡都没有，
-  // 横幅继续说"3 张失败"就是摘要与列表双态不一致——正是上轮修过的那类 bug。
-  // "全部"与"需处理"两个视图下失败卡可见，横幅才在。
-  if (currentGoalFilter !== 'all' && currentGoalFilter !== 'attention') {
-    banner.hidden = true;
-    return;
-  }
-  const at = (t) =>
-    Date.parse(
-      (t.info.result && t.info.result.finished_at) || t.info.started_at || '',
-    ) || 0;
-  const sorted = failed.sort((a, b) => at(b) - at(a));
-  const latest = sorted[0];
-  // 根因优先规则：鉴权失败会让后续全部失败，混合时主入口给它——
-  // 不论最新一张是不是它。修根因比按时间顺序摆按钮更接近"下一步该干什么"。
-  const authOnes = failed.filter(
-    (t) => failKind((t.info.result && t.info.result.error) || '') === 'auth',
-  );
-  const auth = authOnes.length > 0;
-  const authLatest = auth ? authOnes.sort((a, b) => at(b) - at(a))[0] : null;
-  banner.hidden = false;
-  $('#gfb-title').textContent =
-    failed.length > 1 ? `${failed.length} 个任务失败` : '任务失败';
-  $('#gfb-sub').textContent =
-    failed.length > 1 && auth
-      ? authOnes.length === failed.length
-        ? `${failed.length} 张失败，全部为鉴权问题`
-        : `${failed.length} 张失败，其中 ${authOnes.length} 张为鉴权问题`
-      : failSummary((latest.info.result && latest.info.result.error) || '');
-
-  const acts = $('#gfb-actions');
-  acts.replaceChildren();
-  const note = el('span', 'gfb-note', '将创建一条新任务');
-  // 语义说在明处：同一目标文本走一遍提交，产生一条新任务，不是原任务续跑。
-  const makeResubmit = (cls, task) => {
-    const b = el('button', cls, '重新提交');
-    b.type = 'button';
-    b.addEventListener('click', async () => {
-      goalInput.value = (task && task.info.goal) || '';
-      autoResize();
-      await submitGoal();
-    });
-    return b;
-  };
-  const makeConfig = (cls, task) => {
-    const b = el('button', cls, '去配置 API Key');
-    b.type = 'button';
-    b.addEventListener('click', () => {
-      showView('settings');
-      setTimeout(() => {
-        // 落到出问题那一家：任务结果自带 ConfigSnapshot.provider，与设置页
-        // #set-provider 的 option value 同源（都来自 /api/providers 的 id）。
-        // 对得上才切，对不上保持当前选中态——不猜。
-        const snap =
-          task && task.info.result && task.info.result.config_snapshot;
-        const pid = snap && snap.provider;
-        const sel = $('#set-provider');
-        if (pid && sel && [...sel.options].some((o) => o.value === pid)) {
-          sel.value = pid;
-          sel.dispatchEvent(new Event('change'));
-        }
-        switchSettingsTab?.('llm');
-        $('#set-api-key')?.focus();
-      }, 300);
-    });
-    return b;
-  };
-  if (auth) {
-    // 鉴权失败重提交必然再失败：主入口给配置（且指向根因那张的厂商），
-    // 重提交降为 ghost。
-    acts.append(
-      makeConfig('btn btn-primary btn-sm', authLatest),
-      makeResubmit('btn btn-ghost btn-sm', latest),
-      note,
-    );
-  } else {
-    const view = el('button', 'btn btn-ghost btn-sm', '查看失败卡');
-    view.type = 'button';
-    view.addEventListener('click', () => {
-      latest.card.scrollIntoView({ block: 'center' });
-      // 复用既有的卡片高亮类（01-base .goal-card--flash），不新造动效
-      latest.card.classList.add('goal-card--flash');
-      setTimeout(() => latest.card.classList.remove('goal-card--flash'), 1600);
-    });
-    acts.append(makeResubmit('btn btn-primary btn-sm', latest), note, view);
-  }
-}
-
 function refreshWorkbench() {
   const all = [...tasks.values()];
   const counts = { all: all.length, active: 0, done: 0, attention: 0 };
   all.forEach((task) => {
     counts[taskGroup(task)]++;
-  });
-  document.querySelectorAll('[data-count]').forEach((node) => {
-    node.textContent = counts[node.dataset.count] || 0;
   });
 
   const attention = counts.attention;
@@ -1624,85 +1515,18 @@ function refreshWorkbench() {
     all.filter((task) => approvalCardOf(task)).length +
     document.querySelectorAll('.approval-card.standalone-approval').length;
 
-  let recentDone = null;
-  if (currentGoalFilter === 'all' && !goalFeedExpanded) {
-    const completedAt = (task) =>
-      Date.parse(task.info.result?.finished_at || task.info.started_at || '') ||
-      0;
-    recentDone = new Set(
-      all
-        .filter((task) => taskGroup(task) === 'done')
-        .sort((a, b) => completedAt(b) - completedAt(a))
-        .slice(0, RECENT_DONE_ON_HOME)
-        .map((task) => task.info.task_id),
-    );
-  }
-  all.forEach((task) => {
-    const group = taskGroup(task);
-    const inFilter = currentGoalFilter === 'all' || group === currentGoalFilter;
-    const inWindow =
-      !recentDone || group !== 'done' || recentDone.has(task.info.task_id);
-    task.card.hidden = !(inFilter && inWindow);
-  });
-  const visible = all.filter((task) => !task.card.hidden).length;
-  $('#goals-filtered-empty').hidden = all.length === 0 || visible > 0;
-
-  const doneCount = all.filter((task) => taskGroup(task) === 'done').length;
-  const more = $('#goals-more');
-  if (more) {
-    // 会话线程里没有列表可展开：按钮挂在 feed 外，不隐藏会跟着消息流落到末尾。
-    const foldable =
-      !viewingConvo &&
-      currentGoalFilter === 'all' &&
-      doneCount > RECENT_DONE_ON_HOME;
-    more.hidden = !foldable;
-    if (foldable) {
-      more.textContent = goalFeedExpanded
-        ? `只看最近 ${RECENT_DONE_ON_HOME} 条`
-        : `查看全部 ${all.length} 条记录`;
-      more.setAttribute('aria-expanded', String(goalFeedExpanded));
-    }
-  }
-
   const feed = $('#goal-feed');
   // Conversation view owns the feed: task cards live in `tasks` and must not be
   // re-mounted here, or another conversation's card appears in this thread.
+  // On the start screen the cards stay mounted but hidden; the sidebar is the
+  // record surface, so approval and progress state still has a home.
   if (!viewingConvo) {
-    all
-      .sort((a, b) => {
-        const priority = (task) =>
-          approvalCardOf(task)
-            ? 0
-            : taskGroup(task) === 'active'
-              ? 1
-              : taskGroup(task) === 'attention'
-                ? 2
-                : 3;
-        return priority(a) - priority(b);
-      })
-      .forEach((task) => feed.appendChild(task.card));
+    all.forEach((task) => feed.appendChild(task.card));
   }
 
   LiveRail.summary(counts, attention);
-  paintFailBanner();
+  paintConvoStatus();
 }
-
-$('#goals-more').addEventListener('click', () => {
-  goalFeedExpanded = !goalFeedExpanded;
-  refreshWorkbench();
-});
-
-$('#goal-filters').addEventListener('click', (event) => {
-  const button = event.target.closest('button[data-filter]');
-  if (!button) return;
-  currentGoalFilter = button.dataset.filter;
-  document
-    .querySelectorAll('#goal-filters button')
-    .forEach((item) =>
-      item.setAttribute('aria-pressed', String(item === button)),
-    );
-  refreshWorkbench();
-});
 
 // 运行中卡片的耗时读数：与 LiveRail 同源（都从 started_at 算），回答"还要等多久"
 // 这一眼。没有运行中的任务就停表——后台常驻 interval 是白烧 CPU。
@@ -1868,9 +1692,9 @@ function renderTaskCard(info, prepend) {
   card.appendChild(slots.skill);
 
   const feed = $('#goal-feed');
+  // The hero stays mounted on the start screen: the home layout is the hero
+  // plus composer, while cards remain an off-screen state holder.
   if (!viewingConvo) {
-    const empty = $('#goals-empty');
-    if (empty) empty.remove();
     if (prepend && feed.firstChild) feed.insertBefore(card, feed.firstChild);
     else feed.appendChild(card);
   }
@@ -2580,7 +2404,6 @@ function applyResult(taskID, result) {
       errSlot.hidden = true;
     }
   }
-  paintFailBanner();
   // 用时统计（开始/结束时间齐全且已结束时显示）
   if (result.started_at && result.finished_at) {
     const dur =
@@ -2945,8 +2768,11 @@ async function loadGoals() {
     setThreadMode(false);
     currentConvo = null;
     $('#goals-title').textContent = '目标';
-    $('#goal-feed').innerHTML = '';
   }
+  // The workbench always opens on the start screen: task records live in the
+  // sidebar, so the feed is reset to the hero before cards are loaded.
+  $('#goal-feed').innerHTML = '';
+  resetFeedToEmpty('', '', { home: true });
   try {
     const { goals } = await api('GET', '/api/goals');
     if (seq !== convoLoadSeq || viewingConvo) return;
@@ -2954,9 +2780,6 @@ async function loadGoals() {
       .slice()
       .reverse()
       .forEach((info) => renderTaskCard(info, false));
-    if (!goals || !goals.length) {
-      resetFeedToEmpty('', '', { home: true });
-    }
   } catch {}
 }
 
@@ -3034,7 +2857,7 @@ function connectSSE() {
         if (!currentConvo || t.info.conversation_id !== currentConvo.id) {
           pendingApprovals++;
           updateApprovalBadge(0);
-          toast('有新的审批请求，请前往目标视图', 'info');
+          toast('有新的审批请求，请在左侧任务记录中打开对应对话', 'info');
           return;
         }
         appendLiveConvoTurn(t.info.goal, ap.task_id, t.info.task_mode);
@@ -5335,6 +5158,7 @@ async function loadConvoList(activeId) {
     );
   });
   root.replaceChildren(frag);
+  paintConvoStatus();
 }
 
 function spaceGroupEl(sp, list, opts) {
@@ -5533,12 +5357,65 @@ function convoItemEl(it, active) {
   return item;
 }
 
+// The sidebar is the task record now, so each conversation carries the state of
+// its latest task. Completions are the quiet default; failures, approvals and
+// running work get the loud tags.
+const CONVO_TAG = {
+  running: { label: '处理中', tone: 'running' },
+  attention: { label: '待批准', tone: 'attention' },
+  failed: { label: '失败', tone: 'failed' },
+  partial: { label: '部分完成', tone: 'partial' },
+  cancelled: { label: '已停止', tone: 'cancelled' },
+  success: { label: '成功', tone: 'success' },
+};
+
+function convoTagState(task) {
+  if (approvalCardOf(task)) return 'attention';
+  const status = task.info.status;
+  return CONVO_TAG[status] ? status : '';
+}
+
+function paintConvoStatus() {
+  const latest = new Map();
+  for (const task of tasks.values()) {
+    const convoId = task.info.conversation_id;
+    if (!convoId) continue;
+    const at =
+      Date.parse(
+        (task.info.result && task.info.result.finished_at) ||
+          task.info.started_at ||
+          '',
+      ) || 0;
+    const prev = latest.get(convoId);
+    if (!prev || at >= prev.at) latest.set(convoId, { task, at });
+  }
+  document.querySelectorAll('#convo-list .convo-item').forEach((item) => {
+    const hit = latest.get(item.dataset.convoId || '');
+    const entry = hit && CONVO_TAG[convoTagState(hit.task)];
+    if (!entry) {
+      const stale = item.querySelector('.convo-status');
+      if (stale) stale.remove();
+      delete item.dataset.status;
+      return;
+    }
+    let tag = item.querySelector('.convo-status');
+    if (!tag) {
+      tag = el('span', 'convo-status');
+      const ops = item.querySelector('.convo-item-ops');
+      item.insertBefore(tag, ops || null);
+    }
+    tag.textContent = entry.label;
+    tag.dataset.status = entry.tone;
+    item.dataset.status = entry.tone;
+  });
+}
+
 function setThreadMode(on) {
   viewingConvo = on;
   const sec = $('#view-goals');
   sec.classList.toggle('thread-mode', on);
+  sec.classList.toggle('is-home', !on);
   goalInput.placeholder = composerPlaceholder();
-  $('#goal-filters').parentElement.style.display = on ? 'none' : '';
   // command-deck / quick-launch were retired with the old home layout (their
   // DOM is gone), so only cue-deck is looked up; querySelector may return
   // null and touching .style directly would throw.
@@ -5763,6 +5640,55 @@ async function openTaskDetail(taskID) {
           list.appendChild(it);
         });
         box.appendChild(list);
+      }
+      // The home feed no longer lists failed tasks, so recovery has to stay
+      // reachable from the detail view that the conversation points at.
+      if (info.status === 'failed' || info.status === 'partial') {
+        const acts = el('div', 'modal-actions');
+        const auth =
+          failKind((info.result && info.result.error) || '') === 'auth';
+        if (auth) {
+          const config = el(
+            'button',
+            'btn btn-primary btn-sm',
+            '去配置 API Key',
+          );
+          config.type = 'button';
+          config.addEventListener('click', () => {
+            Modal.close();
+            showView('settings');
+            setTimeout(() => {
+              const snap = info.result && info.result.config_snapshot;
+              const pid = snap && snap.provider;
+              const sel = $('#set-provider');
+              if (pid && sel && [...sel.options].some((o) => o.value === pid)) {
+                sel.value = pid;
+                sel.dispatchEvent(new Event('change'));
+              }
+              switchSettingsTab?.('llm');
+              $('#set-api-key')?.focus();
+            }, 300);
+          });
+          acts.appendChild(config);
+        }
+        const retry = el(
+          'button',
+          auth ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm',
+          '重新填写',
+        );
+        retry.type = 'button';
+        retry.addEventListener('click', () => {
+          Modal.close();
+          if (!viewingConvo) showView('goals');
+          goalInput.value = info.goal || '';
+          autoResize();
+          goalInput.focus();
+        });
+        acts.appendChild(retry);
+        acts.appendChild(
+          el('span', 'field-hint', '目标会填回输入框，不会自动提交'),
+        );
+        box.appendChild(acts);
       }
     });
   } catch {
@@ -6749,8 +6675,6 @@ const LiveRail = (() => {
     noteEls[s] = loopEl.querySelector(`[data-note="${s}"]`);
   });
 
-  const calm = () =>
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let openState = false;
   let rows = 0;
   let cur = null;
@@ -6847,20 +6771,19 @@ const LiveRail = (() => {
   }
   function focusTask(taskID) {
     if (!taskID) return;
-    showView('goals');
     const t = tasks.get(taskID);
-    if (!t || !t.card.isConnected) return;
-    t.card.hidden = false;
-    t.card.scrollIntoView({
-      block: 'center',
-      behavior: calm() ? 'auto' : 'smooth',
-    });
-    t.card.classList.remove('goal-card--flash');
-    void t.card.offsetWidth;
-    t.card.classList.add('goal-card--flash');
-    // 用定时器而不是 animationend 摘掉高亮：reduced-motion 下动画不跑，
-    // 事件也就不会来，那张卡会一直亮着。
-    setTimeout(() => t.card.classList.remove('goal-card--flash'), 1300);
+    // Cards no longer have a list surface to scroll to: route the jump through
+    // the conversation that owns the task, or the detail modal for legacy
+    // tasks that were never attached to one.
+    const convoId = t && t.info.conversation_id;
+    if (!convoId) {
+      showView('goals');
+      openTaskDetail(taskID);
+      return;
+    }
+    if (!(viewingConvo && $('#view-goals').classList.contains('active')))
+      showView('goals');
+    openConvo(convoId);
   }
 
   /* ---------- 循环轨 ---------- */
@@ -8943,8 +8866,9 @@ const ShellLayout = (() => {
   const feed = $('#goal-feed');
   function syncHome() {
     const empty = $('#goals-empty');
-    const home = !!empty && feed.children.length === 1;
-    view.classList.toggle('is-home', home && !viewingConvo);
+    // The hero is the start screen even when task cards remain mounted.
+    const home = !!empty && !viewingConvo;
+    view.classList.toggle('is-home', home);
     const tpl = empty && empty.querySelector('.site-tpl');
     if (home && tpl && siteMode) {
       if (!tpl.childElementCount) SiteTemplates.paint(tpl);
