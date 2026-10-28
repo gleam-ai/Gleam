@@ -11,6 +11,10 @@
 
 验证：`verify.sh --quick` 四层通过；隔离 mock 服务上的首页回归（hero-only、六种状态标签、完成后不回到首页、审批优先级、详情重新填写）与 shell / terminal / submit / 12 项 stream 套件全绿；Prettier、Ruff 与注释闸门通过。
 
+### 恢复桌面端检查更新
+
+- **补齐发布资产**：v0.0.24 的 Release 起初只上传了 zip，缺少 `Gleam-Setup.exe`、`.blockmap` 与 `latest.yml`，桌面端检查更新因此拿到 404。本次补发三份资产，并把代码、安装包与官网的版本号统一到 0.0.24。
+
 ## 2026-10-26
 
 ### 发布 0.0.23：首次打开只留当下要看的

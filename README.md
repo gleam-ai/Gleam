@@ -112,7 +112,7 @@ The desktop window and the CLI drive the embedded web UI over a local HTTP API (
 - **Spaces** — `/api/spaces` · `/api/spaces/{id}` · `/api/spaces/{id}/activate`
 - **SSH** — `/api/ssh/hosts`
 - **Tools** — `/api/tools` · `/api/tools/call` · `/api/tools/permission`
-- **Update** — `/api/update/apply` · `/api/update/check` · `/api/update/desktop/yml` · `/api/update/desktop/{name}`
+- **Update** — `/api/update/apply` · `/api/update/check` · `/api/update/desktop/{name}`
 - **Workspace** — `/api/workspace` · `/api/workspace/clear`
 - **Worktrees** — `/api/worktrees` · `/api/worktrees/{id}`
 

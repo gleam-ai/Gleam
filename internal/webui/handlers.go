@@ -127,7 +127,6 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/update/check", s.handleUpdateCheck)
 	mux.HandleFunc("POST /api/update/apply", s.handleUpdateApply)
-	mux.HandleFunc("GET /api/update/desktop/yml", s.handleDesktopUpdateFeed)
 	mux.HandleFunc("GET /api/update/desktop/{name}", s.handleDesktopUpdateAsset)
 
 	mux.HandleFunc("GET /api/import/scan", s.handleImportScan)
