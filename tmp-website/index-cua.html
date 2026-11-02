@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Gleam v0.0.25 — AI agent with computer use automation. Natural language control of Chrome, WeChat, VSCode. 10 MB binary."
+    />
+    <title>Gleam v0.0.25 — AI Agent with Computer Use Automation</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Navigation -->
+    <nav class="nav" id="nav">
+      <div class="nav-inner">
+        <a href="#" class="nav-logo">
+          <img src="favicon.svg" alt="" width="24" height="24" />
+          <span>Gleam <b>v0.0.25</b></span>
+        </a>
+        <div class="nav-links">
+          <a href="#features" data-i18n="nav.features">Features</a>
+          <a href="#cua-demo" data-i18n="nav.cua">Computer Use</a>
+          <a href="#download" data-i18n="nav.download">Download</a>
+          <a href="https://github.com/gleam-ai/Gleam" target="_blank">GitHub</a>
+        </div>
+        <div class="nav-actions">
+          <a href="index-zh.html" class="lang-toggle" title="切换到中文"
+            >中文</a
+          >
+          <a href="#download" class="nav-cta" data-i18n="nav.cta"
+            >Download v0.0.25</a
+          >
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container">
+        <p class="hero-eyebrow reveal">
+          New in v0.0.25 · Computer Use Automation · Local-first · 10 MB
+        </p>
+        <h1 class="hero-title reveal reveal-delay-1">
+          <span class="line give">Give your ideas to <span class="brand">Gleam</span>,</span>
+          <span class="line keep">keep control of your desktop.</span>
+        </h1>
+        <p class="hero-subtitle reveal reveal-delay-2">
+          Gleam now **controls your desktop** with natural language. Open Chrome, send messages in WeChat, automate VSCode — all from simple commands like "open GitHub and compare Gleam with MCP".
+        </p>
+        <div class="hero-actions reveal reveal-delay-3">
+          <a href="#download" class="btn btn-primary">Download v0.0.25</a>
+          <a
+            href="https://github.com/gleam-ai/Gleam/releases/tag/v0.0.25-cua-integration"
+            target="_blank"
+            class="btn-ghost"
+            >View Release Notes</a
+          >
+        </div>
+        <p class="hero-meta reveal reveal-delay-3">Released 2026-11-02 · MIT License</p>
+
+        <!-- CUA Demo Section -->
+        <div id="cua-demo" class="cua-section reveal reveal-delay-4">
+          <h3 class="cua-title">Computer Use Automation in Action</h3>
+          
+          <div class="cua-cards">
+            <div class="cua-card">
+              <div class="cua-icon">🖥️</div>
+              <h4>Natural Language Control</h4>
+              <p><code>gleam goal "打开 Chrome 访问 github.com"</code></p>
+              <p class="cua-desc">AI understands URLs and automatically triggers browser actions</p>
+            </div>
+            
+            <div class="cua-card" data-delay="100">
+              <div class="cua-icon">💬</div>
+              <h4>Chinese App Support</h4>
+              <p><code>gleam goal "在微信中发送消息给测试人员"</code></p>
+              <p class="cua-desc">Optimized for WeChat, QQ, DingTalk with IME handling</p>
+            </div>
+            
+            <div class="cua-card" data-delay="200">
+              <div class="cua-icon">🔒</div>
+              <h4>Security First</h4>
+              <p>Blacklist mode · Command injection prevention · Audit logging</p>
+              <p class="cua-desc">Zero background processes, event-triggered operation</p>
+            </div>
+          </div>
+
+          <div class="cua-code-block">
+            <pre><code>$ gleam goal "比较 https://github.com/gleam-ai/Gleam 和 ModelContextProtocol"
+
+[Agent] Detected URL pattern → triggering Computer Use
+[Action] Opening Chrome with comparison tab
+[Screenshot] Analyzing both repositories
+[Output] Here's a detailed comparison...</code></pre>
+          </div>
+        </div>
+
+        <!-- 推进轨：命令 → 步骤 → 完成卡片 -->
+        <div class="flow reveal reveal-delay-4">
+          <div class="flow-cmd">
+            <span class="prompt">$</span>gleam goal
+            <span class="arg">"organize my markdown files"</span>
+          </div>
+          <ul class="steps">
+            <li>
+              <span class="ok">✓</span><span class="num">01</span>Scanned 23
+              files
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">02</span>Grouped by
+              topic (5 categories)
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">03</span>Moved 18
+              files, updated 3 links
+            </li>
+            <li>
+              <span class="ok">✓</span><span class="num">04</span>Summary
+              written to INDEX.md
+            </li>
+          </ul>
+          <div class="finish">
+            <div class="finish-head">
+              <span class="label">Done</span>
+              <span class="score">Self-check <b>94 / 100</b></span>
+            </div>
+            <p>It finished the whole job while you weren't watching.</p>
+          </div>
+        </div>
+
+        <!-- 事实条 -->
+        <div class="facts reveal">
+          <div class="fact">
+            <div class="n">
+              <span class="fact-num" data-target="10">0</span><small> MB</small>
+            </div>
+            <div class="k">Binary size</div>
+          </div>
+          <div class="fact">
+            <div class="n">
+              <span class="fact-num" data-target="27">0</span>
+            </div>
+            <div class="k">Built-in tools</div>
+          </div>
+          <div class="fact">
+            <div class="n">
+              <span class="fact-num" data-target="55">0</span><small>%</small>
+            </div>
+            <div class="k">Token savings</div>
+          </div>
+          <div class="fact">
+            <div class="n"><span class="fact-num" data-target="0">0</span></div>
+            <div class="k">External deps</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- D · Capabilities：闭环主叙事 + 错落栏 -->
+    <section id="features" class="features">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="section-eyebrow">What's new in v0.0.25</p>
+          <h2>
+            <span class="line give">From planning agent to</span>
+            <span class="line keep">desktop automation master.</span>
+          </h2>
+        </div>
+
+        <!-- Main CUA Loop -->
+        <div class="loop-band reveal">
+          <div class="loop-stage">
+            <div class="loop-num">NEW</div>
+            <div class="loop-name">Detect URLs</div>
+            <p class="loop-note">
+              Automatically identifies URLs in tasks and triggers desktop controls.
+            </p>
+          </div>
+          <div class="loop-stage">
+            <div class="loop-num">NEW</div>
+            <div class="loop-name">Control Apps</div>
+            <p class="loop-note">
+              Click, type, screenshot via Windows UI Automation — structured not coordinates.
+            </p>
+          </div>
+          <div class="loop-stage">
+            <div class="loop-num">NEW</div>
+            <div class="loop-name">Chinese Apps</div>
+            <p class="loop-note">
+              WeChat, QQ, DingTalk support with proper IME handling and whitelist.
+            </p>
+          </div>
+          <p class="loop-read">
+            Zero background processes — only activates when you need it. Memory footprint: ~45KB.
+          </p>
+        </div>
+
+        <!-- Signature features -->
+        <div class="ev-grid">
+          <div class="ev-card reveal">
+            <div class="ev-head">
+              <span class="ev-num">01</span><span class="ev-pill">LOCAL</span>
+            </div>
+            <h3>Local-first</h3>
+            <p>
+              Conversations, memory, tasks, and audit logs stay on your machine.
+              Only real LLM calls leave — and you pick the provider.
+            </p>
+          </div>
+          <div class="ev-card reveal" data-delay="100">
+            <div class="ev-head">
+              <span class="ev-num">02</span><span class="ev-pill">MODELS</span>
+            </div>
+            <h3>9 LLM providers</h3>
+            <p>
+              GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and
+              more. Tier routing: a strong model plans, a fast one summarizes.
+            </p>
+          </div>
+          <div class="ev-card reveal" data-delay="200">
+            <div class="ev-head">
+              <span class="ev-num">03</span><span class="ev-pill">TOOLS</span>
+            </div>
+            <h3>27 built-in tools</h3>
+            <p>
+              File, shell, web, git, clipboard, screenshots, memory, scheduling
+              — plus MCP for extensions and CU for desktop control.
+            </p>
+          </div>
+          <div class="ev-card reveal" data-delay="100">
+            <div class="ev-head">
+              <span class="ev-num">04</span><span class="ev-pill">ROLES</span>
+            </div>
+            <h3>7 expert roles</h3>
+            <p>
+              Analyst, engineer, PM, researcher, ops, creator — or your own.
+              Each role carries its own system prompt, tool set, and model tier.
+            </p>
+          </div>
+          <div class="ev-card reveal" data-delay="200">
+            <div class="ev-head">
+              <span class="ev-num">05</span><span class="ev-pill">SKILLS</span>
+            </div>
+            <h3>Skill crystallization</h3>
+            <p>
+              Successful runs become versioned, reusable skills with
+              success-rate tracking.
+            </p>
+            <div class="ev-facts">
+              Code review <b>92%</b> · File organize <b>87%</b> · Git workflow
+              <b>95%</b>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Screenshots -->
+    <section id="how-it-works" class="showcase">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="section-eyebrow">Interface</p>
+          <h2>
+            <span class="line give">It steps back,</span>
+            <span class="line keep">you get on with it.</span>
+          </h2>
+        </div>
+        <div class="showcase-grid">
+          <div class="showcase-card showcase-card--large reveal">
+            <img
+              src="gleam-desktop-01.png"
+              alt="Main interface"
+              loading="lazy"
+            />
+            <div class="showcase-label" data-i18n="showcase.s1">
+              Desktop window with CUA status
+            </div>
+          </div>
+          <div class="showcase-card reveal" data-delay="100">
+            <img
+              src="settings-llm.png"
+              alt="Model configuration"
+              loading="lazy"
+            />
+            <div class="showcase-label" data-i18n="showcase.s2">
+              Multi-provider model config
+            </div>
+          </div>
+          <div class="showcase-card reveal" data-delay="200">
+            <img
+              src="settings-engine.png"
+              alt="Engine settings"
+              loading="lazy"
+            />
+            <div class="showcase-label" data-i18n="showcase.s3">
+              Fine-grained engine controls
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Download -->
+    <section id="download" class="download">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="section-eyebrow">Get started</p>
+          <h2>
+            <span class="line give">One binary.</span>
+            <span class="line keep">Zero setup.</span>
+          </h2>
+          <p class="section-sub">
+            <span id="dl-version">v0.0.25</span> · Released
+            <time id="dl-date" datetime="2026-11-02">2026-11-02</time> · MIT
+            License
+          </p>
+        </div>
+
+        <div class="download-layout">
+          <a
+            href="https://github.com/gleam-ai/Gleam/releases/latest/download/Gleam-Setup.exe"
+            class="download-main reveal"
+          >
+            <div class="dm-platform">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"
+                />
+              </svg>
+              Windows <span class="dm-badge">RECOMMENDED</span>
+            </div>
+            <p class="dm-desc">
+              One-click installer · tray icon · auto-update · bundled runtimes
+            </p>
+            <div class="dm-meta">~127 MB · NSIS</div>
+          </a>
+
+          <div class="download-list">
+            <a
+              class="dl-row reveal"
+              data-delay="100"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-windows-amd64-v0.0.25.exe"
+            >
+              <span class="dl-name">Windows CLI</span>
+              <span class="dl-desc">Single-file binary with CUA</span>
+              <span class="dl-size">~16 MB</span>
+            </a>
+            <a
+              class="dl-row reveal"
+              data-delay="150"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-darwin-arm64"
+            >
+              <span class="dl-name">macOS</span>
+              <span class="dl-desc">Apple Silicon</span>
+              <span class="dl-size">~15 MB</span>
+            </a>
+            <a
+              class="dl-row reveal"
+              data-delay="200"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-linux-amd64"
+            >
+              <span class="dl-name">Linux</span>
+              <span class="dl-desc">x86_64 binary</span>
+              <span class="dl-size">~15 MB</span>
+            </a>
+          </div>
+        </div>
+
+        <p class="download-alt" data-i18n="download.alt">
+          Or install from source:
+          <code>go install gleam/cmd/gleam@latest</code>
+        </p>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-content">
+          <div class="footer-brand">
+            <img src="favicon.svg" alt="" width="24" height="24" />
+            <span>Gleam v0.0.25</span>
+          </div>
+          <div class="footer-links">
+            <a href="https://github.com/gleam-ai/Gleam" target="_blank"
+              >GitHub</a
+            >
+            <a
+              href="https://github.com/gleam-ai/Gleam/releases"
+              target="_blank"
+              data-i18n="footer.releases"
+              >Releases</a
+            >
+            <a
+              href="https://github.com/gleam-ai/Gleam/blob/master/LICENSE"
+              target="_blank"
+              data-i18n="footer.license"
+              >MIT License</a
+            >
+            <a
+              href="https://github.com/gleam-ai/Gleam/issues"
+              target="_blank"
+              data-i18n="footer.issues"
+              >Issues</a
+            >
+          </div>
+        </div>
+        <div class="footer-qr">
+          <div class="qr-item">
+            <img src="wechat-qr.png" alt="WeChat" />
+            <div data-i18n="footer.wechat">WeChat</div>
+          </div>
+          <div class="qr-item">
+            <img src="mp-qr.jpg" alt="WeChat Official Account" />
+            <div data-i18n="footer.mp">Official Account · 宁的 AI 小站</div>
+          </div>
+          <div class="qr-item">
+            <img src="appreciate-qr.png" alt="Appreciate" />
+            <div data-i18n="footer.appreciate">Appreciate</div>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <p data-i18n="footer.bottom">
+            Built with Go, running locally. &copy; 2026 Gleam
+          </p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
