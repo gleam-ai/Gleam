@@ -497,11 +497,58 @@ func isDesktopUpdateMetadata(name string) bool {
 		(strings.HasSuffix(lower, ".yml") || strings.HasSuffix(lower, ".yaml"))
 }
 
-func (s *Server) pinDesktopRelease(rel releaseInfo) {
+// serveLatestYML returns the auto-update manifest for electron-updater.
+// Format: https://www.electron.build/auto-update#github-updater
+func (s *Server) serveLatestYML(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Header().Set("Cache-Control", "no-store")
+	
+	rel, status, err := fetchLatestRelease(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "连不上更新源：%v", err)
+		return
+	}
+	if status != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, "更新源返回 %d", status)
+		return
+	}
+	
+	// Find the Gleam-Setup.exe installer
+	var installer *releaseAsset
+	for _, a := range rel.Assets {
+		if strings.EqualFold(a.Name, "Gleam-Setup.exe") {
+			installer = &a
+			break
+		}
+	}
+	if installer == nil {
+		writeErr(w, http.StatusNotFound, "最新版里没有 Gleam-Setup.exe")
+		return
+	}
+	
+	// Build electron-updater compatible YAML manifest
+	manifest := fmt.Sprintf(`version: %s
+files:
+- url: %s
+  size: %d
+path: %s
+sha512: %s
+provider: github
+owner: gleam-ai
+repo: Gleam
+prerelease: true
+`, rel.TagName, installer.Name, installer.Size, installer.Name, installer.Digest)
+	
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(manifest))
+	pinDesktopRelease(s, &rel)
+}
+
+func pinDesktopRelease(s *Server, rel *releaseInfo) {
 	s.desktopPinMu.Lock()
-	s.desktopPin = &rel
+	defer s.desktopPinMu.Unlock()
+	s.desktopPin = rel
 	s.desktopPinAt = time.Now()
-	s.desktopPinMu.Unlock()
 }
 
 func (s *Server) pinnedDesktopAsset(name string) (releaseAsset, bool) {
@@ -530,6 +577,13 @@ func (s *Server) handleDesktopUpdateAsset(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, "没有这个更新文件")
 		return
 	}
+	
+	// Special handling for latest.yml manifest
+	if isDesktopUpdateMetadata(name) {
+		s.serveLatestYML(w, r)
+		return
+	}
+	
 	// The updater reads latest.yml first and then downloads by asset name. Pin
 	// that release for the rest of the download: resolving "latest" again per
 	// asset lets a release published mid-download swap the installer under the
@@ -559,7 +613,7 @@ func (s *Server) handleDesktopUpdateAsset(w http.ResponseWriter, r *http.Request
 			writeErr(w, http.StatusNotFound, "最新版里没有 %s", name)
 			return
 		}
-		s.pinDesktopRelease(rel)
+		pinDesktopRelease(s, &rel)
 	}
 	src := asset.downloadURL()
 	if src == "" {
