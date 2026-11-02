@@ -1,8 +1,8 @@
 {
   "name": "gleam-desktop",
   "productName": "Gleam",
-  "version": "0.0.24",
-  "description": "Gleam — a local-first desktop AI agent. Configuration and data stay on this machine.",
+  "version": "0.0.25",
+  "description": "Gleam — a local-first desktop AI agent with Computer Use Automation. Configuration and data stay on this machine.",
   "author": "Gleam",
   "license": "UNLICENSED",
   "private": true,
