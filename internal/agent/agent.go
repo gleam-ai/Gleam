@@ -23,6 +23,7 @@ import (
 	"gleam/internal/harness/space"
 	"gleam/internal/llm"
 	"gleam/internal/tools/file"
+	"gleam/pkg"
 	"gleam/pkg/types"
 )
 
@@ -69,6 +70,11 @@ type Agent struct {
 	ctxMu               sync.Mutex
 	lastPromptTokens    int
 	lastPromptEstimated bool
+}
+
+// validateJSONListArgs ensures the provided args value is a []any, calling ValidateJSONListSchema.
+func validateJSONListArgs(v any) error {
+	return pkg.ValidateJSONListSchema(v)
 }
 
 // taskBudget is extra quota granted after user approval (on top of the config

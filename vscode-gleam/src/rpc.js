@@ -5,12 +5,20 @@
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
+// Retryable error codes (network transient/server busy): can safely retry.
+// Non-retryable codes (validation/authentication): do not retry.
+const RETRYABLE_ERROR_CODES = new Set([-32000, -32001, -32002, -32003]);
+
 class JsonRpcError extends Error {
   constructor(code, message, data) {
     super(message || 'json-rpc error');
     this.name = 'JsonRpcError';
     this.code = code;
     this.data = data;
+  }
+
+  isRetryable() {
+    return RETRYABLE_ERROR_CODES.has(this.code);
   }
 }
 
@@ -120,3 +128,47 @@ class JsonRpcClient {
 }
 
 module.exports = { JsonRpcClient, JsonRpcError, DEFAULT_TIMEOUT_MS };
+
+// RPC 包装器：统一错误处理与重试策略
+async function rpcCallWithErrorHandling(client, method, params, options = {}) {
+  const {
+    maxRetries = 3,
+    baseDelayMs = 500,
+    timeoutMs = client.timeoutMs || DEFAULT_TIMEOUT_MS,
+  } = options;
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await Promise.race([
+        client.request(method, params, timeoutMs),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error(`request timeout: ${method}`)), timeoutMs);
+        }),
+      ]);
+    } catch (err) {
+      lastError = err;
+      if (!(err instanceof JsonRpcError) || !err.isRetryable() || attempt === maxRetries) {
+        throw err;
+      }
+      // Exponential backoff with jitter
+      const delay = Math.min(baseDelayMs * Math.pow(2, attempt), 5000);
+      const jitter = Math.random() * 0.2 * delay;
+      await new Promise(res => setTimeout(res, delay + jitter));
+    }
+  }
+  throw lastError;
+}
+
+// 简单 Toast 提示接口（宿主层注入）
+function toastNotify(message, type = 'info') {
+  // 由宿主提供全局变量 gleamToast 或 console.warn 兜底
+  if (typeof window !== 'undefined' && window.gleamToast) {
+    window.gleamToast.notify({ message, type });
+  } else {
+    console.warn(`[${type.toUpperCase()}] ${message}`);
+  }
+}
+
+// 导出新增工具
+rpcCallWithErrorHandling.toastNotify = toastNotify;

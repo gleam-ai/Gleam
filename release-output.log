@@ -1,0 +1,72 @@
+🚀 Gleam Multi-Platform Release Script
+=========================================
+
+[0;34m[INFO][0m Step 1: Creating directory structure...
+[0;34m[INFO][0m Step 2: Checking build dependencies...
+[0;34m[INFO][0m Found Go go1.27.1
+[0;34m[INFO][0m Electron builder available
+[0;34m[INFO][0m Step 3: Running pre-build verification...
+🔍 Gleam CUA Integration Release Verification
+==============================================
+
+📦 Building entire project...
+✅ Build successful
+
+🧪 Running unit tests...
+ok  	gleam/internal/agent/tools/cua	0.950s
+ok  	gleam/internal/agent/taskrouter	0.728s
+✅ All tests passed
+
+✏️ Checking code formatting...
+✅ Code properly formatted
+
+🛡️ Running static analysis...
+✅ No static analysis issues
+
+📋 Verifying dependencies...
+✅ Dependencies OK
+
+💾 Estimating memory overhead...
+20K	internal/agent/tools/cua
+25K	internal/agent/taskrouter
+✅ Combined size ~2KB per instance (runtime)
+
+⚙️ Validating configuration files...
+✅ Config file valid JSON
+
+📄 Checking documentation...
+✅ All docs present
+
+==============================================
+✅ ALL VERIFICATION CHECKS PASSED!
+==============================================
+
+Summary:
+  • Build: ✅
+  • Tests: ✅ (All passing)
+  • Format: ✅ (No changes needed)
+  • Vet: ✅ (No warnings)
+  • Config: ✅ (Valid JSON)
+  • Docs: ✅ (Complete)
+
+Ready for release to any environment!
+
+Next steps:
+  1. Review RELEASE-CHECKLIST.md for detailed instructions
+  2. Update version number in go.mod if needed
+  3. Create release tag: git tag v0.0.25-beta.1
+  4. Build installer: bash scripts/package.sh
+
+[0;34m[INFO][0m Starting multi-platform release for version 0.0.25-beta.1
+[0;34m[INFO][0m Building Windows x64 executable...
+[0;32m[SUCCESS][0m ✅ Windows x64 built successfully
+[0;32m[SUCCESS][0m Windows package ready at ./dist/windows/Gleam_0.0.25-beta.1_setup/
+[0;34m[INFO][0m Building Linux x64 executable...
+[0;32m[SUCCESS][0m ✅ Linux x64 built successfully
+tar (child)gleam-linux-amd64
+: ./dist/linux/Gleam_0.0.25-beta.1_linux_amd64.tar.gz: Cannot open: No such file or directory
+tar (child): Error is not recoverable: exiting now
+tar: ./dist/linux/Gleam_0.0.25-beta.1_linux_amd64.tar.gz: Cannot write: Broken pipe
+tar: Child returned status 2
+tar: Error is not recoverable: exiting now
+[0;34m[INFO][0m Cleaning up temporary files...

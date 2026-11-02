@@ -2,7 +2,7 @@
 
 const { spawn } = require('node:child_process');
 const vscode = require('vscode');
-const { JsonRpcClient } = require('./rpc.js');
+const { JsonRpcClient, rpcCallWithErrorHandling } = require('./rpc.js');
 
 let client = null;
 let child = null;
@@ -162,8 +162,9 @@ async function startClient() {
     cleanup();
   });
   try {
-    await rpc.request('initialize', {});
-    const info = await rpc.request('ping');
+    // 使用重试包装器发送 initialize 请求
+    await rpcCallWithErrorHandling(client, 'initialize', {});
+    const info = await rpcCallWithErrorHandling(client, 'ping');
     log(`engine ready: ${JSON.stringify(info)}`);
     setStatus('ready', `${command} ${args.join(' ')}`);
     return rpc;
@@ -214,7 +215,7 @@ async function submit(options) {
   const goal = options && options.goal;
   if (!goal) return;
   setStatus('running', goal);
-  const res = await c.request('goal/submit', {
+  const res = await rpcCallWithErrorHandling(c, 'goal/submit', {
     goal,
     mode: (options && options.mode) || cfg('defaultMode', 'auto'),
     task_mode: (options && options.taskMode) || cfg('defaultTaskMode', 'auto'),
@@ -276,7 +277,7 @@ function activate(context) {
   register(context, 'gleam.stop', async () => {
     if (!client) return;
     try {
-      await client.request('shutdown', {});
+      await rpcCallWithErrorHandling(client, 'shutdown', {});
     } catch {
       /* engine may already be gone; kill below is the real cleanup */
     }
@@ -320,7 +321,7 @@ function activate(context) {
       { placeHolder: 'Cancel which task?' },
     );
     if (!pick) return;
-    await client.request('goal/cancel', { task_id: pick.id });
+    await rpcCallWithErrorHandling(client, 'goal/cancel', { task_id: pick.id });
     noteTask(pick.id, { status: 'failed', detail: 'cancelled' });
   });
 
@@ -336,9 +337,11 @@ function activate(context) {
         )
       )?.id;
     if (!id) return;
-    const status = await (
-      await ensureClient()
-    ).request('goal/status', { task_id: id });
+    const status = await rpcCallWithErrorHandling(
+      await ensureClient(),
+      'goal/status',
+      { task_id: id }
+    );
     const doc = await vscode.workspace.openTextDocument({
       content: JSON.stringify(status, null, 2),
       language: 'json',

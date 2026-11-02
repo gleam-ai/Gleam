@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	migrations "gleam/internal/harness/migrations"
+	harness "gleam/internal/harness"
 
 	_ "modernc.org/sqlite"
 )
@@ -51,9 +55,15 @@ func OpenQueue(dataDir string) (*Queue, error) {
 		return nil, fmt.Errorf("打开任务队列失败：%w", err)
 	}
 
-	if err := initSchema(db); err != nil {
+	// 初始化迁移并确保 schema 是最新的
+	migrator, err := migrations.NewMigrator(db)
+	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("初始化队列 schema 失败：%w", err)
+		return nil, fmt.Errorf("创建迁移器失败：%w", err)
+	}
+	if err := migrator.Ensure(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("运行迁移失败：%w", err)
 	}
 
 	return &Queue{db: db}, nil
@@ -63,7 +73,8 @@ func (q *Queue) Close() error {
 	return q.db.Close()
 }
 
-func (q *Queue) Enqueue(task *QueuedTask) error {
+// EnqueueTask executes task insertion within a transaction.
+func (q *Queue) EnqueueTask(ctx context.Context, task *QueuedTask) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -80,11 +91,13 @@ func (q *Queue) Enqueue(task *QueuedTask) error {
 		task.CreatedAt = time.Now()
 	}
 
-	_, err := q.db.Exec(`
-		INSERT INTO tasks (id, goal, mode, state, priority, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, task.ID, task.Goal, task.Mode, task.State, task.Priority, task.CreatedAt)
-
+	_, err := harness.WithTx(ctx, q.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO tasks (id, goal, mode, state, priority, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, task.ID, task.Goal, task.Mode, task.State, task.Priority, task.CreatedAt)
+		return err
+	})
 	return err
 }
 
@@ -132,12 +145,15 @@ func (q *Queue) Complete(id string, result interface{}) error {
 	}
 
 	now := time.Now()
-	_, err := q.db.Exec(`
-		UPDATE tasks
-		SET state = ?, ended_at = ?, result = ?
-		WHERE id = ?
-	`, TaskCompleted, now, resultJSON, id)
-
+	ctx := context.Background()
+	_, err := harness.WithTx(ctx, q.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			UPDATE tasks
+			SET state = ?, ended_at = ?, result = ?
+			WHERE id = ?
+		`, TaskCompleted, now, resultJSON, id)
+		return err
+	})
 	return err
 }
 
@@ -145,13 +161,16 @@ func (q *Queue) Fail(id string, errMsg string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	now := time.Now()
-	_, err := q.db.Exec(`
-		UPDATE tasks
-		SET state = ?, ended_at = ?, error = ?
-		WHERE id = ?
-	`, TaskFailed, now, errMsg, id)
-
+	ctx := context.Background()
+	_, err := harness.WithTx(ctx, q.db, func(ctx context.Context, tx *sql.Tx) error {
+		now := time.Now()
+		_, err := tx.Exec(`
+			UPDATE tasks
+			SET state = ?, ended_at = ?, error = ?
+			WHERE id = ?
+		`, TaskFailed, now, errMsg, id)
+		return err
+	})
 	return err
 }
 
@@ -159,12 +178,15 @@ func (q *Queue) Cancel(id string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	_, err := q.db.Exec(`
-		UPDATE tasks
-		SET state = ?, ended_at = ?
-		WHERE id = ? AND state IN (?, ?)
-	`, TaskCancelled, time.Now(), id, TaskPending, TaskRunning)
-
+	ctx := context.Background()
+	_, err := harness.WithTx(ctx, q.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			UPDATE tasks
+			SET state = ?, ended_at = ?
+			WHERE id = ? AND state IN (?, ?)
+		`, TaskCancelled, time.Now(), id, TaskPending, TaskRunning)
+		return err
+	})
 	return err
 }
 
@@ -226,33 +248,37 @@ func (q *Queue) RecoverPending() (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	result, err := q.db.Exec(`
-		UPDATE tasks
-		SET state = ?, started_at = NULL
-		WHERE state = ?
-	`, TaskPending, TaskRunning)
-	if err != nil {
-		return 0, err
-	}
-
-	affected, err := result.RowsAffected()
-	return int(affected), err
+	ctx := context.Background()
+	_, err := harness.WithTx(ctx, q.db, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			UPDATE tasks
+			SET state = ?, started_at = NULL
+			WHERE state = ?
+		`, TaskPending, TaskRunning)
+		return err
+	})
+	return 0, err
 }
 
 func (q *Queue) CleanupOld(keepDays int) (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	cutoff := time.Now().AddDate(0, 0, -keepDays)
-	result, err := q.db.Exec(`
-		DELETE FROM tasks
-		WHERE state IN (?, ?, ?) AND ended_at < ?
-	`, TaskCompleted, TaskFailed, TaskCancelled, cutoff)
-	if err != nil {
-		return 0, err
-	}
-
-	affected, err := result.RowsAffected()
+	ctx := context.Background()
+	var affected int64
+	_, err := harness.WithTx(ctx, q.db, func(ctx context.Context, tx *sql.Tx) error {
+		cutoff := time.Now().AddDate(0, 0, -keepDays)
+		result, err := tx.Exec(`
+			DELETE FROM tasks
+			WHERE state IN (?, ?, ?) AND ended_at < ?
+		`, TaskCompleted, TaskFailed, TaskCancelled, cutoff)
+		if err != nil {
+			return err
+		}
+		affectedRows, _ := result.RowsAffected()
+		affected = affectedRows
+		return nil
+	})
 	return int(affected), err
 }
 

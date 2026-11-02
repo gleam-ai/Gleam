@@ -18,6 +18,7 @@ import (
 
 	"gleam/internal/agent"
 	"gleam/internal/buildinfo"
+	harness "gleam/internal/harness"
 	"gleam/internal/harness/skill"
 	"gleam/internal/market"
 	"gleam/pkg/types"
@@ -192,7 +193,13 @@ func (s *Server) routes() http.Handler {
 
 func staticHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+		// 强制不缓存 + 版本号头部 (由构建产物日期戳体现)
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		if buildinfo.Version != "" {
+			w.Header().Set("X-Gleam-Version", buildinfo.Version)
+		}
 		// Windows registry MIME mappings can report SVG as the invalid image/svg.
 		if strings.HasSuffix(r.URL.Path, ".svg") {
 			w.Header().Set("Content-Type", "image/svg+xml")
@@ -246,7 +253,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ch := s.subscribe()
 	defer s.unsubscribe(ch)
 
-	fmt.Fprint(w, ": connected\n\n")
+	logger := harness.NewStructLogger()
+	logger.Info("client connected", map[string]any{"path": r.URL.Path})
 	flusher.Flush()
 
 	heartbeat := time.NewTicker(15 * time.Second)
@@ -276,7 +284,13 @@ type goalSubmitBody struct {
 
 func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 	var body goalSubmitBody
-	if err := readJSON(r, &body); err != nil {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, 400, "无法读取请求体")
+		return
+	}
+	r.Body.Close()
+	if err := harness.Validate(raw, &body); err != nil && !errors.Is(err, io.EOF) {
 		writeErr(w, 400, "请求体格式无效")
 		return
 	}

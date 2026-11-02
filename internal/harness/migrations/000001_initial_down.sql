@@ -1,0 +1,6 @@
+-- Migration: 000001_initial (down)
+
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS credentials CASCADE;
+DROP TABLE IF EXISTS settings CASCADE;
+DROP TABLE IF EXISTS conversations CASCADE;
