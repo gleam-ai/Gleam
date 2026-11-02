@@ -7,27 +7,35 @@
 
 # Gleam 微光
 
-**Your local-first AI agent — plans, executes, and reflects.**
+**Your local-first AI agent — plans, executes, reflects, and controls your desktop.**
 
 [![Release](https://img.shields.io/github/v/release/gleam-ai/Gleam?label=version&color=22c55e)](https://github.com/gleam-ai/Gleam/releases)
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.25](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
 ---
 
-Gleam is not a chatbot. It's an agent that **plans tasks, executes them with tools, then reflects on the results** — all while keeping your data local.
+Gleam is not a chatbot. It's an agent that **plans tasks, executes them with tools, reflects on the results**, and now **controls your desktop** — all while keeping your data local.
 
 Built from scratch in Go with **zero third-party dependencies**, the core is a single **~10 MB** binary. The desktop shell (Electron) wraps it into a double-click installer with bundled Node and uv runtimes.
 
-<img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop" width="100%">
+<img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
+
+## What's new in v0.0.25
+
+- 🖥️ **Computer Use Automation**: Control Chrome, WeChat, VSCode with natural language
+- 🔗 **URL Auto-Detection**: Automatically triggers desktop actions when URLs appear in tasks
+- 🛡️ **Chinese App Support**: Optimized for WeChat, QQ, DingTalk with IME handling
+- 🔒 **Security First**: Blacklist mode, command injection prevention, audit logging
 
 ## What you get
 
 - **Plan → Execute → Reflect** — DAG-based task execution with 0–100 scoring and automatic replanning on low scores
+- **Desktop Control (CUA)** — Natural language control of Chrome, WeChat, VSCode via Windows UI Automation
 - **Local-first** — conversations, memory, tasks, and audit logs stay on your machine by default
 - **9 LLM providers** — GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and more, with multi-model tier routing
 - **27 built-in tools** — file, shell, web, git, desktop integration, memory, scheduling — plus MCP for unlimited extensions
@@ -43,8 +51,9 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 
 ```bash
 # Download from releases, then:
-./gleam app                                    # Desktop window
+./gleam app                                    # Desktop window with CUA
 ./gleam goal "organize my markdown files"      # Run a task
+./gleam goal "open chrome and visit github.com"  # Computer automation!
 ./gleam goal "summarize this repo" --mock-llm  # Offline demo, no API key
 ```
 
@@ -59,12 +68,14 @@ export GLEAM_API_KEY=your-key
 
 ```
 cmd/gleam/          CLI entry points (app / serve / goal / webui / desktop-sidecar)
-internal/agent/     Plan-Execute-Reflect engine
+internal/agent/     Plan-Execute-Reflect engine + CUA adapter
 internal/tools/     File, shell, web, git, desktop, MCP client
+internal/cua/       Computer Use Automation (adapter, router, safety)
 internal/llm/       Multi-protocol client (OpenAI Chat / Responses / Anthropic)
 internal/webui/     HTTP REST + SSE + embedded frontend (i18n)
 internal/harness/   Memory, safety gate, scheduler, skills, worktrees
 desktop/            Electron shell (tray, auto-update, bundled runtimes)
+vscode-gleam/       VS Code extension with CUA support
 ```
 
 ## Local HTTP API
