@@ -1,0 +1,138 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const { EventEmitter } = require('node:events');
+const fs = require('node:fs');
+const Module = require('node:module');
+const ts = require('typescript');
+
+function createHarness(hostOverrides = {}) {
+  const handlers = new Map();
+  const app = new EventEmitter();
+  app.quit = () => {};
+  const autoUpdater = new EventEmitter();
+  autoUpdater.installerPath = 'installer.exe';
+  autoUpdater.setFeedURL = () => {};
+  autoUpdater.checkForUpdates = async () => null;
+  autoUpdater.downloadUpdate = async () => null;
+  autoUpdater.quitAndInstall = () => {};
+
+  const electron = {
+    app,
+    BrowserWindow: { getAllWindows: () => [] },
+    ipcMain: {
+      handle: (name, handler) => handlers.set(name, handler),
+    },
+    net: {},
+    protocol: {},
+  };
+  const host = {
+    allowClose: () => {},
+    quitForUpdate: async () => false,
+    resumeAfterFailedUpdate: async () => {},
+    upstream: () => null,
+    ...hostOverrides,
+  };
+
+  const updaterPath = require.resolve('../src/main/updater.ts');
+  const protocolPath = require.resolve('../src/main/protocol.ts');
+  delete require.cache[updaterPath];
+  delete require.cache[protocolPath];
+  const originalLoad = Module._load;
+  const originalTypeScriptLoader = require.extensions['.ts'];
+  require.extensions['.ts'] = (module, filename) => {
+    const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+        esModuleInterop: true,
+      },
+    }).outputText;
+    module._compile(output, filename);
+  };
+  const previousAppImage = process.env.APPIMAGE;
+  process.env.APPIMAGE = 'test.AppImage';
+  Module._load = function (request) {
+    if (request === 'electron') return electron;
+    if (request === 'electron-updater') return { autoUpdater };
+    if (request === 'node:child_process') {
+      return { spawn: () => assert.fail('installer must not be spawned') };
+    }
+    return originalLoad.apply(this, arguments);
+  };
+  try {
+    require(updaterPath).installUpdater(host);
+  } finally {
+    Module._load = originalLoad;
+    if (originalTypeScriptLoader) {
+      require.extensions['.ts'] = originalTypeScriptLoader;
+    } else {
+      delete require.extensions['.ts'];
+    }
+    if (previousAppImage === undefined) delete process.env.APPIMAGE;
+    else process.env.APPIMAGE = previousAppImage;
+  }
+
+  const event = { senderFrame: { parent: null, url: 'app://gleam/' } };
+  return {
+    autoUpdater,
+    invoke: (name) => handlers.get(name)(event),
+  };
+}
+
+test('concurrent restart requests share one sidecar shutdown', async () => {
+  let quitCalls = 0;
+  let finishQuit;
+  const harness = createHarness({
+    quitForUpdate: () => {
+      quitCalls++;
+      return new Promise((resolve) => {
+        finishQuit = resolve;
+      });
+    },
+  });
+  harness.autoUpdater.emit('update-available', { version: '1.2.3' });
+  harness.autoUpdater.emit('update-downloaded', { version: '1.2.3' });
+
+  const first = harness.invoke('desktop:update:restart');
+  const second = await harness.invoke('desktop:update:restart');
+  assert.deepEqual(second, {
+    ok: false,
+    error: 'restart already in progress',
+  });
+  assert.equal(quitCalls, 1);
+
+  finishQuit(false);
+  assert.deepEqual(await first, {
+    ok: false,
+    error: 'backend still running',
+  });
+});
+
+test('a failed download returns to available and can be retried', async () => {
+  const harness = createHarness();
+  harness.autoUpdater.emit('update-available', { version: '1.2.3' });
+  let attempts = 0;
+  harness.autoUpdater.downloadUpdate = async () => {
+    attempts++;
+    harness.autoUpdater.emit('error', new Error('offline'));
+    throw new Error('offline');
+  };
+
+  const failed = await harness.invoke('desktop:update:download');
+  assert.equal(failed.ok, false);
+  assert.deepEqual(await harness.invoke('desktop:update:status'), {
+    kind: 'available',
+    version: '1.2.3',
+  });
+
+  harness.autoUpdater.downloadUpdate = async () => {
+    attempts++;
+    return null;
+  };
+  assert.deepEqual(await harness.invoke('desktop:update:download'), {
+    ok: true,
+  });
+  assert.equal(attempts, 2);
+});

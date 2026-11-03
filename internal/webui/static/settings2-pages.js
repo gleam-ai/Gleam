@@ -45,7 +45,9 @@
     }
   };
 
+  let memoryRenderSeq = 0;
   S2.register('memory', async () => {
+    const renderSeq = ++memoryRenderSeq;
     const pre = prelude(
       'memory',
       '记忆',
@@ -56,6 +58,7 @@
       settings(true),
       api('GET', '/api/local-data').catch(() => ({})),
     ]);
+    if (renderSeq !== memoryRenderSeq) return;
     pre.append(
       label('记忆开关'),
       card(
@@ -757,13 +760,16 @@
     } catch {}
   });
 
+  let safetyRenderSeq = 0;
   S2.register('safety', async () => {
+    const renderSeq = ++safetyRenderSeq;
     const pre = prelude(
       'safety',
       '安全',
       '每一个会写文件、跑命令或出网的动作，执行前都要过 Gleam 的安全门控。',
     );
     const s = await settings(true);
+    if (renderSeq !== safetyRenderSeq) return;
     pre.append(
       label('扫描层级'),
       card(

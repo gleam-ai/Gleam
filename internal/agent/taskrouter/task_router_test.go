@@ -122,3 +122,22 @@ func TestMemoryUsage(t *testing.T) {
 func sizeOf(v interface{}) int {
 	return 0 // Placeholder - actual implementation uses reflect for precise measurement
 }
+
+func TestConfigSaveLoadAndMultiDigitInterval(t *testing.T) {
+	path := t.TempDir() + "/config.json"
+	config := DefaultConfig()
+	config.PollIntervalSecs = 30
+	if err := config.SaveToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	var loaded Config
+	if err := loaded.LoadFromFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.PollIntervalSecs != 30 {
+		t.Fatalf("interval = %d, want 30", loaded.PollIntervalSecs)
+	}
+	if got := loaded.ToEnvironmentVariables()["GLEAM_CUA_POLL_INTERVAL_SECS"]; got != "30" {
+		t.Fatalf("environment interval = %q, want 30", got)
+	}
+}

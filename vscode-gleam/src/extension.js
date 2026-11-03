@@ -9,8 +9,9 @@ let child = null;
 let starting = null;
 let channel = null;
 let statusItem = null;
-let view = null;
+let generation = 0;
 const tasks = new Map();
+const treeChanges = new vscode.EventEmitter();
 
 function cfg(key, fallback) {
   return vscode.workspace.getConfiguration('gleam').get(key, fallback);
@@ -41,6 +42,7 @@ function taskLabel(entry) {
 }
 
 const provider = {
+  onDidChangeTreeData: treeChanges.event,
   getTreeItem: (entry) => {
     const item = new vscode.TreeItem(
       taskLabel(entry),
@@ -59,25 +61,38 @@ const provider = {
   getChildren: () => [...tasks.values()].reverse().slice(0, 25),
 };
 
-function record(id, goal, status, detail) {
+function record(id, goal, status, detail, taskGeneration = generation) {
   tasks.set(id, {
     id,
     goal,
     status: status || 'running',
     detail: detail || '',
+    generation: taskGeneration,
   });
-  if (view) view.refresh();
+  treeChanges.fire(undefined);
 }
 
 function noteTask(id, patch) {
   const entry = tasks.get(id);
   if (entry) Object.assign(entry, patch);
-  if (view) view.refresh();
+  treeChanges.fire(undefined);
+}
+
+function failTasks(taskGeneration, detail) {
+  let changed = false;
+  for (const entry of tasks.values()) {
+    if (entry.generation === taskGeneration && entry.status === 'running') {
+      Object.assign(entry, { status: 'failed', detail });
+      changed = true;
+    }
+  }
+  if (changed) treeChanges.fire(undefined);
 }
 
 async function ensureClient() {
-  if (client) return client;
   if (starting) return starting;
+  if (client && !client.closed) return client;
+  client = null;
   starting = startClient();
   try {
     return await starting;
@@ -87,6 +102,7 @@ async function ensureClient() {
 }
 
 async function startClient() {
+  const currentGeneration = ++generation;
   const command = cfg('command', 'gleam');
   const args = cfg('args', ['serve']);
   channel = channel || vscode.window.createOutputChannel('Gleam');
@@ -98,10 +114,19 @@ async function startClient() {
   child = proc;
   const rpc = new JsonRpcClient({
     sendRaw: (chunk) => {
-      if (proc.stdin.writable) proc.stdin.write(chunk);
+      if (rpc.closed || !proc.stdin.writable) {
+        transportFailed('engine stdin closed');
+        return;
+      }
+      try {
+        proc.stdin.write(chunk);
+      } catch (err) {
+        transportFailed(`engine stdin failed: ${err.message}`);
+      }
     },
     timeoutMs: cfg('requestTimeoutMs', 30000),
     onNotification: (method, params) => {
+      if (rpc.closed) return;
       if (method === 'goal/progress') {
         const p = params || {};
         log(
@@ -122,6 +147,7 @@ async function startClient() {
           p.goal || '',
           p.status || 'succeeded',
           p.summary || p.error || '',
+          currentGeneration,
         );
         log(`done ${p.task_id}: ${p.summary || p.status}`);
         if (p.suggestion) log(`suggestion: ${p.suggestion}`);
@@ -136,11 +162,22 @@ async function startClient() {
     },
     onRequest: onEngineRequest,
   });
+  rpc.generation = currentGeneration;
   client = rpc;
   const cleanup = () => {
     if (client === rpc) client = null;
     if (child === proc) child = null;
   };
+  const transportFailed = (message) => {
+    rpc.failAllPending(message);
+    cleanup();
+  };
+  proc.stdin.on('error', (err) => {
+    const message = `engine stdin failed: ${err.message}`;
+    log(message);
+    setStatus('stopped', message);
+    transportFailed(message);
+  });
   proc.stdout.setEncoding('utf8');
   // 绑定当前实例：旧进程的迟到输出不能喂进新 client。
   proc.stdout.on('data', (chunk) => rpc.feed(chunk));
@@ -156,15 +193,17 @@ async function startClient() {
     cleanup();
   });
   proc.on('exit', (code, signal) => {
-    setStatus('stopped', `engine exited (code ${code}, signal ${signal})`);
+    const detail = `engine exited (code ${code}, signal ${signal})`;
+    setStatus('stopped', detail);
     log(`engine exited: code=${code} signal=${signal}`);
     rpc.failAllPending('engine exited');
+    failTasks(currentGeneration, detail);
     cleanup();
   });
   try {
     // 使用重试包装器发送 initialize 请求
-    await rpcCallWithErrorHandling(client, 'initialize', {});
-    const info = await rpcCallWithErrorHandling(client, 'ping');
+    await rpcCallWithErrorHandling(rpc, 'initialize', {});
+    const info = await rpcCallWithErrorHandling(rpc, 'ping');
     log(`engine ready: ${JSON.stringify(info)}`);
     setStatus('ready', `${command} ${args.join(' ')}`);
     return rpc;
@@ -221,7 +260,7 @@ async function submit(options) {
     task_mode: (options && options.taskMode) || cfg('defaultTaskMode', 'auto'),
     references: (options && options.references) || [],
   });
-  record(res.task_id, goal, 'running');
+  record(res.task_id, goal, 'running', '', c.generation);
   log(`submitted ${res.task_id}: ${goal}`);
   vscode.window.showInformationMessage(
     `Gleam is working on it (task ${res.task_id}).`,
@@ -259,10 +298,10 @@ function activate(context) {
     vscode.StatusBarAlignment.Right,
     100,
   );
-  context.subscriptions.push(channel, statusItem);
+  context.subscriptions.push(channel, statusItem, treeChanges);
   setStatus('stopped', 'Gleam engine is not running yet');
 
-  view = vscode.window.createTreeView('gleamGoals', {
+  const view = vscode.window.createTreeView('gleamGoals', {
     treeDataProvider: provider,
   });
   context.subscriptions.push(view);
@@ -310,8 +349,11 @@ function activate(context) {
   });
 
   register(context, 'gleam.cancelGoal', async () => {
-    if (!client) return;
-    const picks = [...tasks.values()].filter((t) => t.status === 'running');
+    const c = client;
+    if (!c || c.closed) return;
+    const picks = [...tasks.values()].filter(
+      (t) => t.status === 'running' && t.generation === c.generation,
+    );
     if (!picks.length) {
       vscode.window.showInformationMessage('No running task.');
       return;
@@ -321,8 +363,14 @@ function activate(context) {
       { placeHolder: 'Cancel which task?' },
     );
     if (!pick) return;
-    await rpcCallWithErrorHandling(client, 'goal/cancel', { task_id: pick.id });
-    noteTask(pick.id, { status: 'failed', detail: 'cancelled' });
+    const res = await rpcCallWithErrorHandling(c, 'goal/cancel', {
+      task_id: pick.id,
+    });
+    if (res && res.cancelled) {
+      noteTask(pick.id, { status: 'failed', detail: 'cancelled' });
+    } else {
+      noteTask(pick.id, { detail: 'cancel was not accepted' });
+    }
   });
 
   register(context, 'gleam.showResult', async (taskID) => {
@@ -340,7 +388,7 @@ function activate(context) {
     const status = await rpcCallWithErrorHandling(
       await ensureClient(),
       'goal/status',
-      { task_id: id }
+      { task_id: id },
     );
     const doc = await vscode.workspace.openTextDocument({
       content: JSON.stringify(status, null, 2),
@@ -358,6 +406,7 @@ function activate(context) {
 }
 
 function deactivate() {
+  if (client) client.failAllPending('extension deactivated');
   if (child) child.kill();
   child = null;
   client = null;

@@ -99,14 +99,17 @@ export function installUpdater(host: UpdaterHost): void {
   ipcMain.handle('desktop:update:download', async (e) => {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     if (!supported || latest.kind !== 'available') return { ok: false };
+    const attemptedVersion = latest.version;
     try {
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (err) {
       log(`download failed: ${String(err)}`);
+      push({ kind: 'available', version: attemptedVersion });
       return { ok: false, error: String(err) };
     }
   });
+  let restarting = false;
   ipcMain.handle('desktop:update:restart', async (e) => {
     if (!fromAppFrame(e)) throw new Error('forbidden');
     if (!supported || latest.kind !== 'downloaded') return { ok: false };
@@ -116,45 +119,52 @@ export function installUpdater(host: UpdaterHost): void {
       log('update downloaded but installer path not available');
       return { ok: false };
     }
-
-    // Stop the sidecar before launching: the installer overwrites
-    // resources/bin/gleam.exe, and an open handle leaves a corrupted file.
-    if (!(await host.quitForUpdate())) {
-      log('sidecar did not stop; refusing to start the installer');
-      return { ok: false, error: 'backend still running' };
-    }
-    if (process.platform === 'win32') {
-      // Keep our own spawn instead of quitAndInstall() (its elevate.exe path
-      // corrupted the sidecar on NSIS builds), but pass --updated so NSIS
-      // treats this as an in-place update rather than a fresh install.
-      let child: ReturnType<typeof spawn>;
-      try {
-        child = spawn(installerPath, ['--updated'], {
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: false,
-        });
-      } catch (err) {
-        log(`installer spawn failed: ${String(err)}`);
-        await host.resumeAfterFailedUpdate();
-        return { ok: false, error: 'failed to start installer' };
+    if (restarting) return { ok: false, error: 'restart already in progress' };
+    restarting = true;
+    try {
+      // Stop the sidecar before launching: the installer overwrites
+      // resources/bin/gleam.exe, and an open handle leaves a corrupted file.
+      if (!(await host.quitForUpdate())) {
+        log('sidecar did not stop; refusing to start the installer');
+        return { ok: false, error: 'backend still running' };
       }
-      child.on('error', (err) => log(`installer spawn failed: ${String(err)}`));
-      if (!child.pid) {
-        log('failed to start installer');
-        // The sidecar is already down; leaving it down turns a failed update
-        // into a dead app with a working window.
-        await host.resumeAfterFailedUpdate();
-        return { ok: false, error: 'failed to start installer' };
+      if (process.platform === 'win32') {
+        // Keep our own spawn instead of quitAndInstall() (its elevate.exe path
+        // corrupted the sidecar on NSIS builds), but pass --updated so NSIS
+        // treats this as an in-place update rather than a fresh install.
+        let child: ReturnType<typeof spawn>;
+        try {
+          child = spawn(installerPath, ['--updated'], {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: false,
+          });
+        } catch (err) {
+          log(`installer spawn failed: ${String(err)}`);
+          await host.resumeAfterFailedUpdate();
+          return { ok: false, error: 'failed to start installer' };
+        }
+        child.on('error', (err) =>
+          log(`installer spawn failed: ${String(err)}`),
+        );
+        if (!child.pid) {
+          log('failed to start installer');
+          // The sidecar is already down; leaving it down turns a failed update
+          // into a dead app with a working window.
+          await host.resumeAfterFailedUpdate();
+          return { ok: false, error: 'failed to start installer' };
+        }
+        child.unref();
+        log(`installer launched: ${installerPath}`);
+        app.quit();
+        return { ok: true };
       }
-      child.unref();
-      log(`installer launched: ${installerPath}`);
-      app.quit();
+      host.allowClose();
+      autoUpdater.quitAndInstall(false, true);
       return { ok: true };
+    } finally {
+      restarting = false;
     }
-    host.allowClose();
-    autoUpdater.quitAndInstall(false, true);
-    return { ok: true };
   });
 
   app.on('browser-window-created', (_e, win) => {

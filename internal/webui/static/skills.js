@@ -88,7 +88,7 @@ function skillCard(sk) {
 }
 
 function openSkillRunDialog(sk) {
-  Modal.open(`运行技能「${esc(sk.name)}」`, (box) => {
+  const dialog = Modal.open(`运行技能「${esc(sk.name)}」`, (box) => {
     const form = el('form');
     // Keep direct references: form.elements[p] resolves collection properties
     // such as `length` before named controls, dropping that parameter.
@@ -128,7 +128,7 @@ function openSkillRunDialog(sk) {
           `/api/skills/${encodeURIComponent(sk.name)}/run`,
           { params },
         );
-        Modal.close();
+        dialog.close();
         toast(
           `技能执行${out.status === 'success' ? '成功' : '结束'}（${out.summary || ''}）`,
           out.status === 'success' ? 'success' : 'info',
@@ -145,7 +145,7 @@ function openSkillRunDialog(sk) {
 }
 
 function openSkillSaveDialog(sk) {
-  Modal.open(`保存技能「${esc(sk.name)}」`, (box) => {
+  const dialog = Modal.open(`保存技能「${esc(sk.name)}」`, (box) => {
     const form = el('form');
     const nameF = el('div', 'field');
     nameF.innerHTML = `<label class="field-label" for="sk-name">技能名</label>`;
@@ -188,7 +188,7 @@ function openSkillSaveDialog(sk) {
           description: descInput.value.trim(),
           steps: sk.steps,
         });
-        Modal.close();
+        dialog.close();
         toast(`技能「${skillName}」已保存`, 'success');
       } catch (err) {
         toast(`保存失败：${err.message}`, 'error');

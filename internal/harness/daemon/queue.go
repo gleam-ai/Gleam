@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	migrations "gleam/internal/harness/migrations"
 	harness "gleam/internal/harness"
+	migrations "gleam/internal/harness/migrations"
 
 	_ "modernc.org/sqlite"
 )
@@ -55,7 +55,7 @@ func OpenQueue(dataDir string) (*Queue, error) {
 		return nil, fmt.Errorf("打开任务队列失败：%w", err)
 	}
 
-	// 初始化迁移并确保 schema 是最新的
+	// Run migrations before accepting queue operations.
 	migrator, err := migrations.NewMigrator(db)
 	if err != nil {
 		db.Close()

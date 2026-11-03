@@ -10,12 +10,12 @@ export function createClient() {
           jsonrpc: '2.0',
           id: Date.now(),
           method: `cua:${method}`,
-          params
-        })
+          params,
+        }),
       });
-      
+
       const result = await resp.json();
       return result.result;
-    }
+    },
   };
 }

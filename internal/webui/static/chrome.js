@@ -960,11 +960,15 @@ const Terminal = (() => {
     const up = () => {
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+      grip.removeEventListener('lostpointercapture', up);
       document.documentElement.classList.remove('is-resizing');
       UIPrefs.set({ termH: Math.round(panel.getBoundingClientRect().height) });
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+    grip.addEventListener('lostpointercapture', up);
   });
   grip.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;

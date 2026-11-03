@@ -3,6 +3,9 @@ package taskrouter
 import (
 	"encoding/json"
 	"os"
+	"strconv"
+
+	"gleam/internal/atomicfile"
 )
 
 // ModeType defines how URL detection triggers CUA actions.
@@ -21,7 +24,7 @@ const (
 
 // Config defines task router configuration options.
 type Config struct {
-	// Enabled determines if URL → CUA routing is active
+	// Enabled determines if URL-to-CUA routing is active.
 	Enabled bool `json:"enabled"`
 
 	// Mode selects routing strategy (default: event-triggered)
@@ -69,7 +72,7 @@ func (c *Config) SaveToFile(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return atomicfile.Write(path, data, 0o644)
 }
 
 // Validate checks config sanity.
@@ -127,7 +130,7 @@ func intToStr(i int) string {
 	if i == 0 {
 		return ""
 	}
-	return string(rune(i + '0'))
+	return strconv.Itoa(i)
 }
 
 func joinStrings(s []string, sep string) string {

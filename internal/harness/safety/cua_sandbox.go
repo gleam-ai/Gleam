@@ -31,25 +31,25 @@ type ActionRecord struct {
 func NewCUASafetyGate() *CUASafetyGate {
 	return &CUASafetyGate{
 		allowedApps: map[string]bool{
-			"chrome":    true,
-			"safari":    true,
-			"firefox":   true,
-			"vscode":    true,
-			"terminal":  true,
-			"finder":    runtime.GOOS == "darwin",
-			"explorer":  runtime.GOOS == "windows",
-			"nautilus":  runtime.GOOS == "linux",
-			
+			"chrome":   true,
+			"safari":   true,
+			"firefox":  true,
+			"vscode":   true,
+			"terminal": true,
+			"finder":   runtime.GOOS == "darwin",
+			"explorer": runtime.GOOS == "windows",
+			"nautilus": runtime.GOOS == "linux",
+
 			// Chinese applications whitelist (Task #2)
-			"wechat":           true,
-			"weixin":           true,
-			"qq":               true,
-			"dingtalk":         true,
-			"dingxiang":        true, // DingTalk variant
-			"qidian":           true, // Qidian IM
-			"tencent会议":       true, // Tencent Meeting
-			"microsoftteams":   true,
-			"企业微信":          true, // Enterprise WeChat
+			"wechat":         true,
+			"weixin":         true,
+			"qq":             true,
+			"dingtalk":       true,
+			"dingxiang":      true, // DingTalk variant
+			"qidian":         true, // Qidian IM
+			"tencent会议":      true, // Tencent Meeting
+			"microsoftteams": true,
+			"企业微信":           true, // Enterprise WeChat
 		},
 		history:    make([]ActionRecord, 0),
 		maxHistory: 1000,
@@ -88,14 +88,14 @@ func (sg *CUASafetyGate) AllowAction(ctx context.Context, action string, params 
 // isAppAllowed checks if an application is whitelisted.
 func (sg *CUASafetyGate) isAppAllowed(appName string) bool {
 	lower := strings.ToLower(appName)
-	
+
 	// Check explicit whitelist
 	if sg.allowedApps[lower] {
 		return true
 	}
-	
+
 	// Check Chinese app patterns
-	chinesePatterns := []struct{
+	chinesePatterns := []struct {
 		pattern string
 		name    string
 	}{
@@ -105,14 +105,14 @@ func (sg *CUASafetyGate) isAppAllowed(appName string) bool {
 		{"腾讯会议", "Tencent Meeting"},
 		{"qq", "QQ"},
 	}
-	
+
 	for _, p := range chinesePatterns {
 		if strings.Contains(lower, p.pattern) || strings.Contains(lower, p.name) {
 			sg.allowedApps[lower] = true // Auto-whitelist for future calls
 			return true
 		}
 	}
-	
+
 	// Check common browser patterns
 	browsers := []string{"chrome", "browser", "edge"}
 	for _, b := range browsers {
@@ -120,7 +120,7 @@ func (sg *CUASafetyGate) isAppAllowed(appName string) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -147,7 +147,7 @@ func (sg *CUASafetyGate) ExecuteWithSafety(ctx context.Context, action string, p
 func (sg *CUASafetyGate) recordFailure(action, errMsg string) {
 	sg.mu.Lock()
 	defer sg.mu.Unlock()
-	
+
 	record := ActionRecord{
 		Timestamp: time.Now(),
 		Action:    action,
@@ -164,12 +164,12 @@ func (sg *CUASafetyGate) recordFailure(action, errMsg string) {
 func (sg *CUASafetyGate) GetHistory(limit int) []ActionRecord {
 	sg.mu.Lock()
 	defer sg.mu.Unlock()
-	
+
 	start := len(sg.history) - limit
 	if start < 0 {
 		start = 0
 	}
-	
+
 	return append([]ActionRecord{}, sg.history[start:]...)
 }
 
@@ -177,7 +177,7 @@ func (sg *CUASafetyGate) GetHistory(limit int) []ActionRecord {
 func (sg *CUASafetyGate) SetAppWhitelist(apps []string) {
 	sg.mu.Lock()
 	defer sg.mu.Unlock()
-	
+
 	for _, app := range apps {
 		sg.allowedApps[strings.ToLower(app)] = true
 	}
@@ -186,17 +186,17 @@ func (sg *CUASafetyGate) SetAppWhitelist(apps []string) {
 // VerifyProcess runs a process and verifies it doesn't violate policies.
 func (sg *CUASafetyGate) VerifyProcess(cmd *exec.Cmd) error {
 	cmdStr := strings.Join(cmd.Args, " ")
-	
+
 	// Block dangerous commands
 	blockedPrefixes := []string{
 		"rm -rf", "sudo", "chmod 777", "dd if=", "mkfs",
 	}
-	
+
 	for _, prefix := range blockedPrefixes {
 		if strings.Contains(cmdStr, prefix) {
 			return fmt.Errorf("command blocked: contains dangerous pattern %s", prefix)
 		}
 	}
-	
+
 	return nil
 }

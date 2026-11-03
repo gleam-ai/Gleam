@@ -143,62 +143,118 @@ function toast(text, kind = 'info', ms = 4500) {
 }
 
 const Modal = (() => {
-  let lastFocus = null;
-  let cancelHook = null;
+  const stack = [];
   const overlay = $('#modal-overlay');
   const box = $('#modal');
+  box.tabIndex = -1;
+
+  function focusables(root) {
+    return [
+      ...root.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ].filter(
+      (e) =>
+        !e.closest('[hidden], [inert]') &&
+        e.getClientRects().length > 0 &&
+        getComputedStyle(e).visibility !== 'hidden',
+    );
+  }
+  function focusFirst() {
+    const first = focusables(box).find(
+      (e) => !e.classList.contains('modal-close'),
+    );
+    (first || box).focus();
+  }
+  function trapFocus(root, e) {
+    if (e.key !== 'Tab') return;
+    const items = focusables(root);
+    if (!items.length) {
+      e.preventDefault();
+      root.focus();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!root.contains(active) || active === root) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
   function open(titleHTML, buildContent, onCancel) {
-    lastFocus = document.activeElement;
-    cancelHook = onCancel || null;
+    const parent = stack[stack.length - 1];
+    if (parent) {
+      parent.content = [...box.childNodes];
+      box.replaceChildren();
+    }
+    const session = {
+      content: null,
+      returnFocus: document.activeElement,
+      cancelHook: onCancel || null,
+    };
+    const handle = {
+      close: () => close(false, session),
+      settle: (fn) => settle(fn, session),
+      isCurrent: () => stack[stack.length - 1] === session,
+    };
+    stack.push(session);
     box.innerHTML =
       `<div class="modal-head"><h2 class="modal-title" id="modal-title">${titleHTML}</h2>` +
       `<button class="modal-close" type="button" aria-label="关闭">✕</button></div>`;
-    box
-      .querySelector('.modal-close')
-      .addEventListener('click', () => close(false));
+    box.querySelector('.modal-close').addEventListener('click', handle.close);
     buildContent(box);
     overlay.hidden = false;
-    const first = [
-      ...box.querySelectorAll('input, textarea, button, select'),
-    ].find((e) => !e.classList.contains('modal-close'));
-    (first || box).focus();
+    focusFirst();
+    return handle;
   }
-  function close(byButton) {
-    if (overlay.hidden) return;
-    overlay.hidden = true;
-    box.innerHTML = '';
-    if (lastFocus) lastFocus.focus();
-    const c = cancelHook;
-    cancelHook = null;
-    if (!byButton && c) c();
+  function close(byButton, owner) {
+    const session = stack[stack.length - 1];
+    if (!session || (owner && session !== owner)) return false;
+    stack.pop();
+    box.replaceChildren();
+    const parent = stack[stack.length - 1];
+    if (parent) {
+      box.append(...(parent.content || []));
+      parent.content = null;
+    } else {
+      overlay.hidden = true;
+    }
+    if (session.returnFocus && session.returnFocus.isConnected)
+      session.returnFocus.focus();
+    else if (parent) focusFirst();
+    const cancel = session.cancelHook;
+    session.cancelHook = null;
+    if (!byButton && cancel) cancel();
+    return true;
   }
-  function settle(fn) {
-    cancelHook = null;
-    close(true);
+  function settle(fn, owner) {
+    const session = stack[stack.length - 1];
+    if (!session || (owner && session !== owner)) return false;
+    session.cancelHook = null;
+    if (!close(true, owner)) return false;
     fn();
+    return true;
   }
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close(false);
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) close(false);
-    if (e.key === 'Tab' && !overlay.hidden) {
-      const focusables = box.querySelectorAll(
-        'button, input, textarea, select, [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusables.length) return;
-      const first = focusables[0],
-        last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        last.focus();
-        e.preventDefault();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        first.focus();
-        e.preventDefault();
-      }
+    if (overlay.hidden) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close(false);
+    } else {
+      trapFocus(box, e);
     }
   });
-  return { open, close: () => close(false), settle };
+  return { open, close: () => close(false), settle, trapFocus };
 })();
 
 const Popovers = (() => {
@@ -248,7 +304,7 @@ function confirmModal(
   { okText = '确定', danger = false } = {},
 ) {
   return new Promise((resolve) => {
-    Modal.open(
+    const dialog = Modal.open(
       esc(title),
       (box) => {
         const p = el('p', 'modal-text');
@@ -262,9 +318,9 @@ function confirmModal(
           okText,
         );
         cancel.addEventListener('click', () =>
-          Modal.settle(() => resolve(false)),
+          dialog.settle(() => resolve(false)),
         );
-        ok.addEventListener('click', () => Modal.settle(() => resolve(true)));
+        ok.addEventListener('click', () => dialog.settle(() => resolve(true)));
         actions.appendChild(cancel);
         actions.appendChild(ok);
         box.appendChild(actions);
@@ -276,7 +332,7 @@ function confirmModal(
 
 function alertModal(message, title = '提示') {
   return new Promise((resolve) => {
-    Modal.open(
+    const dialog = Modal.open(
       esc(title),
       (box) => {
         const p = el('p', 'modal-text');
@@ -284,7 +340,7 @@ function alertModal(message, title = '提示') {
         box.appendChild(p);
         const actions = el('div', 'modal-actions');
         const ok = el('button', 'btn btn-primary', '我知道了');
-        ok.addEventListener('click', () => Modal.settle(resolve));
+        ok.addEventListener('click', () => dialog.settle(resolve));
         actions.appendChild(ok);
         box.appendChild(actions);
       },
@@ -295,7 +351,7 @@ function alertModal(message, title = '提示') {
 
 function promptModal(label, oldValue = '', title = '请输入') {
   return new Promise((resolve) => {
-    Modal.open(
+    const dialog = Modal.open(
       esc(title),
       (box) => {
         const lab = el('label', 'field-label', label);
@@ -306,7 +362,7 @@ function promptModal(label, oldValue = '', title = '请输入') {
         const actions = el('div', 'modal-actions');
         const cancel = el('button', 'btn btn-secondary', '取消');
         const ok = el('button', 'btn btn-primary', '保存');
-        const done = (val) => Modal.settle(() => resolve(val));
+        const done = (val) => dialog.settle(() => resolve(val));
         cancel.addEventListener('click', () => done(null));
         ok.addEventListener('click', () => done(input.value.trim()));
         input.addEventListener('keydown', (e) => {
@@ -5168,9 +5224,10 @@ function spaceGroupEl(sp, list, opts) {
   );
   group.dataset.spaceId = sp.id;
 
-  const head = el('button', 'space-group-head');
-  head.type = 'button';
+  const head = el('div', 'space-group-head');
   head.title = sp.path ? `绑定文件夹：${sp.path}` : sp.name;
+  const toggle = el('button', 'space-group-toggle');
+  toggle.type = 'button';
 
   const chevron = el('span', 'space-chevron');
   chevron.innerHTML = SPACE_ICONS.chevron;
@@ -5209,10 +5266,11 @@ function spaceGroupEl(sp, list, opts) {
     ops.appendChild(delBtn);
   }
 
-  head.appendChild(chevron);
-  head.appendChild(dot);
-  head.appendChild(name);
-  head.appendChild(count);
+  toggle.appendChild(chevron);
+  toggle.appendChild(dot);
+  toggle.appendChild(name);
+  toggle.appendChild(count);
+  head.appendChild(toggle);
   head.appendChild(ops);
 
   const body = el('div', 'space-group-body');
@@ -5321,11 +5379,13 @@ async function deleteSpace(id, name, count) {
 $('#space-new').addEventListener('click', openNewWorkspaceDialog);
 
 function convoItemEl(it, active) {
-  const item = el('button', 'convo-item' + (active ? ' active' : ''));
-  item.type = 'button';
+  const item = el('div', 'convo-item' + (active ? ' active' : ''));
   item.dataset.convoId = it.id;
   item.title = it.title;
+  const open = el('button', 'convo-item-main');
+  open.type = 'button';
   const title = el('span', 'convo-item-title', it.title || '新对话');
+  open.appendChild(title);
   const ops = el('span', 'convo-item-ops');
   const edit = el('button', 'convo-op');
   edit.type = 'button';
@@ -5345,7 +5405,7 @@ function convoItemEl(it, active) {
   });
   ops.appendChild(edit);
   ops.appendChild(del);
-  item.appendChild(title);
+  item.appendChild(open);
   item.appendChild(ops);
   item.addEventListener('click', () => {
     // showView would reload the goals module and tear down thread mode just
@@ -7161,21 +7221,22 @@ const BrowserPane = (() => {
       const label =
         t.title ||
         (t.hi >= 0 ? t.hist[t.hi].replace(/^https?:\/\//, '') : '新标签页');
-      const b = el('button', 'bp-tab' + (t === active ? ' is-active' : ''));
-      b.type = 'button';
-      b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', String(t === active));
-      b.title = label;
-      b.appendChild(el('span', 'bp-tab-label', label));
-      const x = el('span', 'bp-tab-x');
-      x.setAttribute('role', 'button');
+      const b = el('div', 'bp-tab' + (t === active ? ' is-active' : ''));
+      const select = el('button', 'bp-tab-select');
+      select.type = 'button';
+      select.setAttribute('role', 'tab');
+      select.setAttribute('aria-selected', String(t === active));
+      select.title = label;
+      select.appendChild(el('span', 'bp-tab-label', label));
+      const x = el('button', 'bp-tab-x');
+      x.type = 'button';
       x.setAttribute('aria-label', '关闭标签');
       x.textContent = '✕';
       x.addEventListener('click', (e) => {
         e.stopPropagation();
         closeTab(t.id);
       });
-      b.appendChild(x);
+      b.append(select, x);
       b.addEventListener('click', () => activate(t.id));
       tabsBox.appendChild(b);
     });

@@ -17,13 +17,13 @@ import (
 var migrationFS embed.FS
 
 type Migrator struct {
-	db        *sql.DB
+	db         *sql.DB
 	migrations []migration
 }
 
 type migration struct {
-	id      int
-	upFile  string
+	id       int
+	upFile   string
 	downFile string
 }
 

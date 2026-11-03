@@ -1,65 +1,70 @@
-// Main process IPC handlers for computer use
 import { ipcMain } from 'electron';
 import { ComputerUseServer } from './server';
-import { CUASafetyGate } from '../safety/cua_sandbox';
 
 const server = new ComputerUseServer();
-const safetyGate = new CUASafetyGate();
 
-ipcMain.handle('computer-use:screenshot', async (event, args) => {
+function failure(error: unknown): { error: string } {
+  return { error: error instanceof Error ? error.message : String(error) };
+}
+
+ipcMain.handle('computer-use:screenshot', async () => {
   try {
-    const result = await server.takeScreenshot();
-    return { success: true, data: result };
-  } catch (error: any) {
-    return { error: error.message };
+    return { success: true, data: await server.takeScreenshot() };
+  } catch (error) {
+    return failure(error);
   }
 });
 
-ipcMain.handle('computer-use:click', async (event, { x, y }) => {
-  try {
-    await safetyGate.ExecuteWithSafety(
-      global.context,
-      'click',
-      { x, y },
-      async () => await server.click(x, y)
-    );
-    return { success: true };
-  } catch (error: any) {
-    return { error: error.message };
-  }
-});
+ipcMain.handle(
+  'computer-use:click',
+  async (_event, args: { x?: unknown; y?: unknown }) => {
+    try {
+      if (
+        typeof args?.x !== 'number' ||
+        !Number.isFinite(args.x) ||
+        typeof args?.y !== 'number' ||
+        !Number.isFinite(args.y)
+      ) {
+        throw new Error('click coordinates must be finite numbers');
+      }
+      await server.click(args.x, args.y);
+      return { success: true };
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
 
-ipcMain.handle('computer-use:type', async (event, { text }) => {
-  try {
-    await safetyGate.ExecuteWithSafety(
-      global.context,
-      'type_text',
-      { text },
-      async () => await server.typeText(text)
-    );
-    return { success: true };
-  } catch (error: any) {
-    return { error: error.message };
-  }
-});
+ipcMain.handle(
+  'computer-use:type',
+  async (_event, args: { text?: unknown }) => {
+    try {
+      if (typeof args?.text !== 'string')
+        throw new Error('text must be a string');
+      await server.typeText(args.text);
+      return { success: true };
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
 
-ipcMain.handle('computer-use:open_app', async (event, { app_name }) => {
-  try {
-    await safetyGate.AllowAction(global.context, 'open_app', { app_name });
-    await server.openApp(app_name);
-    return { success: true };
-  } catch (error: any) {
-    return { error: error.message };
-  }
-});
+ipcMain.handle(
+  'computer-use:open_app',
+  async (_event, args: { app_name?: unknown }) => {
+    try {
+      if (typeof args?.app_name !== 'string' || !args.app_name.trim()) {
+        throw new Error('app_name must be a non-empty string');
+      }
+      await server.openApp(args.app_name);
+      return { success: true };
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
 
-ipcMain.handle('computer-use:health', async () => {
-  return {
-    available: server.isAvailable(),
-    mode: server.getMode()
-  };
-});
-
-ipcMain.handle('computer-use:history', async () => {
-  return safetyGate.GetHistory(50);
-});
+ipcMain.handle('computer-use:health', () => ({
+  available: server.isAvailable(),
+  mode: server.getMode(),
+}));

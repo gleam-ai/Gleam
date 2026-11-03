@@ -82,17 +82,21 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	contentType := resp.Header.Get("Content-Type")
 	if err != nil && len(body) == 0 {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+	bodyTruncated := len(body) > maxBodyBytes
+	if bodyTruncated {
+		body = body[:maxBodyBytes]
 	}
 	text := string(body)
 	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml") {
 		text = extractText(text)
 	}
-	truncated := len(text) > maxTextLen
-	if truncated {
+	truncated := bodyTruncated || len(text) > maxTextLen
+	if len(text) > maxTextLen {
 		text = text[:maxTextLen]
 	}
 	return map[string]any{

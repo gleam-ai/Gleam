@@ -80,16 +80,16 @@ import httpx
 
 # Direct CUA MCP communication
 response = httpx.post(
-    'http://localhost:8796/rpc',
+    "http://localhost:8796/rpc",
     json={
-        'jsonrpc': '2.0',
-        'id': 1,
-        'method': 'cua:screenshot',
-        'params': {'format': 'base64'}
-    }
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "cua:screenshot",
+        "params": {"format": "base64"},
+    },
 )
 
-screenshot_data = response.json()['result']['data']
+screenshot_data = response.json()["result"]["data"]
 ```
 
 ## Safety Features
@@ -189,7 +189,7 @@ For faster screenshot capture:
 # cua_config.ini
 [screenshot]
 quality = medium  # fast | medium | high
-format = webp     # png | jpeg | webp
+format = webp  # png | jpeg | webp
 ```
 
 ### Custom Actions

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -197,6 +198,91 @@ func TestMCP_AdapterTool(t *testing.T) {
 	out, err := tool.Execute(ctx, map[string]any{"text": "x"})
 	if err != nil || !strings.Contains(fmt.Sprintf("%v", out), "echo: x") {
 		t.Errorf("adapter execute = %v %v", out, err)
+	}
+}
+
+type blockingWriteCloser struct {
+	started   chan struct{}
+	closed    chan struct{}
+	startOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newBlockingWriteCloser() *blockingWriteCloser {
+	return &blockingWriteCloser{started: make(chan struct{}), closed: make(chan struct{})}
+}
+
+func (w *blockingWriteCloser) Write(_ []byte) (int, error) {
+	w.startOnce.Do(func() { close(w.started) })
+	<-w.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (w *blockingWriteCloser) Close() error {
+	w.closeOnce.Do(func() { close(w.closed) })
+	return nil
+}
+
+func blockingTransport(writer io.WriteCloser) *stdioTransport {
+	return &stdioTransport{
+		name: "blocking", stdin: writer, pending: map[int64]chan rpcMessage{},
+		logf: func(string, ...any) {},
+	}
+}
+
+func TestStdioTransportCloseUnblocksWrite(t *testing.T) {
+	writer := newBlockingWriteCloser()
+	t.Cleanup(func() { _ = writer.Close() })
+	tp := blockingTransport(writer)
+	writeDone := make(chan error, 1)
+	go func() { writeDone <- tp.notify("blocked", nil) }()
+	select {
+	case <-writer.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("write did not start")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- tp.close() }()
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("close blocked behind stdin.Write")
+	}
+	select {
+	case <-writeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("closing stdin did not release Write")
+	}
+}
+
+func TestStdioTransportCallCancelDuringBlockedWrite(t *testing.T) {
+	writer := newBlockingWriteCloser()
+	t.Cleanup(func() { _ = writer.Close() })
+	tp := blockingTransport(writer)
+	ctx, cancel := context.WithCancel(context.Background())
+	callDone := make(chan error, 1)
+	go func() { callDone <- tp.call(ctx, "blocked", nil, nil) }()
+	select {
+	case <-writer.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("write did not start")
+	}
+
+	cancel()
+	select {
+	case err := <-callDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("call error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("call cancellation blocked behind stdin.Write")
+	}
+	if err := tp.close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

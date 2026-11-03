@@ -37,6 +37,63 @@ func TestReadJSONOversizedBodyReturnsError(t *testing.T) {
 	}
 }
 
+func TestReadJSONCapRequiresSingleValueWithinLimit(t *testing.T) {
+	const valid = `{"ok":true}`
+	tests := []struct {
+		name    string
+		body    string
+		limit   int64
+		wantErr bool
+	}{
+		{name: "exact limit", body: valid, limit: int64(len(valid))},
+		{name: "trailing whitespace", body: valid + " \n", limit: int64(len(valid) + 2)},
+		{name: "valid value over limit", body: valid, limit: int64(len(valid) - 1), wantErr: true},
+		{name: "oversized trailing whitespace", body: valid + strings.Repeat(" ", 32), limit: int64(len(valid)), wantErr: true},
+		{name: "multiple values", body: valid + valid, limit: 128, wantErr: true},
+		{name: "garbage suffix", body: valid + "garbage", limit: 128, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			var dst struct {
+				OK bool `json:"ok"`
+			}
+			err := readJSONCap(r, tt.limit, &dst)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("readJSONCap() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+type readDeadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (w *readDeadlineRecorder) SetReadDeadline(deadline time.Time) error {
+	w.deadlines = append(w.deadlines, deadline)
+	return nil
+}
+
+func TestRequestBodyTimeoutSkipsBodylessRequests(t *testing.T) {
+	handler := requestBodyTimeout(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	withoutBody := &readDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler.ServeHTTP(withoutBody, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+	if len(withoutBody.deadlines) != 0 {
+		t.Fatalf("bodyless request received read deadlines: %v", withoutBody.deadlines)
+	}
+
+	withBody := &readDeadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler.ServeHTTP(withBody, httptest.NewRequest(http.MethodPost, "/api/goals", strings.NewReader(`{}`)))
+	if len(withBody.deadlines) != 2 || withBody.deadlines[0].IsZero() || !withBody.deadlines[1].IsZero() {
+		t.Fatalf("body deadline was not set and cleared: %v", withBody.deadlines)
+	}
+}
+
 type fixture struct {
 	t       *testing.T
 	ts      *httptest.Server
@@ -284,6 +341,26 @@ func TestWebUI_GoalRejectsInvalidReference(t *testing.T) {
 	}
 	if len(f.srv.tasks) != 0 {
 		t.Fatalf("无效请求不应创建任务: %v", f.srv.tasks)
+	}
+}
+
+func TestWebUI_GoalRejectsNonStrictAndOversizedJSON(t *testing.T) {
+	f := newFixture(t, nil)
+	const valid = `{"goal":"合法目标"}`
+	tests := map[string]string{
+		"multiple values": valid + valid,
+		"garbage suffix":  valid + "garbage",
+		"oversized body":  valid + strings.Repeat(" ", 2<<20),
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			if code, msg := f.status(http.MethodPost, "/api/goals", body); code != http.StatusBadRequest {
+				t.Fatalf("status = %d, error = %q; want 400", code, msg)
+			}
+			if len(f.srv.tasks) != 0 {
+				t.Fatalf("invalid request created tasks: %v", f.srv.tasks)
+			}
+		})
 	}
 }
 
@@ -675,6 +752,106 @@ func (slowTool) Permission() types.Permission { return types.PermissionReadOnly 
 func (slowTool) Execute(ctx context.Context, _ map[string]any) (any, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+type requestBlockingTool struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (t *requestBlockingTool) Name() string                 { return "request-blocking" }
+func (t *requestBlockingTool) Description() string          { return "waits for cancellation" }
+func (t *requestBlockingTool) Schema() map[string]any       { return map[string]any{"type": "object"} }
+func (t *requestBlockingTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *requestBlockingTool) Execute(ctx context.Context, _ map[string]any) (any, error) {
+	close(t.started)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-t.release:
+		return "released", nil
+	}
+}
+
+func TestWebUI_SkillRunUsesRequestContext(t *testing.T) {
+	f := newFixture(t, nil)
+	tool := &requestBlockingTool{started: make(chan struct{}), release: make(chan struct{})}
+	defer close(tool.release)
+	f.agent.Reg.Replace(tool)
+	if _, err := f.agent.Skills.Save(skill.Skill{
+		Name: "request-cancel", Description: "test",
+		Steps: []types.Step{{ID: "s1", Description: "wait", Tool: tool.Name()}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/skills/request-cancel/run", strings.NewReader(`{}`)).WithContext(ctx)
+	req.SetPathValue("name", "request-cancel")
+	done := make(chan struct{})
+	go func() {
+		f.srv.handleSkillRun(httptest.NewRecorder(), req)
+		close(done)
+	}()
+	select {
+	case <-tool.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("skill tool did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("skill run ignored request cancellation")
+	}
+}
+
+type requestBlockingClient struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *requestBlockingClient) Name() string { return "request-blocking" }
+func (c *requestBlockingClient) Chat(ctx context.Context, _ llm.ChatRequest) (string, error) {
+	close(c.started)
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-c.release:
+		return "released", nil
+	}
+}
+func (c *requestBlockingClient) ChatStream(ctx context.Context, req llm.ChatRequest, _ func(string)) (string, error) {
+	return c.Chat(ctx, req)
+}
+
+func TestWebUI_ContextCompressUsesRequestContext(t *testing.T) {
+	f := newFixture(t, nil)
+	client := &requestBlockingClient{started: make(chan struct{}), release: make(chan struct{})}
+	defer close(client.release)
+	f.agent.LLM = client
+	for i := 0; i < 22; i++ {
+		f.agent.Mem.AddTurn("user", strings.Repeat("需要压缩的上下文。", 4))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/context/compress", nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		f.srv.handleContextCompress(httptest.NewRecorder(), req)
+		close(done)
+	}()
+	select {
+	case <-client.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("compression LLM did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("context compression ignored request cancellation")
+	}
 }
 
 func (f *fixture) waitApproval(taskID string) map[string]any {

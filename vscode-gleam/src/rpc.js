@@ -9,6 +9,21 @@ const DEFAULT_TIMEOUT_MS = 30000;
 // Non-retryable codes (validation/authentication): do not retry.
 const RETRYABLE_ERROR_CODES = new Set([-32000, -32001, -32002, -32003]);
 
+// A timeout does not prove that the engine did not execute a request. Only
+// methods whose repeated execution is safe may be retried by default.
+const IDEMPOTENT_METHODS = new Set([
+  'initialize',
+  'ping',
+  'shutdown',
+  'goal/status',
+  'goal/list',
+  'goal/cancel',
+  'tools/list',
+  'memory/search',
+  'skills/list',
+  'skills/get',
+]);
+
 class JsonRpcError extends Error {
   constructor(code, message, data) {
     super(message || 'json-rpc error');
@@ -31,6 +46,8 @@ class JsonRpcClient {
     this.nextId = 1;
     this.pending = new Map();
     this.buffer = '';
+    this.closed = false;
+    this.closeReason = 'transport closed';
   }
 
   // Feeds a chunk of the server's stdout. Partial lines are kept until the
@@ -105,6 +122,9 @@ class JsonRpcClient {
   }
 
   request(method, params, timeoutMs) {
+    if (this.closed) {
+      return Promise.reject(new JsonRpcError(-32002, this.closeReason));
+    }
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -112,13 +132,22 @@ class JsonRpcClient {
         reject(new JsonRpcError(-32001, `request timed out: ${method}`));
       }, timeoutMs || this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      if (params === undefined) this.send({ jsonrpc: '2.0', id, method });
-      else this.send({ jsonrpc: '2.0', id, method, params });
+      try {
+        if (params === undefined) this.send({ jsonrpc: '2.0', id, method });
+        else this.send({ jsonrpc: '2.0', id, method, params });
+      } catch (err) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(err);
+      }
     });
   }
 
-  // Called when the transport dies: pending callers must not hang forever.
+  // Called when the transport dies: pending callers must not hang forever and
+  // this client must never be reused for a new transport.
   failAllPending(reason) {
+    if (!this.closed) this.closeReason = reason || 'transport closed';
+    this.closed = true;
     for (const [id, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.reject(new JsonRpcError(-32002, reason || 'transport closed'));
@@ -126,8 +155,6 @@ class JsonRpcClient {
     }
   }
 }
-
-module.exports = { JsonRpcClient, JsonRpcError, DEFAULT_TIMEOUT_MS };
 
 // RPC 包装器：统一错误处理与重试策略
 async function rpcCallWithErrorHandling(client, method, params, options = {}) {
@@ -140,21 +167,22 @@ async function rpcCallWithErrorHandling(client, method, params, options = {}) {
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await Promise.race([
-        client.request(method, params, timeoutMs),
-        new Promise((_, reject) => {
-          setTimeout(() => reject(new Error(`request timeout: ${method}`)), timeoutMs);
-        }),
-      ]);
+      return await client.request(method, params, timeoutMs);
     } catch (err) {
       lastError = err;
-      if (!(err instanceof JsonRpcError) || !err.isRetryable() || attempt === maxRetries) {
+      if (
+        client.closed ||
+        !IDEMPOTENT_METHODS.has(method) ||
+        !(err instanceof JsonRpcError) ||
+        !err.isRetryable() ||
+        attempt === maxRetries
+      ) {
         throw err;
       }
       // Exponential backoff with jitter
       const delay = Math.min(baseDelayMs * Math.pow(2, attempt), 5000);
       const jitter = Math.random() * 0.2 * delay;
-      await new Promise(res => setTimeout(res, delay + jitter));
+      await new Promise((res) => setTimeout(res, delay + jitter));
     }
   }
   throw lastError;
@@ -172,3 +200,10 @@ function toastNotify(message, type = 'info') {
 
 // 导出新增工具
 rpcCallWithErrorHandling.toastNotify = toastNotify;
+
+module.exports = {
+  JsonRpcClient,
+  JsonRpcError,
+  DEFAULT_TIMEOUT_MS,
+  rpcCallWithErrorHandling,
+};

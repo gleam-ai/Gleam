@@ -2,11 +2,7 @@
   "enabled": true,
   "mode": "event-triggered",
   "poll_interval_secs": 5,
-  "blocked_hosts": [
-    "127.0.0.1",
-    "localhost",
-    "intranet"
-  ],
+  "blocked_hosts": ["127.0.0.1", "localhost", "intranet"],
   "allowed_hosts": [],
   "force_uiautomation": false,
   "auto_confirm_urls": false,

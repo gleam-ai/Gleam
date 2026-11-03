@@ -135,6 +135,6 @@
     }
   },
   "scripts": {
-    "test": "node --test test/rpc.test.js"
+    "test": "node --test test/rpc.test.js test/extension.test.js"
   }
 }

@@ -367,6 +367,20 @@ body::before {
     color var(--dur-fast) ease,
     transform var(--dur-fast) var(--ease-out);
 }
+.convo-item-main {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .convo-item:hover {
   background: var(--glass-highlight);
   color: var(--color-fg);
@@ -513,6 +527,21 @@ body::before {
   transition:
     background var(--dur-fast) ease,
     color var(--dur-fast) ease;
+}
+.space-group-toggle {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .space-group-head:hover {
   background: var(--glass-highlight);

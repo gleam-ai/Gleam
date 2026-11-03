@@ -1,28 +1,31 @@
 // VS Code panel for computer use operations
 import * as vscode from 'vscode';
-import { computerUse } from './computer_use';
 
 export class ComputerUsePanel {
   public static currentPanel: ComputerUsePanel | undefined;
-  public readonly panel: vscode.WebviewView;
   private disposables: vscode.Disposable[] = [];
 
   public static showView() {
     if (!ComputerUsePanel.currentPanel) {
       ComputerUsePanel.create();
     }
-    ComputerUsePanel.currentPanel.panel.show?.(true);
+    ComputerUsePanel.currentPanel?.panel.reveal();
   }
 
   private static create() {
-    const panel = vscode.window.createWebviewView('computerUseView');
+    const panel = vscode.window.createWebviewPanel(
+      'computerUseView',
+      'Computer Use',
+      vscode.ViewColumn.One,
+      { enableScripts: true },
+    );
     const instance = new ComputerUsePanel(panel);
     ComputerUsePanel.currentPanel = instance;
 
     panel.webview.html = instance.getHtmlContent();
   }
 
-  private constructor(public readonly panel: vscode.WebviewView) {}
+  private constructor(public readonly panel: vscode.WebviewPanel) {}
 
   private getHtmlContent(): string {
     return `
@@ -181,7 +184,7 @@ export class ComputerUsePanel {
         const response = await fetch('http://localhost:8796/api/cua/history');
         const history = await response.json();
         console.log('Action history:', history);
-        alert(`Last ${history.length} actions shown in console`);
+        alert('Last ' + history.length + ' actions shown in console');
       } catch (error) {
         console.error('Get history failed:', error);
       }
@@ -194,6 +197,6 @@ export class ComputerUsePanel {
 
   public dispose() {
     ComputerUsePanel.currentPanel = undefined;
-    this.disposables.forEach(d => d.dispose());
+    this.disposables.forEach((d) => d.dispose());
   }
 }

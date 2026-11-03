@@ -208,92 +208,95 @@ function mcpPresetCard(p) {
 }
 
 function openMCPInstallDialog(p) {
-  Modal.open(`${p.installed ? '重装' : '安装'} ${esc(p.name)}`, (box) => {
-    const form = el('form');
-    if (p.installed) {
-      form.appendChild(
-        el(
-          'p',
-          'field-hint',
-          '该服务器已安装。重装会用下面填的命令与参数替换现有配置；只想临时别跑，请取消后到「已安装」里点停用。',
-        ),
-      );
-    }
-    (p.params || []).forEach((pm) => {
-      const f = el('div', 'field');
-      f.innerHTML = `<label class="field-label" for="mp-${esc(pm.key)}">${esc(pm.label)}${pm.required ? ' *' : ''}</label>`;
-      const input = el('input', 'input');
-      input.id = 'mp-' + pm.key;
-      input.placeholder = pm.placeholder || '';
-      input.dataset.key = pm.key;
-      f.appendChild(input);
-      form.appendChild(f);
-    });
-    if (!(p.params || []).length)
-      form.appendChild(el('p', 'field-hint', '该服务器无需额外参数。'));
-    const actions = el('div', 'modal-actions');
-    const cancel = el('button', 'btn btn-secondary', '取消');
-    cancel.type = 'button';
-    cancel.addEventListener('click', Modal.close);
-    const go = el(
-      'button',
-      'btn btn-primary',
-      p.installed ? '确认重装' : '安装',
-    );
-    actions.appendChild(cancel);
-    actions.appendChild(go);
-    form.appendChild(actions);
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const params = {};
-      (p.params || []).forEach((pm) => {
-        params[pm.key] = form.querySelector('#mp-' + pm.key).value;
-      });
-      go.disabled = true;
-      go.innerHTML = ICONS.spinner + ' 连接中…';
-      const send = async (force) => {
-        const out = await api('POST', '/api/market/mcp/install', {
-          id: p.id,
-          params,
-          trust: p.trust,
-          force,
-        });
-        Modal.close();
-        if (out.warning) toast(out.warning, 'info', 7000);
-        else
-          toast(
-            `${p.name} 已连接（${out.tools} 个工具已注册）`,
-            'success',
-            6000,
-          );
-        loadMCPInstalled();
-        loadMCPMarket();
-      };
-      try {
-        await send(p.installed);
-      } catch (err) {
-        if (
-          err.status === 409 &&
-          (await confirmModal(err.message, '已经装过了', {
-            okText: '重装它',
-            danger: true,
-          }))
-        ) {
-          try {
-            await send(true);
-            return;
-          } catch (err2) {
-            toast(`安装失败：${err2.message}`, 'error', 6500);
-          }
-        } else {
-          toast(`安装失败：${err.message}`, 'error', 6500);
-        }
-        go.disabled = false;
-        go.textContent = p.installed ? '确认重装' : '安装';
+  const dialog = Modal.open(
+    `${p.installed ? '重装' : '安装'} ${esc(p.name)}`,
+    (box) => {
+      const form = el('form');
+      if (p.installed) {
+        form.appendChild(
+          el(
+            'p',
+            'field-hint',
+            '该服务器已安装。重装会用下面填的命令与参数替换现有配置；只想临时别跑，请取消后到「已安装」里点停用。',
+          ),
+        );
       }
-    });
-    box.appendChild(form);
-  });
+      (p.params || []).forEach((pm) => {
+        const f = el('div', 'field');
+        f.innerHTML = `<label class="field-label" for="mp-${esc(pm.key)}">${esc(pm.label)}${pm.required ? ' *' : ''}</label>`;
+        const input = el('input', 'input');
+        input.id = 'mp-' + pm.key;
+        input.placeholder = pm.placeholder || '';
+        input.dataset.key = pm.key;
+        f.appendChild(input);
+        form.appendChild(f);
+      });
+      if (!(p.params || []).length)
+        form.appendChild(el('p', 'field-hint', '该服务器无需额外参数。'));
+      const actions = el('div', 'modal-actions');
+      const cancel = el('button', 'btn btn-secondary', '取消');
+      cancel.type = 'button';
+      cancel.addEventListener('click', Modal.close);
+      const go = el(
+        'button',
+        'btn btn-primary',
+        p.installed ? '确认重装' : '安装',
+      );
+      actions.appendChild(cancel);
+      actions.appendChild(go);
+      form.appendChild(actions);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const params = {};
+        (p.params || []).forEach((pm) => {
+          params[pm.key] = form.querySelector('#mp-' + pm.key).value;
+        });
+        go.disabled = true;
+        go.innerHTML = ICONS.spinner + ' 连接中…';
+        const send = async (force) => {
+          const out = await api('POST', '/api/market/mcp/install', {
+            id: p.id,
+            params,
+            trust: p.trust,
+            force,
+          });
+          dialog.close();
+          if (out.warning) toast(out.warning, 'info', 7000);
+          else
+            toast(
+              `${p.name} 已连接（${out.tools} 个工具已注册）`,
+              'success',
+              6000,
+            );
+          loadMCPInstalled();
+          loadMCPMarket();
+        };
+        try {
+          await send(p.installed);
+        } catch (err) {
+          if (
+            err.status === 409 &&
+            (await confirmModal(err.message, '已经装过了', {
+              okText: '重装它',
+              danger: true,
+            }))
+          ) {
+            try {
+              await send(true);
+              return;
+            } catch (err2) {
+              toast(`安装失败：${err2.message}`, 'error', 6500);
+            }
+          } else {
+            toast(`安装失败：${err.message}`, 'error', 6500);
+          }
+          go.disabled = false;
+          go.textContent = p.installed ? '确认重装' : '安装';
+        }
+      });
+      box.appendChild(form);
+    },
+  );
 }
 
 let skillCatActive = '';

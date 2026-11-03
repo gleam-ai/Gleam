@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.25](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.26](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -25,12 +25,13 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 
 <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
 
-## What's new in v0.0.25
+## What's new in v0.0.26
 
-- 🖥️ **Computer Use Automation**: Control Chrome, WeChat, VSCode with natural language
-- 🔗 **URL Auto-Detection**: Automatically triggers desktop actions when URLs appear in tasks
-- 🛡️ **Chinese App Support**: Optimized for WeChat, QQ, DingTalk with IME handling
-- 🔒 **Security First**: Blacklist mode, command injection prevention, audit logging
+- **Full-stack reliability review**: Fixes across the engine, Web UI, Electron shell, and VS Code extension
+- **Safer updates and requests**: Authentic update metadata proxying, strict JSON body limits, and atomic configuration writes
+- **More resilient integrations**: Prevents duplicate goal submission, handles engine disconnects, and unblocks MCP transport cancellation
+- **Polished interactions**: Restores nested modal forms, prevents stale async rendering, and improves responsive layout and keyboard accessibility
+- **Computer Use hardening**: Fixes desktop builds, IPC error propagation, command execution, and initialization order
 
 ## What you get
 
@@ -38,7 +39,7 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Desktop Control (CUA)** — Natural language control of Chrome, WeChat, VSCode via Windows UI Automation
 - **Local-first** — conversations, memory, tasks, and audit logs stay on your machine by default
 - **9 LLM providers** — GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and more, with multi-model tier routing
-- **27 built-in tools** — file, shell, web, git, desktop integration, memory, scheduling — plus MCP for unlimited extensions
+- **34 built-in tools** — file, shell, web, git, desktop integration, memory, scheduling — plus MCP for unlimited extensions
 - **7 expert roles** — analyst, engineer, PM, researcher, ops, creator, or bring your own
 - **Skill system** — successful executions crystallize into reusable, versioned skills with success-rate tracking
 - **Token efficient** — compact schemas, exponential backoff, role prompt optimization: **55% less token usage**
@@ -83,7 +84,7 @@ vscode-gleam/       VS Code extension with CUA support
 The desktop window and the CLI drive the embedded web UI over a local HTTP API (bound to `127.0.0.1`, token-gated). This list is the **owner of user-visible endpoints**: `scripts/check-api-docs.py` fails the build when a route is registered in `internal/webui` but missing here — or listed here but not registered.
 
 <details>
-<summary>All 102 endpoints</summary>
+<summary>All 103 endpoints</summary>
 
 - **Account** — `/api/account` · `/api/account/configure` · `/api/account/oauth` · `/api/account/signin` · `/api/account/signout` · `/api/account/signup`
 - **Approvals** — `/api/approvals` · `/api/approvals/{id}`

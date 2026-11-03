@@ -27,8 +27,28 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+const requestBodyReadTimeout = 30 * time.Second
+
 func (s *Server) Handler() http.Handler {
-	return s.guard(s.routes())
+	return s.guard(requestBodyTimeout(s.routes()))
+}
+
+// requestBodyTimeout bounds accepted request bodies without a server-wide
+// ReadTimeout. Bodyless requests, including SSE, never receive a read deadline.
+func requestBodyTimeout(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+		controller := http.NewResponseController(w)
+		if err := controller.SetReadDeadline(time.Now().Add(requestBodyReadTimeout)); err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) routes() http.Handler {
@@ -193,7 +213,7 @@ func (s *Server) routes() http.Handler {
 
 func staticHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 强制不缓存 + 版本号头部 (由构建产物日期戳体现)
+		// Disable caching and expose the build version.
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
@@ -224,8 +244,22 @@ func readJSON(r *http.Request, dst any) error {
 
 func readJSONCap(r *http.Request, limit int64, dst any) error {
 	defer r.Body.Close()
-	r.Body = io.NopCloser(io.LimitReader(r.Body, limit+1))
-	return json.NewDecoder(r.Body).Decode(dst)
+	body := &io.LimitedReader{R: r.Body, N: limit + 1}
+	dec := json.NewDecoder(body)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("请求体只能包含一个 JSON 值")
+		}
+		return err
+	}
+	if body.N == 0 {
+		return errors.New("请求体超过大小限制")
+	}
+	return nil
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, _ *http.Request) {
@@ -284,13 +318,7 @@ type goalSubmitBody struct {
 
 func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 	var body goalSubmitBody
-	raw, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeErr(w, 400, "无法读取请求体")
-		return
-	}
-	r.Body.Close()
-	if err := harness.Validate(raw, &body); err != nil && !errors.Is(err, io.EOF) {
+	if err := readJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
 		writeErr(w, 400, "请求体格式无效")
 		return
 	}
@@ -628,7 +656,7 @@ func (s *Server) handleSkillRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "参数解析失败")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	out, err := s.Agent.SkillRun(ctx, name, body.Params)
 	if err != nil {
@@ -868,12 +896,12 @@ func (s *Server) handleContextGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, s.Agent.ContextView())
 }
 
-func (s *Server) handleContextCompress(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleContextCompress(w http.ResponseWriter, r *http.Request) {
 	if s.Agent.Mem == nil {
 		writeErr(w, 400, "记忆系统未启用")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	compressed := s.Agent.Mem.Compress(s.Agent.CompressSummarizer(ctx))
 	writeJSON(w, 200, map[string]any{"compressed": compressed, "context": s.Agent.ContextView()})

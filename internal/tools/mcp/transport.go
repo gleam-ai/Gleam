@@ -26,6 +26,7 @@ type stdioTransport struct {
 	stderr io.ReadCloser
 	logf   func(string, ...any)
 
+	writeMu sync.Mutex
 	mu      sync.Mutex
 	nextID  int64
 	pending map[int64]chan rpcMessage
@@ -120,14 +121,17 @@ func (t *stdioTransport) failPending(err error) {
 }
 
 func (t *stdioTransport) send(msg rpcMessage) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.closed {
-		return fmt.Errorf("mcp: %s 已关闭", t.name)
-	}
 	b, err := json.Marshal(msg)
 	if err != nil {
 		return err
+	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	t.mu.Lock()
+	closed := t.closed
+	t.mu.Unlock()
+	if closed {
+		return fmt.Errorf("mcp: %s 已关闭", t.name)
 	}
 	_, err = t.stdin.Write(append(b, '\n'))
 	return err
@@ -150,11 +154,22 @@ func (t *stdioTransport) call(ctx context.Context, method string, params any, ou
 	t.mu.Unlock()
 
 	idRaw, _ := json.Marshal(id)
-	if err := t.send(rpcMessage{JSONRPC: "2.0", ID: idRaw, Method: method, Params: paramsRaw(params)}); err != nil {
+	msg := rpcMessage{JSONRPC: "2.0", ID: idRaw, Method: method, Params: paramsRaw(params)}
+	writeDone := make(chan error, 1)
+	go func() { writeDone <- t.send(msg) }()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.mu.Lock()
+			delete(t.pending, id)
+			t.mu.Unlock()
+			return err
+		}
+	case <-ctx.Done():
 		t.mu.Lock()
 		delete(t.pending, id)
 		t.mu.Unlock()
-		return err
+		return ctx.Err()
 	}
 	select {
 	case <-ctx.Done():

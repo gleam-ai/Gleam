@@ -1,6 +1,4 @@
-// Computer Use integration for Gleam Desktop
 import { ipcRenderer } from 'electron';
-import { createClient } from './client';
 
 interface ComputerUseAPI {
   takeScreenshot(): Promise<string>;
@@ -10,55 +8,45 @@ interface ComputerUseAPI {
   isAvailable(): Promise<boolean>;
 }
 
-let client: ReturnType<typeof createClient> | null = null;
+type IpcResult = {
+  success?: boolean;
+  data?: string;
+  error?: string;
+  available?: boolean;
+};
+
+async function invoke(channel: string, args?: unknown): Promise<IpcResult> {
+  const result = (await ipcRenderer.invoke(channel, args)) as IpcResult;
+  if (result.error) throw new Error(result.error);
+  return result;
+}
 
 export const computerUse: ComputerUseAPI = {
   async takeScreenshot(): Promise<string> {
-    if (!client) client = createClient();
-    
-    return new Promise((resolve, reject) => {
-      ipcRenderer.invoke('computer-use:screenshot', {})
-        .then(result => resolve(result.data))
-        .catch(reject);
-    });
+    const result = await invoke('computer-use:screenshot');
+    if (typeof result.data !== 'string')
+      throw new Error('invalid screenshot response');
+    return result.data;
   },
 
   async click(x: number, y: number): Promise<void> {
-    if (!client) client = createClient();
-    
-    return new Promise((resolve, reject) => {
-      ipcRenderer.invoke('computer-use:click', { x, y })
-        .then(() => resolve())
-        .catch(reject);
-    });
+    await invoke('computer-use:click', { x, y });
   },
 
   async typeText(text: string): Promise<void> {
-    if (!client) client = createClient();
-    
-    return new Promise((resolve, reject) => {
-      ipcRenderer.invoke('computer-use:type', { text })
-        .then(() => resolve())
-        .catch(reject);
-    });
+    await invoke('computer-use:type', { text });
   },
 
   async openApp(appName: string): Promise<void> {
-    if (!client) client = createClient();
-    
-    return new Promise((resolve, reject) => {
-      ipcRenderer.invoke('computer-use:open_app', { app_name: appName })
-        .then(() => resolve())
-        .catch(reject);
-    });
+    await invoke('computer-use:open_app', { app_name: appName });
   },
 
   async isAvailable(): Promise<boolean> {
     try {
-      const result = await ipcRenderer.invoke('computer-use:health');
-      return result.available;
+      const result = await invoke('computer-use:health');
+      return result.available === true;
     } catch {
       return false;
     }
-  }
+  },
 };

@@ -239,12 +239,6 @@ func hasChineseChars(s string) bool {
 
 // typeTextWithIME handles typing with Chinese Input Method Editor.
 func (cu *ComputerUse) typeTextWithIME(ctx context.Context, text string) (any, error) {
-	// In production, this would:
-	// 1. Activate the target input field using UI Automation
-	// 2. Switch to Chinese IME if needed
-	// 3. Type text character by character or use IME raw input
-	// 4. Handle composition window properly
-
 	return map[string]any{
 		"type":     "action_result",
 		"text":     text,
@@ -309,11 +303,6 @@ func (cu *ComputerUse) openApp(ctx context.Context, appName string) (any, error)
 
 // launchChineseApp handles launching of popular Chinese applications with special considerations.
 func (cu *ComputerUse) launchChineseApp(ctx context.Context, appName string) (any, error) {
-	// Special handling for WeChat, QQ, DingTalk:
-	// 1. Check if already running
-	// 2. Bring existing window to foreground if possible
-	// 3. Handle Unicode filenames and paths correctly
-
 	return map[string]any{
 		"type":     "process_info",
 		"app":      appName,

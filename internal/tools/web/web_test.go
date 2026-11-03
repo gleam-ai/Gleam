@@ -88,6 +88,30 @@ func TestWeb_FetchText(t *testing.T) {
 	}
 }
 
+func TestWeb_MarksBodyTruncationAfterTextExtraction(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		prefix := "<script>" + strings.Repeat("x", maxBodyBytes-1024) + "</script><p>正文</p>"
+		_, _ = w.Write([]byte(prefix + strings.Repeat(" ", 2048)))
+	}))
+	defer srv.Close()
+
+	out, err := localTool().Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := out.(map[string]any)
+	if m["text"] != "正文" {
+		t.Fatalf("text = %q", m["text"])
+	}
+	if m["bytes"] != maxBodyBytes {
+		t.Fatalf("bytes = %v, want %d", m["bytes"], maxBodyBytes)
+	}
+	if m["truncated"] != true {
+		t.Fatal("body limit was reached but truncated was false")
+	}
+}
+
 func TestWeb_ExtractsHTMLText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

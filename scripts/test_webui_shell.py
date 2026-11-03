@@ -1213,6 +1213,321 @@ def run_long_stream_checks(browser, base, output):
         page.close()
 
 
+def run_frontend_interaction_checks(base, output):
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(base)
+        page.wait_for_load_state("networkidle")
+
+        page.route(
+            "**/api/market/mcp/install",
+            lambda route: route.fulfill(
+                status=409, json={"error": "服务器已经存在"}
+            ),
+        )
+        page.evaluate("""() => openMCPInstallDialog({
+            id: 'interaction', name: 'Interaction', trust: 'user',
+            params: [{key: 'token', label: 'Token', required: true}]
+        })""")
+        page.locator("#mp-token").fill("keep-me")
+        page.locator("#modal").get_by_role(
+            "button", name="安装", exact=True
+        ).click()
+        expect(page.locator("#modal-title")).to_have_text("已经装过了")
+        page.locator("#modal").get_by_role(
+            "button", name="取消", exact=True
+        ).click()
+        expect(page.locator("#modal-title")).to_contain_text("安装 Interaction")
+        expect(page.locator("#mp-token")).to_have_value("keep-me")
+        page.locator("#modal .modal-close").click()
+        page.unroute("**/api/market/mcp/install")
+
+        held = []
+        page.route("**/api/skills/stale/run", lambda route: held.append(route))
+        page.evaluate("openSkillRunDialog({name: 'stale', params: []})")
+        with page.expect_request("**/api/skills/stale/run"):
+            page.locator("#modal").get_by_role(
+                "button", name="执行", exact=True
+            ).click()
+        page.evaluate("""() => Modal.open('后来弹窗', box => {
+            const done = document.createElement('button');
+            done.textContent = '完成';
+            done.addEventListener('click', Modal.close);
+            box.appendChild(done);
+        })""")
+        held[0].fulfill(json={"status": "success", "summary": "done"})
+        expect(page.locator("#modal-title")).to_have_text("后来弹窗")
+        expect(page.locator("#modal-overlay")).to_be_visible()
+        page.locator("#modal").get_by_role(
+            "button", name="完成", exact=True
+        ).click()
+        expect(page.locator("#modal-title")).to_contain_text("运行技能")
+        page.locator("#modal .modal-close").click()
+        page.unroute("**/api/skills/stale/run")
+
+        page.evaluate("""() => {
+            window.interactionApi = api;
+            window.scheduleRequests = [];
+            api = (method, path, ...rest) => {
+                if (method === 'GET' && path === '/api/schedules') {
+                    return new Promise(resolve => scheduleRequests.push(resolve));
+                }
+                return interactionApi(method, path, ...rest);
+            };
+            loadSchedules();
+            loadSchedules();
+        }""")
+        page.wait_for_function("() => scheduleRequests.length === 2")
+        page.evaluate("""() => scheduleRequests[1]({jobs: [{
+            name: 'new-list', goal: 'new', enabled: true, interval_sec: 60
+        }]})""")
+        expect(page.locator("#schedules-list")).to_contain_text("new-list")
+        page.evaluate("""() => scheduleRequests[0]({jobs: [{
+            name: 'old-list', goal: 'old', enabled: true, interval_sec: 60
+        }]})""")
+        expect(page.locator("#schedules-list")).to_contain_text("new-list")
+        expect(page.locator("#schedules-list")).not_to_contain_text("old-list")
+        page.evaluate("() => { api = interactionApi; }")
+
+        settings_data = page.evaluate("() => api('GET', '/api/settings')")
+        page.evaluate("""() => {
+            window.memoryRequests = [];
+            api = (method, path, ...rest) => {
+                if (method === 'GET' && [
+                    '/api/info', '/api/settings', '/api/local-data'
+                ].includes(path)) {
+                    return new Promise(resolve => memoryRequests.push({path, resolve}));
+                }
+                return interactionApi(method, path, ...rest);
+            };
+            S2.show('memory');
+            S2.show('memory');
+        }""")
+        page.wait_for_function("() => memoryRequests.length === 6")
+        page.evaluate(
+            """settings => {
+                memoryRequests[3].resolve({memory: 7});
+                memoryRequests[4].resolve(settings);
+                memoryRequests[5].resolve({data_dir: '/tmp/new', file_count: 2});
+            }""",
+            settings_data,
+        )
+        memory = page.locator(
+            '.settings-panel[data-stab="memory"] .s2-page--pre'
+        )
+        expect(memory.locator(".s2-section-label")).to_have_count(2)
+        expect(memory.locator(".s2-row")).to_have_count(4)
+        page.evaluate(
+            """settings => {
+                memoryRequests[0].resolve({memory: 1});
+                memoryRequests[1].resolve(settings);
+                memoryRequests[2].resolve({data_dir: '/tmp/old', file_count: 1});
+            }""",
+            settings_data,
+        )
+        expect(memory.locator(".s2-section-label")).to_have_count(2)
+        expect(memory.locator(".s2-row")).to_have_count(4)
+        expect(memory).to_contain_text("/tmp/new")
+
+        page.evaluate("""() => {
+            window.safetyRequests = [];
+            api = (method, path, ...rest) => {
+                if (method === 'GET' && path === '/api/settings') {
+                    return new Promise(resolve => safetyRequests.push(resolve));
+                }
+                return interactionApi(method, path, ...rest);
+            };
+            S2.show('safety');
+            S2.show('safety');
+        }""")
+        page.wait_for_function("() => safetyRequests.length === 2")
+        page.evaluate("settings => safetyRequests[1](settings)", settings_data)
+        safety = page.locator(
+            '.settings-panel[data-stab="safety"] .s2-page--pre'
+        )
+        expect(safety.locator(".s2-section-label")).to_have_count(1)
+        expect(safety.locator(".s2-row")).to_have_count(3)
+        page.evaluate("settings => safetyRequests[0](settings)", settings_data)
+        expect(safety.locator(".s2-section-label")).to_have_count(1)
+        expect(safety.locator(".s2-row")).to_have_count(3)
+        page.evaluate("() => { api = interactionApi; }")
+
+        page.evaluate("showView('settings')")
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function("""() => getComputedStyle(
+            document.querySelector('.settings-nav')).position === 'static'
+        """)
+        bounds = page.evaluate("""() => {
+            const nav = document.querySelector('.settings-nav').getBoundingClientRect();
+            const content = document.querySelector('.settings-content').getBoundingClientRect();
+            return {navBottom: nav.bottom, contentTop: content.top};
+        }""")
+        assert bounds["contentTop"] >= bounds["navBottom"] - 1, bounds
+
+        page.evaluate("""() => {
+            const host = document.createElement('div');
+            host.id = 'interaction-dd';
+            const next = document.createElement('button');
+            next.id = 'interaction-dd-next';
+            next.textContent = 'next';
+            host.append(
+                S2.select([
+                    {value: 'a', label: 'A'},
+                    {value: 'b', label: 'B'},
+                    {value: 'c', label: 'C'}
+                ], 'b', () => {}),
+                next
+            );
+            document.body.append(host);
+        }""")
+        trigger = page.locator("#interaction-dd .s2-dd-btn")
+        trigger.click()
+        expect(
+            page.locator('body > .s2-dd-pop [aria-selected="true"]')
+        ).to_be_focused()
+        page.keyboard.press("ArrowDown")
+        expect(
+            page.locator('body > .s2-dd-pop [role="option"]').nth(2)
+        ).to_be_focused()
+        page.keyboard.press("Home")
+        expect(
+            page.locator('body > .s2-dd-pop [role="option"]').first
+        ).to_be_focused()
+        page.keyboard.press("End")
+        expect(
+            page.locator('body > .s2-dd-pop [role="option"]').nth(2)
+        ).to_be_focused()
+        page.keyboard.press("Escape")
+        expect(trigger).to_be_focused()
+        expect(trigger).to_have_attribute("aria-expanded", "false")
+        page.keyboard.press("ArrowDown")
+        expect(trigger).to_have_attribute("aria-expanded", "true")
+        page.keyboard.press("Tab")
+        expect(trigger).to_have_attribute("aria-expanded", "false")
+        expect(page.locator("#interaction-dd-next")).to_be_focused()
+        page.evaluate(
+            "() => document.querySelector('#interaction-dd').remove()"
+        )
+
+        page.evaluate("""() => {
+            const trigger = document.createElement('button');
+            trigger.id = 'interaction-model-trigger';
+            trigger.textContent = 'add';
+            document.body.append(trigger);
+            trigger.focus();
+            S2.openModelDialog(null);
+        }""")
+        dialog = page.locator(".s2-dialog")
+        expect(dialog).to_be_visible()
+        expect(page.locator("#s2-dlg-prov")).to_be_focused()
+        page.evaluate("""() => {
+            const root = document.querySelector('.s2-dialog');
+            const items = [...root.querySelectorAll(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )].filter(el => el.getClientRects().length && !el.closest('[hidden], [inert]'));
+            window.interactionFirstFocus = items[0];
+            items[items.length - 1].focus();
+        }""")
+        page.keyboard.press("Tab")
+        assert page.evaluate(
+            "() => document.activeElement === interactionFirstFocus"
+        )
+        page.locator("#s2-dlg-name").fill("未保存")
+        page.locator(".s2-dialog-foot").get_by_role(
+            "button", name="取消", exact=True
+        ).click()
+        confirmation = page.locator(".s2-confirm")
+        expect(confirmation).to_be_visible()
+        expect(
+            confirmation.get_by_role("button", name="继续编辑")
+        ).to_be_focused()
+        confirmation.get_by_role("button", name="放弃更改").focus()
+        page.keyboard.press("Tab")
+        expect(
+            confirmation.get_by_role("button", name="继续编辑")
+        ).to_be_focused()
+        page.keyboard.press("Escape")
+        expect(confirmation).to_have_count(0)
+        expect(dialog).to_be_visible()
+        expect(page.locator("#s2-dlg-name")).to_have_value("未保存")
+        expect(
+            page.locator(".s2-dialog-foot").get_by_role(
+                "button", name="取消", exact=True
+            )
+        ).to_be_focused()
+        page.locator(".s2-dialog-foot").get_by_role(
+            "button", name="取消", exact=True
+        ).click()
+        page.locator(".s2-confirm").get_by_role(
+            "button", name="放弃更改", exact=True
+        ).click()
+        expect(page.locator(".s2-dialog-overlay")).to_have_count(0)
+        expect(page.locator("#interaction-model-trigger")).to_be_focused()
+        page.evaluate(
+            "() => document.querySelector('#interaction-model-trigger').remove()"
+        )
+
+        nested = page.evaluate("""() => {
+            const space = spaceGroupEl(
+                {id: 'test', name: 'Test', is_default: false}, [],
+                {open: false, active: false, currentConvoId: ''}
+            );
+            const convo = convoItemEl({id: 'c', title: 'Conversation'}, false);
+            return space.querySelectorAll('button button').length +
+                convo.querySelectorAll('button button').length;
+        }""")
+        assert nested == 0
+
+        page.evaluate("() => { BrowserPane.newTab(); BrowserPane.newTab(); }")
+        expect(page.locator(".bp-tab")).to_have_count(2)
+        expect(page.locator(".bp-tab button button")).to_have_count(0)
+        close_tab = page.locator(".bp-tab-x").first
+        close_tab.focus()
+        page.keyboard.press("Enter")
+        expect(page.locator(".bp-tab")).to_have_count(0)
+        expect(page.locator("#bp-tabs")).to_be_hidden()
+
+        page.evaluate("() => Terminal.open()")
+        for event_name in ("pointercancel", "lostpointercapture"):
+            page.evaluate(
+                """eventName => {
+                    const grip = document.querySelector('#term-resize');
+                    if (!window.interactionSetCapture) {
+                        window.interactionSetCapture = grip.setPointerCapture;
+                        grip.setPointerCapture = () => {};
+                    }
+                    grip.dispatchEvent(new PointerEvent('pointerdown', {
+                        pointerId: 7, clientY: 400, bubbles: true
+                    }));
+                    if (!document.documentElement.classList.contains('is-resizing')) {
+                        throw new Error('terminal drag did not start');
+                    }
+                    grip.dispatchEvent(new PointerEvent(eventName, {
+                        pointerId: 7, bubbles: true
+                    }));
+                }""",
+                event_name,
+            )
+            assert not page.evaluate(
+                "() => document.documentElement.classList.contains('is-resizing')"
+            )
+        page.evaluate("""() => {
+            const grip = document.querySelector('#term-resize');
+            grip.setPointerCapture = interactionSetCapture;
+            Terminal.close();
+        }""")
+        assert not errors, errors
+        browser.close()
+        print(
+            "PASS: modal ownership, nested forms, latest renders, responsive settings, "
+            "focus, listbox keyboard, sibling buttons and pointer cleanup",
+            flush=True,
+        )
+
+
 @contextmanager
 def isolated_mock_server(binary, output, scripts=None):
     with tempfile.TemporaryDirectory(prefix="gleam-shell-") as directory:
@@ -1274,7 +1589,15 @@ def main():
     parser.add_argument("--output", default="tmp/ui-shell-check")
     parser.add_argument(
         "--suite",
-        choices=["all", "shell", "home", "terminal", "submit", "stream"],
+        choices=[
+            "all",
+            "shell",
+            "home",
+            "terminal",
+            "submit",
+            "stream",
+            "interaction",
+        ],
         default="all",
     )
     args = parser.parse_args()
@@ -1291,6 +1614,8 @@ def main():
                 run_terminal_checks(base, output)
             if args.suite in ("all", "submit"):
                 run_submit_checks(base, output)
+            if args.suite in ("all", "interaction"):
+                run_frontend_interaction_checks(base, output)
     if args.suite in ("all", "stream"):
         # Plain public outputs, emitted by the real mock engine before replay.
         scripts = [

@@ -306,6 +306,7 @@
   }
 
   async function openDialog(entry) {
+    const returnFocus = document.activeElement;
     const provs = await providers();
     const isEdit = !!entry;
     const st = {
@@ -353,6 +354,7 @@
       role: 'dialog',
       'aria-modal': 'true',
       'aria-labelledby': 's2-dlg-title',
+      tabindex: '-1',
     });
     overlay.append(dlg);
     const body = h('div', { class: 's2-dialog-body' });
@@ -1137,15 +1139,19 @@
       if (e.target === overlay) tryClose();
     });
     const onKey = (e) => {
-      if (e.key === 'Escape' && !overlay.querySelector('.s2-confirm')) {
+      const confirmation = overlay.querySelector('.s2-confirm');
+      if (e.key === 'Escape' && !confirmation) {
         e.preventDefault();
         tryClose();
+      } else if (e.key === 'Tab') {
+        Modal.trapFocus(confirmation || dlg, e);
       }
     };
     document.addEventListener('keydown', onKey, true);
     function close() {
       document.removeEventListener('keydown', onKey, true);
       overlay.remove();
+      if (returnFocus && returnFocus.isConnected) returnFocus.focus();
     }
     function tryClose() {
       if (busy) {
@@ -1156,11 +1162,14 @@
         close();
         return;
       }
+      if (overlay.querySelector('.s2-confirm')) return;
+      const confirmReturnFocus = document.activeElement;
       const box = h('div', {
         class: 's2-confirm',
         role: 'alertdialog',
         'aria-modal': 'true',
         'aria-labelledby': 's2-cf-t',
+        tabindex: '-1',
       });
       const keep = h('button', {
         type: 'button',
@@ -1178,21 +1187,25 @@
         h('div', { class: 's2-confirm-btns' }, keep, drop),
       );
       const layer = h('div', { class: 's2-confirm-layer' }, box);
+      dlg.inert = true;
       overlay.append(layer);
       keep.focus();
+      const dismiss = () => {
+        document.removeEventListener('keydown', off, true);
+        layer.remove();
+        dlg.inert = false;
+        if (confirmReturnFocus && confirmReturnFocus.isConnected)
+          confirmReturnFocus.focus();
+      };
       const off = (e) => {
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
-          layer.remove();
-          document.removeEventListener('keydown', off, true);
+          dismiss();
         }
       };
       document.addEventListener('keydown', off, true);
-      keep.addEventListener('click', () => {
-        layer.remove();
-        document.removeEventListener('keydown', off, true);
-      });
+      keep.addEventListener('click', dismiss);
       drop.addEventListener('click', () => {
         document.removeEventListener('keydown', off, true);
         close();

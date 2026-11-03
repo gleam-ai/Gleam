@@ -1188,6 +1188,21 @@ html[data-blur="off"] *::after {
   -webkit-backdrop-filter: none !important;
 }
 
+@media (max-width: 900px) {
+  html[data-view="settings"] .settings-nav,
+  html[data-view="settings"][data-sidebar="collapsed"] .settings-nav {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: auto;
+    overflow: visible;
+  }
+  html[data-view="settings"] .settings-search {
+    display: none;
+  }
+}
+
 @media (max-width: 760px) {
   .s2-theme-grid {
     grid-template-columns: repeat(3, 1fr);

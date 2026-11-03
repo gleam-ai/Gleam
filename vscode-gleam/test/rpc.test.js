@@ -2,7 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { JsonRpcClient, JsonRpcError } = require('../src/rpc.js');
+const {
+  JsonRpcClient,
+  JsonRpcError,
+  rpcCallWithErrorHandling,
+} = require('../src/rpc.js');
 
 function client() {
   const out = [];
@@ -115,4 +119,81 @@ test('a request past its deadline rejects and stops tracking the id', async () =
   const err = await promise;
   assert.equal(err.code, -32001);
   assert.equal(rpc.pending.size, 0);
+});
+
+test('the extension error-handling wrapper is exported', () => {
+  assert.equal(typeof rpcCallWithErrorHandling, 'function');
+});
+
+test('a timed-out goal submission is never replayed', async () => {
+  const { out, rpc } = client();
+  const promise = rpcCallWithErrorHandling(
+    rpc,
+    'goal/submit',
+    { goal: 'do once' },
+    { timeoutMs: 5, maxRetries: 3, baseDelayMs: 0 },
+  );
+  await assert.rejects(promise, (err) => {
+    assert.equal(err.code, -32001);
+    return true;
+  });
+  assert.equal(out.length, 1);
+});
+
+test('an explicitly idempotent method can retry after a timeout', async () => {
+  let attempts = 0;
+  const rpc = new JsonRpcClient({
+    sendRaw: (chunk) => {
+      const message = JSON.parse(chunk);
+      attempts++;
+      if (attempts === 2) {
+        queueMicrotask(() =>
+          rpc.receiveLine(
+            JSON.stringify({ jsonrpc: '2.0', id: message.id, result: 'pong' }),
+          ),
+        );
+      }
+    },
+  });
+  const result = await rpcCallWithErrorHandling(rpc, 'ping', undefined, {
+    timeoutMs: 5,
+    maxRetries: 1,
+    baseDelayMs: 0,
+  });
+  assert.equal(result, 'pong');
+  assert.equal(attempts, 2);
+});
+
+test('a closed client fails immediately without retrying on its dead transport', async () => {
+  const { out, rpc } = client();
+  rpc.failAllPending('engine exited');
+  assert.equal(rpc.closed, true);
+  await assert.rejects(
+    rpcCallWithErrorHandling(rpc, 'ping', undefined, {
+      maxRetries: 3,
+      baseDelayMs: 0,
+    }),
+    (err) => {
+      assert.equal(err.code, -32002);
+      assert.match(err.message, /engine exited/);
+      return true;
+    },
+  );
+  assert.equal(out.length, 0);
+});
+
+test('a disconnect during goal submission rejects without replaying it', async () => {
+  const { out, rpc } = client();
+  const promise = rpcCallWithErrorHandling(
+    rpc,
+    'goal/submit',
+    { goal: 'do once' },
+    { maxRetries: 3, baseDelayMs: 0 },
+  );
+  rpc.failAllPending('write EPIPE');
+  await assert.rejects(promise, (err) => {
+    assert.equal(err.code, -32002);
+    return true;
+  });
+  assert.equal(out.length, 1);
 });

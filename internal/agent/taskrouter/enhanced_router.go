@@ -178,7 +178,7 @@ func (er *EnhancedRouter) monitorLoop(ctx context.Context) {
 	}
 }
 
-// LogRouting records task → URL mapping.
+// LogRouting records task-to-URL mapping.
 func (er *EnhancedRouter) logRouting(task string, action *CUAAction) {
 	if er.auditLog == nil {
 		er.initAuditLog()

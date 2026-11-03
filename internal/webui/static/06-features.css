@@ -1350,6 +1350,20 @@ html[data-theme="dark"] .site-tpl-tabs button[aria-selected="true"] {
   color: var(--color-fg);
   box-shadow: inset 0 0 0 1px var(--line);
 }
+.bp-tab-select {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .bp-tab-label {
   min-width: 0;
   overflow: hidden;
@@ -1362,9 +1376,13 @@ html[data-theme="dark"] .site-tpl-tabs button[aria-selected="true"] {
   height: 16px;
   display: grid;
   place-items: center;
+  padding: 0;
+  border: none;
   border-radius: 4px;
+  background: transparent;
   font-size: 9px;
   color: var(--color-fg-faint);
+  cursor: pointer;
 }
 .bp-tab-x:hover {
   background: rgba(var(--danger-rgb) / 0.14);

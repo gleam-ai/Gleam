@@ -22,6 +22,16 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 
 ---
 
+## What's new in v0.0.26
+
+- Full-stack reliability fixes across the Go engine, Web UI, Electron shell, and VS Code extension
+- Authentic update metadata proxying, strict JSON request limits, and atomic configuration writes
+- Safer RPC retries, disconnect recovery, MCP cancellation, and desktop update retries
+- Nested modal restoration, stale-response protection, responsive settings, and keyboard accessibility improvements
+- Computer Use build, IPC validation, initialization, and command-injection fixes
+
+---
+
 ## Preview
 
 <p align="center">
@@ -53,7 +63,7 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 | **What it is not** | A hosted SaaS chat product, a cloud RAG platform, or a fully offline LLM |
 | **Core** | Single file ~10 MB, pure Go (no cgo), cross-compiled for multiple platforms |
 | **Desktop shell** | Electron over the local core; Windows gets an assisted installer with Node and uv bundled — **install and use, no environment setup** |
-| **Extensibility** | 27 built-in tools + MCP servers for hot-plugged external tools |
+| **Extensibility** | 34 built-in tools + MCP servers for hot-plugged external tools |
 | **Interfaces** | Desktop app, CLI (`goal` / `doctor` / …), Web UI, JSON-RPC over stdio (editor plugins) |
 
 ---
@@ -201,7 +211,7 @@ Multi-platform cross builds of the core live in `scripts/build-desktop.sh`; the 
 
 ## Tools and MCP
 
-**27 built-in tools**, including:
+**34 built-in tools**, including:
 
 | Group | Tools |
 | :--- | :--- |

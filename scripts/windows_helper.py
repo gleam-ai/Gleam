@@ -12,6 +12,7 @@ def reconfigure_stdout_utf8():
     if sys.platform == "win32":
         try:
             import io
+
             codecs = __import__("codecs")
             stream = codecs.getincrementalencoder("utf-8")(errors="replace")
             # Only reconfigure if needed; this is defensive

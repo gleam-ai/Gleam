@@ -22,24 +22,26 @@ export function setComputerUseAPI(newApi: ComputerUseAPI) {
 
 class ComputerUseClient implements ComputerUseAPI {
   async takeScreenshot(): Promise<string> {
-    return vscode.commands.executeCommand('computer-use:screenshot');
+    return vscode.commands.executeCommand('computer-use.screenshot');
   }
 
   async click(x: number, y: number): Promise<void> {
-    await vscode.commands.executeCommand('computer-use:click', x, y);
+    await vscode.commands.executeCommand('computer-use.click', x, y);
   }
 
   async typeText(text: string): Promise<void> {
-    await vscode.commands.executeCommand('computer-use:type', text);
+    await vscode.commands.executeCommand('computer-use.type', text);
   }
 
   async openApp(appName: string): Promise<void> {
-    await vscode.commands.executeCommand('computer-use:open_app', appName);
+    await vscode.commands.executeCommand('computer-use.open_app', appName);
   }
 
   async isAvailable(): Promise<boolean> {
     try {
-      const result: any = await vscode.commands.executeCommand('computer-use:health');
+      const result: any = await vscode.commands.executeCommand(
+        'computer-use.health',
+      );
       return result.available;
     } catch {
       return false;
@@ -47,7 +49,7 @@ class ComputerUseClient implements ComputerUseAPI {
   }
 
   async getHistory(): Promise<any[]> {
-    return vscode.commands.executeCommand('computer-use:history');
+    return vscode.commands.executeCommand('computer-use.history');
   }
 }
 

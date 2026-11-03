@@ -232,22 +232,51 @@ const S2 = (() => {
     label();
 
     let pop = null;
-    const close = () => {
+    const close = (returnFocus = false) => {
       if (!pop) return;
       pop.remove();
       pop = null;
       btn.setAttribute('aria-expanded', 'false');
       document.removeEventListener('mousedown', onOut, true);
       document.removeEventListener('keydown', onKey, true);
+      if (returnFocus) btn.focus();
     };
     const onOut = (e) => {
       if (pop && !pop.contains(e.target) && !btn.contains(e.target)) close();
     };
     const onKey = (e) => {
+      if (!pop) return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        close();
+        e.stopPropagation();
+        close(true);
+        return;
       }
+      if (e.key === 'Tab') {
+        close(true);
+        return;
+      }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+      const items = [...pop.querySelectorAll('.s2-dd-item:not(:disabled)')];
+      if (!items.length) {
+        e.preventDefault();
+        return;
+      }
+      let index = items.indexOf(document.activeElement);
+      if (e.key === 'Home') index = 0;
+      else if (e.key === 'End') index = items.length - 1;
+      else {
+        if (index < 0) {
+          index = items.indexOf(
+            pop.querySelector('[aria-selected="true"]:not(:disabled)'),
+          );
+        }
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        if (index < 0) index = step > 0 ? -1 : 0;
+        index = (index + step + items.length) % items.length;
+      }
+      e.preventDefault();
+      items[index].focus();
     };
     const open = () => {
       if (pop) return;
@@ -279,7 +308,7 @@ const S2 = (() => {
           const prev = current;
           current = o.value;
           label();
-          close();
+          close(true);
           try {
             await onChange(o.value);
           } catch (err) {
@@ -302,11 +331,21 @@ const S2 = (() => {
       pop.style.top = Math.round(top) + 'px';
       document.addEventListener('mousedown', onOut, true);
       document.addEventListener('keydown', onKey, true);
+      const selected = pop.querySelector(
+        '[aria-selected="true"]:not(:disabled)',
+      );
+      (selected || pop.querySelector('.s2-dd-item:not(:disabled)'))?.focus();
     };
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (pop) close();
       else open();
+    });
+    btn.addEventListener('keydown', (e) => {
+      if (!pop && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        open();
+      }
     });
     wrap.append(btn);
     return wrap;
