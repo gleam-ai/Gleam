@@ -48,7 +48,8 @@ export interface UpdaterHost {
 }
 
 export function installUpdater(host: UpdaterHost): void {
-  const supported = process.platform !== 'linux' || !!process.env.APPIMAGE;
+  const supported =
+    app.isPackaged && (process.platform !== 'linux' || !!process.env.APPIMAGE);
   if (!supported)
     log('this build cannot replace itself in place: checks stay off');
 

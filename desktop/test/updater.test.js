@@ -7,9 +7,10 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const ts = require('typescript');
 
-function createHarness(hostOverrides = {}) {
+function createHarness(hostOverrides = {}, { packaged = true } = {}) {
   const handlers = new Map();
   const app = new EventEmitter();
+  app.isPackaged = packaged;
   app.quit = () => {};
   const autoUpdater = new EventEmitter();
   autoUpdater.installerPath = 'installer.exe';
@@ -80,6 +81,20 @@ function createHarness(hostOverrides = {}) {
     invoke: (name) => handlers.get(name)(event),
   };
 }
+
+test('development mode exposes updater IPC without checking', async () => {
+  const harness = createHarness({}, { packaged: false });
+  let checks = 0;
+  harness.autoUpdater.checkForUpdates = async () => {
+    checks++;
+  };
+
+  assert.deepEqual(await harness.invoke('desktop:update:status'), {
+    kind: 'idle',
+  });
+  assert.deepEqual(await harness.invoke('desktop:update:check'), { ok: false });
+  assert.equal(checks, 0);
+});
 
 test('concurrent restart requests share one sidecar shutdown', async () => {
   let quitCalls = 0;

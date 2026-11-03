@@ -1,7 +1,7 @@
 {
   "name": "gleam-desktop",
   "productName": "Gleam",
-  "version": "0.0.26",
+  "version": "0.0.27",
   "description": "Gleam — a local-first desktop AI agent with Computer Use Automation. Configuration, data, and desktop control stay local.",
   "author": "Gleam",
   "license": "UNLICENSED",
@@ -22,12 +22,12 @@
   },
   "devDependencies": {
     "@types/node": "22.19.0",
-    "electron": "41.10.6",
+    "electron": "45.2.1",
     "electron-builder": "26.15.3",
     "typescript": "5.9.3"
   },
   "allowScripts": {
-    "electron@41.10.6": true,
+    "electron@45.2.1": true,
     "electron-winstaller@5.4.0": true
   },
   "dependencies": {

@@ -22,13 +22,12 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 
 ---
 
-## What's new in v0.0.26
+## What's new in v0.0.27
 
-- Full-stack reliability fixes across the Go engine, Web UI, Electron shell, and VS Code extension
-- Authentic update metadata proxying, strict JSON request limits, and atomic configuration writes
-- Safer RPC retries, disconnect recovery, MCP cancellation, and desktop update retries
-- Nested modal restoration, stale-response protection, responsive settings, and keyboard accessibility improvements
-- Computer Use build, IPC validation, initialization, and command-injection fixes
+- Electron 45.2.1 with Chromium 156 and current runtime security fixes
+- Updater IPC is registered before page load, eliminating startup races and development-mode errors
+- Development builds expose update status without contacting the release feed
+- minimatch 11.0.1 resolves the dependency vulnerability that blocked Dependabot security updates
 
 ---
 

@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.26](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.27](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -25,13 +25,11 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 
 <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
 
-## What's new in v0.0.26
+## What's new in v0.0.27
 
-- **Full-stack reliability review**: Fixes across the engine, Web UI, Electron shell, and VS Code extension
-- **Safer updates and requests**: Authentic update metadata proxying, strict JSON body limits, and atomic configuration writes
-- **More resilient integrations**: Prevents duplicate goal submission, handles engine disconnects, and unblocks MCP transport cancellation
-- **Polished interactions**: Restores nested modal forms, prevents stale async rendering, and improves responsive layout and keyboard accessibility
-- **Computer Use hardening**: Fixes desktop builds, IPC error propagation, command execution, and initialization order
+- **Electron 45.2.1**: Chromium 156 and current runtime security fixes without relaxing the sandbox
+- **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
+- **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
 
 ## What you get
 

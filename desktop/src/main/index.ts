@@ -185,6 +185,37 @@ function run(): void {
       return;
     }
 
+    installUpdater({
+      allowClose: () => {
+        allowWindowClose = true;
+      },
+      quitForUpdate: async () => {
+        if (sidecar?.running) {
+          const how = await sidecar.stop();
+          log(`update: sidecar stopped (${how})`);
+          if (how === 'stuck') return false;
+        }
+        allowWindowClose = true;
+        return true;
+      },
+      resumeAfterFailedUpdate: async () => {
+        // The installer never launched, so keep the window's normal
+        // close-to-tray policy and bring the backend back.
+        allowWindowClose = false;
+        if (!sidecar || sidecar.running) return;
+        try {
+          const ready = await sidecar.start();
+          log(`update: sidecar restarted pid=${ready.pid}`);
+        } catch (err) {
+          log(`update: sidecar restart failed: ${String(err)}`);
+        }
+      },
+      upstream: () =>
+        sidecar?.running && sidecar.ready
+          ? { addr: sidecar.ready.addr, token: sidecar.token }
+          : null,
+    });
+
     win = createMainWindow({ width: w, height: h });
     installGlobalShortcut(win);
     installTray();
@@ -220,38 +251,6 @@ function run(): void {
     if (holdSeconds > 0)
       await new Promise((r) => setTimeout(r, holdSeconds * 1000));
     splash?.close();
-
-    if (app.isPackaged)
-      installUpdater({
-        allowClose: () => {
-          allowWindowClose = true;
-        },
-        quitForUpdate: async () => {
-          if (sidecar?.running) {
-            const how = await sidecar.stop();
-            log(`update: sidecar stopped (${how})`);
-            if (how === 'stuck') return false;
-          }
-          allowWindowClose = true;
-          return true;
-        },
-        resumeAfterFailedUpdate: async () => {
-          // The installer never launched, so keep the window's normal
-          // close-to-tray policy and bring the backend back.
-          allowWindowClose = false;
-          if (!sidecar || sidecar.running) return;
-          try {
-            const ready = await sidecar.start();
-            log(`update: sidecar restarted pid=${ready.pid}`);
-          } catch (err) {
-            log(`update: sidecar restart failed: ${String(err)}`);
-          }
-        },
-        upstream: () =>
-          sidecar?.running && sidecar.ready
-            ? { addr: sidecar.ready.addr, token: sidecar.token }
-            : null,
-      });
 
     const demo = (process.env.GLEAM_TRAY_ACTION || '')
       .split(',')
