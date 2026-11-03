@@ -20,25 +20,25 @@ git push origin master 2>/dev/null && echo "✅ Electron package pushed to GitHu
 # Step 2: Upload latest manifests to release
 echo "[2/4] Uploading auto-update manifests..."
 gh release upload v0.0.25-cua-integration \
-    dist/latest.yml \
-    dist/latest-windows-amd64.yml \
-    dist/latest-darwin-amd64.yml \
-    --clobber 2>&1 | grep -v "already uploaded" || true
+  dist/latest.yml \
+  dist/latest-windows-amd64.yml \
+  dist/latest-darwin-amd64.yml \
+  --clobber 2>&1 | grep -v "already uploaded" || true
 echo "✅ Manifests uploaded for auto-update"
 
 # Step 3: Prepare website deployment
 echo "[3/4] Preparing website assets..."
 if [ -f dist/website-20261102-updated.tar.gz ]; then
-    cp dist/website-20261102-updated.tar.gz dist/gleam-site-v0.0.25.tar.gz
-    ls -lh dist/gleam-site-v0.0.25.tar.gz
-    echo "✅ Website archive ready"
+  cp dist/website-20261102-updated.tar.gz dist/gleam-site-v0.0.25.tar.gz
+  ls -lh dist/gleam-site-v0.0.25.tar.gz
+  echo "✅ Website archive ready"
 else
-    echo "⚠️ Using existing site archive"
+  echo "⚠️ Using existing site archive"
 fi
 
 # Step 4: Generate deployment summary
 echo "[4/4] Generating deployment report..."
-cat > DEPLOY-SUMMARY.md << 'EOF'
+cat >DEPLOY-SUMMARY.md <<'EOF'
 # ✅ Gleam v0.0.25 Deployment Summary
 
 ## 🟢 Completed Updates

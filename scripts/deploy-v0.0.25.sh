@@ -33,19 +33,19 @@ echo "✅ Website prepared"
 # Step 4: Upload to GitHub release
 echo "[4/6] Uploading to GitHub releases..."
 gh release upload v0.0.25-cua-integration \
-    gleam-windows-amd64-v0.0.25.exe \
-    gleam-darwin-amd64-v0.0.25 \
-    gleam-darwin-arm64-v0.0.25 \
-    gleam-linux-amd64-v0.0.25 \
-    dist/Gleam-release-20261102.zip \
-    dist/Gleam-Setup.exe \
-    --clobber 2>&1 | grep -v "already uploaded" || true
+  gleam-windows-amd64-v0.0.25.exe \
+  gleam-darwin-amd64-v0.0.25 \
+  gleam-darwin-arm64-v0.0.25 \
+  gleam-linux-amd64-v0.0.25 \
+  dist/Gleam-release-20261102.zip \
+  dist/Gleam-Setup.exe \
+  --clobber 2>&1 | grep -v "already uploaded" || true
 
 echo "✅ All binaries uploaded"
 
 # Step 5: Deploy website
 echo "[5/6] Deploying to web server..."
-scp -q dist/website-20261102-deploy.tar.gz user@server:/var/www/gleam/ << 'EOF'
+scp -q dist/website-20261102-deploy.tar.gz user@server:/var/www/gleam/ <<'EOF'
 N/A - Manual SSH required
 EOF
 
@@ -53,7 +53,7 @@ echo "⚠️  Website deployment requires SSH access"
 
 # Step 6: Generate deployment report
 echo "[6/6] Generating deployment report..."
-cat > DEPLOY-COMPLETE.md << 'ENDREPORT'
+cat >DEPLOY-COMPLETE.md <<'ENDREPORT'
 # ✅ Gleam v0.0.25 Deployment Complete
 
 **Deployment Date**: 2026-11-02  
