@@ -48,6 +48,7 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 		MaxOutputRunes: a.Cfg.Agent.MaxOutputRunes,
 		DataDir:        a.Cfg.DataDir,
 		OnUsage:        a.BumpUsage,
+		Hooks:          a.Hooks,
 	}
 	exec := executor.Execute(ctx, plan, taskID, string(types.ModeAuto), false)
 	ok := exec.Failed == 0 && exec.Succeeded > 0
@@ -169,8 +170,16 @@ const delegateTimeout = 60 * time.Second
 // Delegate hands a sub-goal to an independent LLM call, without polluting the
 // main conversation context. An empty role uses the general assistant role; a
 // non-empty one injects that role's system prompt.
+//
+// Nested calls are bounded by MaxDelegateDepth: the depth rides on ctx so a
+// sub-agent that itself calls agent.delegate sees depth+1 and is refused once
+// the cap is hit.
 func (a *Agent) Delegate(ctx context.Context, goal string, role string) (string, error) {
-	dctx, cancel := context.WithTimeout(ctx, delegateTimeout)
+	depth := delegateDepthFrom(ctx)
+	if depth >= MaxDelegateDepth {
+		return "", fmt.Errorf("委派深度已达上限 %d，请直接在主任务中完成子目标", MaxDelegateDepth)
+	}
+	dctx, cancel := context.WithTimeout(withDelegateDepth(ctx, depth+1), delegateTimeout)
 	defer cancel()
 
 	sys := "你是一个专注的子任务执行者。根据用户目标，直接给出完整、可独立使用的结果。\n" +

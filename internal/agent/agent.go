@@ -47,6 +47,10 @@ type Agent struct {
 	Auth      AuthProvider        // cloud account (optional)
 	GEO       *geo.Store          // GEO analysis history (archive of auto-analyzed creative output)
 	FastLLM   llm.Client          // optional: cheap model for auxiliary calls (compression/GEO/skill tuning); main model when nil
+	// Hooks are user-configured tool lifecycle hooks (nil = not configured,
+	// skipped at zero cost). Every Executor construction site (main task /
+	// skill / subtask) must pass them so hooks hold on every execution path.
+	Hooks *HookRunner
 
 	mu    sync.Mutex
 	tasks map[string]*taskHandle

@@ -78,6 +78,31 @@ func Map(args map[string]any, key string) map[string]any {
 	return nil
 }
 
+// StrSlice reads a string-array argument: after JSON deserialization it is
+// []any, so items are asserted one by one. Non-string items are dropped
+// silently -- numbers mixed into model-provided choices should not fail the
+// whole call.
+func StrSlice(args map[string]any, key string) []string {
+	v, ok := args[key]
+	if !ok || v == nil {
+		return nil
+	}
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 func IntOf(v any) int {
 	switch n := v.(type) {
 	case int:

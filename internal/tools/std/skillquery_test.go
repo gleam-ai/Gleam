@@ -23,7 +23,7 @@ func p23Skills() []SkillSummary {
 
 func p23Execute(t *testing.T, args map[string]any) map[string]any {
 	t.Helper()
-	tool := NewSkillList(&fakeSkillStore{summaries: p23Skills()})
+	tool := NewSkillList(&fakeSkillStore{summaries: p23Skills()}, nil)
 	out, err := tool.Execute(context.Background(), args)
 	if err != nil {
 		t.Fatal(err)

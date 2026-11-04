@@ -82,13 +82,13 @@ vscode-gleam/       VS Code extension with CUA support
 The desktop window and the CLI drive the embedded web UI over a local HTTP API (bound to `127.0.0.1`, token-gated). This list is the **owner of user-visible endpoints**: `scripts/check-api-docs.py` fails the build when a route is registered in `internal/webui` but missing here — or listed here but not registered.
 
 <details>
-<summary>All 103 endpoints</summary>
+<summary>All 106 endpoints</summary>
 
 - **Account** — `/api/account` · `/api/account/configure` · `/api/account/oauth` · `/api/account/signin` · `/api/account/signout` · `/api/account/signup`
 - **Approvals** — `/api/approvals` · `/api/approvals/{id}`
 - **Connections** — `/api/connections`
 - **Context** — `/api/context` · `/api/context/clear` · `/api/context/compress`
-- **Conversations** — `/api/conversation/reset` · `/api/conversations` · `/api/conversations/{id}` · `/api/conversations/{id}/activate`
+- **Conversations** — `/api/conversation/reset` · `/api/conversations` · `/api/conversations/{id}` · `/api/conversations/{id}/activate` · `/api/conversations/search`
 - **Cues** — `/api/cues` · `/api/cues/{id}/adopt` · `/api/cues/{id}/dismiss` · `/api/cues/unsuppress`
 - **Daemon** — `/api/daemon`
 - **Events (SSE)** — `/api/events`
@@ -112,6 +112,7 @@ The desktop window and the CLI drive the embedded web UI over a local HTTP API (
 - **Network** — `/api/network`
 - **Onboarding** — `/api/onboarding`
 - **Providers** — `/api/providers`
+- **Questions** — `/api/questions/{id}`
 - **Readiness** — `/api/readiness`
 - **Roles** — `/api/roles`
 - **Schedules** — `/api/schedules` · `/api/schedules/{name}` · `/api/schedules/{name}/enabled` · `/api/schedules/{name}/notify`
@@ -122,6 +123,7 @@ The desktop window and the CLI drive the embedded web UI over a local HTTP API (
 - **Spaces** — `/api/spaces` · `/api/spaces/{id}` · `/api/spaces/{id}/activate`
 - **SSH** — `/api/ssh/hosts`
 - **Tools** — `/api/tools` · `/api/tools/call` · `/api/tools/permission`
+- **Todos** — `/api/todos/{task_id}`
 - **Update** — `/api/update/apply` · `/api/update/check` · `/api/update/desktop/{name}`
 - **Workspace** — `/api/workspace` · `/api/workspace/clear`
 - **Worktrees** — `/api/worktrees` · `/api/worktrees/{id}`

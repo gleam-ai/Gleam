@@ -42,6 +42,12 @@ type Server struct {
 	tasks     map[string]*taskInfo
 	approvals map[string]*approvalWaiter
 	clients   map[chan sseEvent]struct{}
+	// questions holds prompts waiting for a user answer; parallel to approvals
+	// but with different semantics: an approval is yes/no, a question is
+	// text/choices.
+	questions map[string]*questionWaiter
+	// todos holds the latest todo snapshot per task, rendered by LiveRail.
+	todos map[string][]todoItemView
 }
 
 type taskInfo struct {
@@ -81,9 +87,31 @@ func NewServer(a *agent.Agent) *Server {
 		tasks:     map[string]*taskInfo{},
 		approvals: map[string]*approvalWaiter{},
 		clients:   map[chan sseEvent]struct{}{},
+		questions: map[string]*questionWaiter{},
+		todos:     map[string][]todoItemView{},
 	}
 	a.SetNotifier(s)
 	return s
+}
+
+// questionWaiter tracks a model question pending a user answer.
+type questionWaiter struct {
+	ID        string
+	TaskID    string
+	Question  string
+	Choices   []string
+	CreatedAt time.Time
+	ch        chan questionAnswer
+}
+
+type questionAnswer struct {
+	Choice   string `json:"choice,omitempty"`
+	FreeText string `json:"free_text,omitempty"`
+}
+
+type todoItemView struct {
+	Text   string `json:"text"`
+	Status string `json:"status"`
 }
 
 type progressEvent struct {

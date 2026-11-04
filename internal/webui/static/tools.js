@@ -37,7 +37,9 @@ async function loadTools() {
             `工具 ${t.name} 权限已更新（${sel.value === 'default' ? '恢复内置默认' : PERM_LABELS[sel.value] || sel.value}）`,
             'success',
           );
+          // A permission change can shift approval counts: reload tools and approvals right away
           loadTools();
+          refreshApprovals();
         } catch (err) {
           toast(err.message, 'error');
           loadTools();

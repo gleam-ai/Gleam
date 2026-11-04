@@ -430,6 +430,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			// really configured: screening with the main model just costs an
 			// extra copy.
 			Reviewer: a.reviewer(),
+			Hooks:    a.Hooks,
 		}
 		// Deep review: hand the whole plan to the main model before execution.
 		// A veto goes to the user -- approved, continue; rejected, stop here.

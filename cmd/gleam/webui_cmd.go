@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"time"
 
+	"gleam/internal/tools/std"
 	"gleam/internal/webui"
 )
 
@@ -32,6 +33,11 @@ func cmdWebUI(args []string) error {
 	bindSchedulerFire(rt)
 
 	srv := webui.NewServer(rt.agent)
+	// Register ask_user and todo_write in the registry: both tools need the
+	// SSE channel held by the server, so they must be registered after
+	// NewServer.
+	rt.reg.MustRegister(std.NewAskUser(srv))
+	rt.reg.MustRegister(std.NewTodoWrite(srv))
 	srv.BindAddr = *addr
 	announceToken(srv)
 	httpServer := &http.Server{

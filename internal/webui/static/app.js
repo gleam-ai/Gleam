@@ -2391,6 +2391,18 @@ function updateApprovalBadge(delta) {
   pendingApprovals = Math.max(0, pendingApprovals + delta);
 }
 
+// 从后端重新拉取审批列表并刷新计数
+async function refreshApprovals() {
+  try {
+    const { approvals } = await api('GET', '/api/approvals');
+    pendingApprovals = (approvals || []).length;
+    updateApprovalBadge(0);
+    LiveRail.approvals(approvals);
+  } catch {
+    // 忽略错误，UI 已显示当前计数
+  }
+}
+
 function applyResult(taskID, result) {
   markTaskFinished(taskID, result && result.status);
   const t = tasks.get(taskID);
@@ -2557,7 +2569,7 @@ function typeInto(elm, text) {
 }
 
 // 极简 Markdown 渲染器：覆盖桌面聊天输出最常见语法。
-// 支持：代码块/行内代码、加粗、斜体、删除线、标题、无序/有序列表、链接、引用、水平线、表格、段落。
+// 支持：代码块/行内代码、加粗、斜体、删除线、标题、无序/有序列表、链接、引用、水平线、表格、段落、重点标记。
 // 输入文本先转义再按 Markdown 语法转 HTML，保证 XSS 安全。
 function renderMarkdown(src) {
   if (!src) return '';
@@ -2783,6 +2795,7 @@ function inlineMd(text) {
   s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
   s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  s = s.replace(/==([^=]+)==/g, '<mark>$1</mark>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => code[Number(i)] || '');
 }
 
@@ -5679,6 +5692,8 @@ async function openTaskDetail(taskID) {
       box.appendChild(chSlot);
       const steps = (info.result && info.result.steps) || [];
       if (steps.length) {
+        const wrap = el('details', 'tl-steps');
+        wrap.innerHTML = '<summary class="tl-sum">执行步骤（点击展开/收起）</summary>';
         const list = el('div', 'timeline');
         steps.forEach((st) => {
           const it = el('div', 'timeline-item');
@@ -5699,7 +5714,8 @@ async function openTaskDetail(taskID) {
           }
           list.appendChild(it);
         });
-        box.appendChild(list);
+        wrap.appendChild(list);
+        box.appendChild(wrap);
       }
       // The home feed no longer lists failed tasks, so recovery has to stay
       // reachable from the detail view that the conversation points at.
@@ -9509,12 +9525,5 @@ const VoiceInput = (() => {
       _doSetPerm(s.safety.mode, s.safety.mode, false);
     syncRuntimeState(s);
   } catch {}
-  try {
-    const { approvals } = await api('GET', '/api/approvals');
-    pendingApprovals = (approvals || []).length;
-    updateApprovalBadge(0);
-    LiveRail.approvals(approvals);
-  } catch {
-    /* 忽略 */
-  }
+  await refreshApprovals();
 })();

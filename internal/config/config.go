@@ -115,6 +115,16 @@ type SafetyConfig struct {
 	AIReview            bool
 	DeepReview          bool
 	AllowPrivateWeb     bool
+	Hooks               []HookConfig
+}
+
+// HookConfig is a tool lifecycle hook: a user command run before or after
+// matching tools execute. event is pre_tool (exit 2 may block the call) or
+// post_tool (notification only).
+type HookConfig struct {
+	Event   string
+	Tools   []string
+	Command string
 }
 
 type MemoryConfig struct {
@@ -504,6 +514,24 @@ func (c *Config) apply(m map[string]any) {
 			for name, perm := range tp {
 				if ps, ok := perm.(string); ok {
 					c.Safety.ToolPermissions[name] = ps
+				}
+			}
+		}
+		if hs, ok := v["hooks"].([]any); ok {
+			c.Safety.Hooks = c.Safety.Hooks[:0]
+			for _, item := range hs {
+				hm, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				h := HookConfig{}
+				getStr(hm, "event", &h.Event)
+				getStr(hm, "command", &h.Command)
+				getStrs(hm, "tools", &h.Tools)
+				if h.Event == "pre_tool" || h.Event == "post_tool" {
+					if strings.TrimSpace(h.Command) != "" {
+						c.Safety.Hooks = append(c.Safety.Hooks, h)
+					}
 				}
 			}
 		}

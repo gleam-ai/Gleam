@@ -35,6 +35,10 @@ type Executor struct {
 	// Grants carries user-approved outside directories across replans of the
 	// same task; nil starts a fresh boundary.
 	Grants *pathGrants
+	// Hooks are user-configured tool lifecycle hooks; nil = not configured.
+	// pre_tool runs after the gate approves and right before execution
+	// (exit 2 blocks), post_tool notifies after the finish.
+	Hooks *HookRunner
 }
 
 type StepSink interface {
@@ -788,6 +792,31 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		state.snap.capture(ctx, step.ID, step.Tool, tool, args)
 	}
 
+	// pre_tool hook: runs only once the gate and dedupe have approved and
+	// the step is really about to execute. Exit 2 blocks this call (it is
+	// not stored in the dedupe cache -- a blocked call produced no result,
+	// retrying is legal).
+	if e.Hooks != nil {
+		if reason := e.Hooks.PreTool(ctx, tool.Name(), args); reason != "" {
+			r.Status = types.StepFailed
+			r.Error = reason
+			r.ErrorKind = types.ErrPermission
+			return finalize()
+		}
+	}
+
+	executed := false
+	if e.Hooks != nil {
+		// post_tool hook: registered before the <sem> release (LIFO, later defers
+		// run first) so it actually executes after the semaphore is returned; it
+		// fires at most once, and only for steps that really executed.
+		defer func() {
+			if executed {
+				e.Hooks.PostTool(ctx, tool.Name(), args, r.Status == types.StepSucceeded, r.Error)
+			}
+		}()
+	}
+
 	dispatched = true
 	e.emitTool(types.ToolEvent{
 		TaskID:    taskID,
@@ -819,6 +848,7 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 	}
 	for attempt := 1; ; attempt++ {
 		e.reportUsage(taskID, 1, 0, 0)
+		executed = true
 		tctx, cancel := context.WithTimeout(ctx, timeout)
 		out, err := tool.Execute(tctx, args)
 		timedOut := tctx.Err() != nil && ctx.Err() == nil

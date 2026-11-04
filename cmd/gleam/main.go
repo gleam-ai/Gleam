@@ -22,6 +22,7 @@ import (
 	"gleam/internal/harness/credentials"
 	"gleam/internal/harness/daemon"
 	"gleam/internal/harness/growth"
+	"gleam/internal/harness/mdskill"
 	"gleam/internal/harness/memory"
 	"gleam/internal/harness/registry"
 	"gleam/internal/harness/safety"
@@ -34,6 +35,7 @@ import (
 	"gleam/internal/tools/file"
 	gittools "gleam/internal/tools/git"
 	"gleam/internal/tools/hardware"
+	"gleam/internal/tools/lsp"
 	"gleam/internal/tools/mcp"
 	"gleam/internal/tools/prompt"
 	"gleam/internal/tools/shell"
@@ -277,7 +279,19 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg := registry.New()
 	fileTools := file.New(wsRoots...)
 	fileTools.RegisterAll(reg)
-	reg.MustRegister(shell.NewWithRoots(time.Duration(cfg.Agent.StepTimeoutSecs)*time.Second, wsRoots...))
+	jobs := shell.NewJobs()
+	shellTool := shell.NewWithRoots(time.Duration(cfg.Agent.StepTimeoutSecs)*time.Second, wsRoots...)
+	shellTool.Jobs = jobs
+	reg.MustRegister(shellTool)
+	reg.MustRegister(shell.NewJobsList(jobs))
+	reg.MustRegister(shell.NewJobsOutput(jobs))
+	reg.MustRegister(shell.NewJobsKill(jobs))
+	pshells := shell.NewPShells()
+	reg.MustRegister(shell.NewPersistentShell(pshells, 60*time.Second, wsRoots...))
+	lspMgr := lsp.NewManager()
+	reg.MustRegister(lsp.NewDefinition(lspMgr))
+	reg.MustRegister(lsp.NewReferences(lspMgr))
+	reg.MustRegister(lsp.NewHover(lspMgr))
 	gitCfg := func() gittools.Config {
 		return gittools.Config{
 			BranchPrefix:       cfg.Git.BranchPrefix,
@@ -325,6 +339,7 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	a.MCP = agent.NewMCPManager()
 	a.FileTools = fileTools
 	a.Growth = growthLog
+	a.Hooks = agent.NewHookRunner(cfg.Safety.Hooks)
 	a.Creds = credStore
 	a.InitModelRuntime()
 	if geoStore, err := geo.Open(filepath.Join(cfg.DataDir, "geo_history.json")); err == nil {
@@ -345,9 +360,11 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 		reg.MustRegister(std.NewScheduleList(&schedAdapter{a: a}))
 		reg.MustRegister(std.NewScheduleDelete(&schedAdapter{a: a}))
 	}
-	reg.MustRegister(std.NewSkillList(&skillAdapter{s: skills}))
-	reg.MustRegister(std.NewSkillRun(&skillAdapter{s: skills}, a))
+	reg.MustRegister(std.NewSkillList(&stepSkillAdapter{s: skills}, &mdSkillAdapter{workspace: func() string { return a.Cfg.Workspace }}))
+	reg.MustRegister(std.NewSkillRun(&stepSkillAdapter{s: skills}, a))
+	reg.MustRegister(std.NewSkillOpen(&mdSkillAdapter{workspace: func() string { return a.Cfg.Workspace }}))
 	reg.MustRegister(std.NewAgentDelegate(a))
+	reg.MustRegister(std.NewSessionSearch(convoStore))
 
 	startMCP := func() {}
 	connectMCP := func() {
@@ -916,9 +933,10 @@ func toJobDef(j scheduler.Job) std.JobDef {
 	return d
 }
 
-type skillAdapter struct{ s *skill.Store }
+// stepSkillAdapter adapts the JSON step-skill store to std.SkillStore.
+type stepSkillAdapter struct{ s *skill.Store }
 
-func (a *skillAdapter) ListSummaries() []std.SkillSummary {
+func (a *stepSkillAdapter) ListSummaries() []std.SkillSummary {
 	list := a.s.List()
 	out := make([]std.SkillSummary, 0, len(list))
 	for _, s := range list {
@@ -926,7 +944,35 @@ func (a *skillAdapter) ListSummaries() []std.SkillSummary {
 	}
 	return out
 }
-func (a *skillAdapter) GetParams(name string) ([]string, error) { return a.s.GetParams(name) }
+func (a *stepSkillAdapter) GetParams(name string) ([]string, error) { return a.s.GetParams(name) }
+
+// mdSkillAdapter adapts SKILL.md instruction skills to std.MDLister / std.MDOpener.
+// Roots are recomputed on every call: the workspace can be switched at runtime,
+// and a fixed root would keep pointing at the old directory.
+type mdSkillAdapter struct{ workspace func() string }
+
+func (a *mdSkillAdapter) roots() []mdskill.Root {
+	var roots []mdskill.Root
+	if ws := strings.TrimSpace(a.workspace()); ws != "" {
+		roots = append(roots,
+			mdskill.Root{Dir: filepath.Join(ws, ".gleam", "skills"), Label: "workspace"},
+			mdskill.Root{Dir: filepath.Join(ws, ".agents", "skills"), Label: "workspace"},
+		)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots,
+			mdskill.Root{Dir: filepath.Join(home, ".gleam", "skills"), Label: "user"},
+			mdskill.Root{Dir: filepath.Join(home, ".agents", "skills"), Label: "user"},
+		)
+	}
+	return roots
+}
+
+func (a *mdSkillAdapter) List() []mdskill.Skill { return mdskill.List(a.roots()) }
+
+func (a *mdSkillAdapter) Open(name string) (mdskill.Skill, error) {
+	return mdskill.Open(a.roots(), name)
+}
 
 func permFromStr(s string) types.Permission {
 	switch s {

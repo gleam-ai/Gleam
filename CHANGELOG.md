@@ -1,5 +1,18 @@
 # Gleam 优化变更日志
 
+## v0.0.28（2026-11-04）
+
+### 融入 DeepSeek Harness（dsh）的可借鉴能力
+
+通读 deepseekdocs.com 全部 60 页文档后逐项对照评测：已有能力（spill 溢出、headless 契约、多模型 tiers、MCP client、调度/守护队列、ask_user/todo、fail-closed 审批）不动；dsh 的 JS 插件运行时、遥测、PTY 全真终端、OS 级沙箱判定为刻意不做（口径记入 `docs/known-limits.md`）；以下四项融入。
+
+- **原生 SKILL.md 指导技能运行时**（`internal/harness/mdskill`）：自动发现工作区 `.gleam/skills`、`.agents/skills` 与用户根下的 `<name>/SKILL.md`（及 `<name>.md` 平铺形态），frontmatter 校验（name kebab-case、description 必填、`disable-model-invocation`、`when_to_use`），无缓存即改即生效，同名就近遮蔽。`skill.list` 合并展示两类技能（`source: step|markdown`），新增 `skill.open` 渐进披露工具：先列表摘要、按需打开全文，模型按指南自行执行——补齐"指导性文档"这条与步骤技能（可重放固定序列）互补的技能形态。
+- **真子任务委派**：`agent.delegate` 新增 `mode: task`——先规划（步数封顶 6）、再经 Executor 真实调用工具（安全门禁/审计/溢出逐项生效）、最后汇总返回；深度复用 `MaxDelegateDepth`，5 分钟硬超时，mock 模型下确定性汇总保证离线自测可复现。原 answer 模式（单次 LLM 直答）保持默认不变。
+- **会话全文检索**（dsh session-query 的精简版）：`conversation.Store.Search`（多词 AND、大小写不敏感、命中计数 + 上下文片段 + 命中消息定位，确定性排序），新增 `session.search` 只读工具与 `GET /api/conversations/search` 端点；刻意不建索引，全量扫描换零失效。
+- **工具生命周期 hooks**：配置 `safety.hooks`（`pre_tool`/`post_tool` × 工具过滤 × 命令），载荷经 stdin 传 JSON。`pre_tool` exit 2 阻断该次工具调用（其余退出码只告警，钩子自身故障不卡任务），`post_tool` 纯通知；门禁放行后才触发，三条执行路径（主任务/技能/子任务）全部生效。
+
+验证：`go build ./...`、`go vet ./...`、`gofmt` 全清；新增测试 mdskill 发现/遮蔽/失效剔除、skill.list 合并与 skill.open（含 user-only 拒开）、会话检索（排序/AND/片段/大小写）、子任务（执行/深度上限/失败透传/mode 路由）、hooks（阻断语义/退出码矩阵/超时/executor 集成/配置解析/真 shell）全部通过；`scripts/verify.sh` 六层全过（248s，2026-11-04）。
+
 ## v0.0.27（2026-11-03）
 
 ### Electron 45 与依赖安全更新

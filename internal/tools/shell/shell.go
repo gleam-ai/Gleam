@@ -20,6 +20,8 @@ const maxOutput = 64 * 1024
 type Tool struct {
 	DefaultTimeout time.Duration
 	Roots          []string
+	// When Jobs is non-nil, background=true is supported: the command goes into the background job table and a job id is returned immediately.
+	Jobs *Jobs
 }
 
 func New(defaultTimeout time.Duration) *Tool { return &Tool{DefaultTimeout: defaultTimeout} }
@@ -40,6 +42,7 @@ func (t *Tool) Schema() map[string]any {
 		"command":     toolutil.SchemaProp("要执行的命令", "string"),
 		"cwd":         toolutil.SchemaProp("工作目录（可选，须在工作区内）", "string"),
 		"timeout_sec": toolutil.SchemaProp("超时秒数（默认 30）", "integer"),
+		"background":  toolutil.SchemaProp("为 true 时放入后台作业并立即返回 job id，配 jobs.list/output/kill 使用", "boolean"),
 	})
 }
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
@@ -47,17 +50,34 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	cwd, err := t.resolveCWD(ctx, toolutil.Str(args, "cwd"))
+	if err != nil {
+		return nil, err
+	}
+
+	if toolutil.Bool(args, "background") {
+		if t.Jobs == nil {
+			return nil, fmt.Errorf("后台作业未启用")
+		}
+		job, err := t.Jobs.Start(ctx, command, cwd, sanitizedEnv(os.Environ()))
+		if err != nil {
+			return nil, err
+		}
+		snap := job.Snapshot()
+		return map[string]any{
+			"background": true,
+			"job_id":     snap.ID,
+			"command":    command,
+			"started_at": snap.StartedAt,
+		}, nil
+	}
+
 	timeout := time.Duration(toolutil.Int(args, "timeout_sec", int(t.DefaultTimeout/time.Second))) * time.Second
 	if timeout <= 0 {
 		timeout = t.DefaultTimeout
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	cwd, err := t.resolveCWD(ctx, toolutil.Str(args, "cwd"))
-	if err != nil {
-		return nil, err
-	}
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -124,6 +144,57 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 		out["output_incomplete"] = true
 	}
 	return out, nil
+}
+
+// runShellOnce runs the command in a one-shot subprocess and returns a result shaped like Tool.Execute.
+// Shared by the persistent shell and background jobs, so the timeout/process-tree cleanup logic is written once.
+func runShellOnce(ctx context.Context, command, cwd string, roots []string) (map[string]any, error) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+	}
+	setProcessGroup(cmd)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	cmd.Env = sanitizedEnv(os.Environ())
+	var stdout, stderr limitedBuffer
+	stdout.limit = maxOutput
+	stderr.limit = maxOutput
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = 5 * time.Second
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("命令启动失败: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case <-ctx.Done():
+		_ = killProcessTree(cmd)
+		<-done
+	case err = <-done:
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("命令被取消或超时: %w", ctx.Err())
+	}
+	exitCode := 0
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		} else {
+			return nil, fmt.Errorf("命令执行失败: %w", err)
+		}
+	}
+	return map[string]any{
+		"command":   command,
+		"exit_code": exitCode,
+		"stdout":    stdout.String(),
+		"stderr":    stderr.String(),
+	}, nil
 }
 
 func (t *Tool) resolveCWD(ctx context.Context, cwd string) (string, error) {

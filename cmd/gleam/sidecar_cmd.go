@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"gleam/internal/tools/std"
 	"gleam/internal/webui"
 )
 
@@ -59,6 +60,8 @@ func cmdDesktopSidecar(args []string) error {
 		return err
 	}
 	srv := webui.NewServer(rt.agent)
+	rt.reg.MustRegister(std.NewAskUser(srv))
+	rt.reg.MustRegister(std.NewTodoWrite(srv))
 	// The Electron shell owns installation and updates (electron-updater).
 	// Letting the Go updater rewrite the sidecar binary bricks the install.
 	srv.DisableSelfUpdate = true

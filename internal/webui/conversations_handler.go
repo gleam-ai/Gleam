@@ -3,6 +3,8 @@ package webui
 import (
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"gleam/internal/agent"
 	"gleam/internal/harness/conversation"
@@ -72,6 +74,29 @@ func (s *Server) handleConversationGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, c)
+}
+
+// handleConversationSearch does full-text search over past conversations:
+// GET /api/conversations/search?q=&limit=.
+func (s *Server) handleConversationSearch(w http.ResponseWriter, r *http.Request) {
+	if !s.requireConvos(w) {
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeErr(w, 400, "缺少检索词 q")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	hits, err := s.Agent.Convos.Search(q, limit)
+	if err != nil {
+		writeErr(w, 500, "%v", err)
+		return
+	}
+	if hits == nil {
+		hits = []conversation.SearchHit{}
+	}
+	writeJSON(w, 200, map[string]any{"query": q, "count": len(hits), "hits": hits})
 }
 
 func (s *Server) handleConversationActivate(w http.ResponseWriter, r *http.Request) {

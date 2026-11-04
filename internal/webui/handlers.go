@@ -77,6 +77,8 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/approvals", s.handleApprovalList)
 	mux.HandleFunc("POST /api/approvals/{id}", s.handleApprovalResolve)
+	mux.HandleFunc("POST /api/questions/{id}", s.handleQuestionAnswer)
+	mux.HandleFunc("GET /api/todos/{task_id}", s.handleTodosGet)
 
 	mux.HandleFunc("GET /api/tools", s.handleToolsList)
 	mux.HandleFunc("POST /api/tools/call", s.handleToolCall)
@@ -134,6 +136,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/conversation/reset", s.handleConversationReset)
 
 	mux.HandleFunc("GET /api/conversations", s.handleConversationList)
+	mux.HandleFunc("GET /api/conversations/search", s.handleConversationSearch)
 	mux.HandleFunc("POST /api/conversations", s.handleConversationCreate)
 	mux.HandleFunc("GET /api/conversations/{id}", s.handleConversationGet)
 	mux.HandleFunc("PATCH /api/conversations/{id}", s.handleConversationRename)
@@ -550,6 +553,30 @@ func (s *Server) handleApprovalResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"id": id, "resolved": true})
+}
+
+func (s *Server) handleQuestionAnswer(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body questionAnswer
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, 400, "参数解析失败")
+		return
+	}
+	if body.Choice == "" && body.FreeText == "" {
+		writeErr(w, 400, "choice 与 free_text 至少填一项")
+		return
+	}
+	if err := s.AnswerQuestion(id, body); err != nil {
+		writeErr(w, 404, "%v", err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"id": id, "answered": true})
+}
+
+func (s *Server) handleTodosGet(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
+	items := s.Todos(taskID)
+	writeJSON(w, 200, map[string]any{"task_id": taskID, "items": items})
 }
 
 func (s *Server) handleToolsList(w http.ResponseWriter, _ *http.Request) {

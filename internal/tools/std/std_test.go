@@ -164,7 +164,7 @@ func TestSkillTools(t *testing.T) {
 		params: map[string][]string{"demo": {"dir"}},
 	}
 	runner := &fakeRunner{}
-	list := NewSkillList(store)
+	list := NewSkillList(store, nil)
 	res, _ := list.Execute(context.Background(), map[string]any{})
 	if res.(map[string]any)["count"] != 0 {
 		t.Error("初始列表应为空")

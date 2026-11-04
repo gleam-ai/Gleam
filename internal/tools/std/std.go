@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"gleam/internal/harness/conversation"
+	"gleam/internal/harness/mdskill"
 	"gleam/internal/nlcron"
 	"gleam/internal/textmatch"
 	"gleam/internal/tools/toolutil"
@@ -274,6 +276,8 @@ func (t *scheduleDeleteTool) Execute(ctx context.Context, args map[string]any) (
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	WhenToUse   string `json:"when_to_use,omitempty"`
+	Source      string `json:"source,omitempty"` // "step" = JSON step skill; "markdown" = SKILL.md instruction skill
 	Version     int    `json:"version"`
 	Runs        int    `json:"runs"`
 	Successes   int    `json:"successes"`
@@ -284,13 +288,27 @@ type SkillStore interface {
 	GetParams(name string) ([]string, error)
 }
 
+// MDLister provides summaries of markdown instruction skills (implemented by mdskill.Discovery).
+type MDLister interface {
+	List() []mdskill.Skill
+}
+
+// MDOpener opens a markdown instruction skill by name and returns the entry with full text.
+type MDOpener interface {
+	Open(name string) (mdskill.Skill, error)
+}
+
 type SkillRunner interface {
 	RunSkill(ctx context.Context, name string, params map[string]string) (map[string]any, error)
 }
 
-type skillListTool struct{ store SkillStore }
+type skillListTool struct {
+	store SkillStore
+	md    MDLister // may be nil: only JSON step skills are listed
+}
 
-func NewSkillList(store SkillStore) types.Tool { return &skillListTool{store} }
+// NewSkillList lists skills: store is the JSON step skills, md the optional SKILL.md instruction skills.
+func NewSkillList(store SkillStore, md MDLister) types.Tool { return &skillListTool{store, md} }
 
 func (t *skillListTool) Name() string { return "skill.list" }
 func (t *skillListTool) Description() string {
@@ -312,6 +330,21 @@ const (
 
 func (t *skillListTool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	all := t.store.ListSummaries()
+	for i := range all {
+		if all[i].Source == "" {
+			all[i].Source = "step"
+		}
+	}
+	if t.md != nil {
+		for _, sk := range t.md.List() {
+			all = append(all, SkillSummary{
+				Name:        sk.Name,
+				Description: sk.Description,
+				WhenToUse:   sk.WhenToUse,
+				Source:      "markdown",
+			})
+		}
+	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
 	query := strings.TrimSpace(toolutil.Str(args, "query"))
@@ -350,7 +383,8 @@ func rankSkills(query string, list []SkillSummary) []SkillSummary {
 	}
 	var hits []scored
 	for _, s := range list {
-		n := textmatch.Score(terms, s.Description) + 2*textmatch.Score(terms, s.Name)
+		n := textmatch.Score(terms, s.Description) + 2*textmatch.Score(terms, s.Name) +
+			textmatch.Score(terms, s.WhenToUse)
 		if n > 0 {
 			hits = append(hits, scored{s, n})
 		}
@@ -408,8 +442,51 @@ func (t *skillRunTool) Execute(ctx context.Context, args map[string]any) (any, e
 	return t.runner.RunSkill(ctx, name, params)
 }
 
+type skillOpenTool struct{ md MDOpener }
+
+func NewSkillOpen(md MDOpener) types.Tool { return &skillOpenTool{md} }
+
+func (t *skillOpenTool) Name() string { return "skill.open" }
+func (t *skillOpenTool) Description() string {
+	return "打开一个 markdown 指导技能（SKILL.md），返回完整指令内容，你按指令自行完成任务。" +
+		"与 skill.run 的区别：markdown 技能是给“你”读的操作指南，不是可一键重放的工作流。" +
+		"先用 skill.list 找技能名（source=markdown 的条目），再打开；打开后严格按其中的步骤执行。"
+}
+func (t *skillOpenTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *skillOpenTool) Schema() map[string]any {
+	return toolutil.Schema("打开指导技能", []string{"name"}, map[string]any{
+		"name": toolutil.SchemaProp("技能名（kebab-case，来自 skill.list 的 source=markdown 条目）", "string"),
+	})
+}
+func (t *skillOpenTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+	name, err := toolutil.RequireStr(args, "name")
+	if err != nil {
+		return nil, err
+	}
+	sk, err := t.md.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if sk.UserOnly {
+		return nil, fmt.Errorf("技能 %s 仅限用户显式调用（disable-model-invocation），请提示用户自行触发", name)
+	}
+	return map[string]any{
+		"name":        sk.Name,
+		"description": sk.Description,
+		"path":        sk.Path,
+		"content":     sk.Content,
+	}, nil
+}
+
 type Delegator interface {
 	Delegate(ctx context.Context, goal string, role string) (string, error)
+}
+
+// SubtaskDelegator is the optional upgrade of agent.delegate: with mode=task
+// the subtask really executes (plans and calls tools) instead of being one
+// LLM completion. Agent implements it; test stubs may not.
+type SubtaskDelegator interface {
+	DelegateSubtask(ctx context.Context, goal string, role string) (string, error)
 }
 
 type agentDelegateTool struct{ d Delegator }
@@ -418,13 +495,17 @@ func NewAgentDelegate(d Delegator) types.Tool { return &agentDelegateTool{d} }
 
 func (t *agentDelegateTool) Name() string { return "agent.delegate" }
 func (t *agentDelegateTool) Description() string {
-	return "把子任务委派给独立 LLM 调用处理，适合并行探索、信息检索或隔离上下文的子目标。返回文本结果。"
+	return "把子任务委派出去，隔离上下文。两种模式：" +
+		"mode=answer（默认）单次 LLM 调用直接作答，适合并行探索、信息检索等不需要动手的子目标；" +
+		"mode=task 子任务独立执行：先规划步骤再真实调用工具（只读类工具），返回执行结果摘要，" +
+		"适合需要实际查看文件、跑检索才能回答的子目标。task 模式更慢更贵，能用 answer 就用 answer。"
 }
 func (t *agentDelegateTool) Permission() types.Permission { return types.PermissionUserApproved }
 func (t *agentDelegateTool) Schema() map[string]any {
 	return toolutil.Schema("委派子任务", []string{"goal"}, map[string]any{
 		"goal": toolutil.SchemaProp("子目标描述：要解决什么、期望什么产出", "string"),
 		"role": toolutil.SchemaProp("可选：专家角色 ID（coder/analyst/writer/researcher/pm/ops），默认 general", "string"),
+		"mode": toolutil.SchemaProp("answer=单次作答（默认）；task=独立执行（规划+工具，有步数与时长上限）", "string"),
 	})
 }
 func (t *agentDelegateTool) Execute(ctx context.Context, args map[string]any) (any, error) {
@@ -433,9 +514,59 @@ func (t *agentDelegateTool) Execute(ctx context.Context, args map[string]any) (a
 		return nil, err
 	}
 	role := toolutil.Str(args, "role")
-	text, err := t.d.Delegate(ctx, goal, role)
+	mode := toolutil.Str(args, "mode")
+	var text string
+	switch mode {
+	case "", "answer":
+		text, err = t.d.Delegate(ctx, goal, role)
+	case "task":
+		sd, ok := t.d.(SubtaskDelegator)
+		if !ok {
+			return nil, fmt.Errorf("当前运行时不支持 task 模式委派")
+		}
+		text, err = sd.DelegateSubtask(ctx, goal, role)
+	default:
+		return nil, fmt.Errorf("未知 mode %q（可选 answer|task）", mode)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"result": text}, nil
+	return map[string]any{"result": text, "mode": map[bool]string{true: "task", false: "answer"}[mode == "task"]}, nil
+}
+
+// SessionSearcher is the minimal interface for full-text conversation search (implemented by harness/conversation.Store).
+type SessionSearcher interface {
+	Search(query string, limit int) ([]conversation.SearchHit, error)
+}
+
+type sessionSearchTool struct{ store SessionSearcher }
+
+func NewSessionSearch(store SessionSearcher) types.Tool { return &sessionSearchTool{store} }
+
+func (t *sessionSearchTool) Name() string { return "session.search" }
+func (t *sessionSearchTool) Description() string {
+	return "在历史会话中做全文检索：用户问“之前聊过的”“上次说的”“以前讨论的某事”时，" +
+		"先检索再回答，不要凭空猜测历史内容。返回命中的会话标题、消息片段与所在消息位置。"
+}
+func (t *sessionSearchTool) Permission() types.Permission { return types.PermissionReadOnly }
+func (t *sessionSearchTool) Schema() map[string]any {
+	return toolutil.Schema("检索历史会话", []string{"query"}, map[string]any{
+		"query": toolutil.SchemaProp("检索词；多个词用空格分隔表示“都要出现”", "string"),
+		"limit": toolutil.SchemaProp("最多返回几个会话（默认 20，上限 100）", "integer"),
+	})
+}
+func (t *sessionSearchTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+	query, err := toolutil.RequireStr(args, "query")
+	if err != nil {
+		return nil, err
+	}
+	hits, err := t.store.Search(query, toolutil.Int(args, "limit", 0))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"query": query, "count": len(hits), "hits": hits}, nil
+}
+
+func (t *sessionSearchTool) Outcome(args map[string]any, out any) (types.StepOutcome, string) {
+	return toolutil.EmptyIfNone(out)
 }
