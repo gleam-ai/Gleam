@@ -1,357 +1,347 @@
-// Package cua provides computer use automation capabilities integrated directly into Gleam.
+// Package cua provides the desktop automation tool (computer use): screenshot,
+// click, text input, and app launching.
+//
+// Three real execution backends plus one explicit dry-run backend:
+//   - powershell: native Windows (user32 screenshot/click + clipboard-paste
+//     input), zero external dependencies, the default backend
+//   - direct: an external cua binary (if the user supplies one)
+//   - mcp: a local CUA MCP service (GLEAM_CUA_MCP_URL, default 127.0.0.1:8796)
+//   - mock: enabled explicitly via GLEAM_CUA_MODE=mock, exercises the pipeline
+//     only and never falsely reports "executed"
+//
+// Mode selection order: GLEAM_CUA_MODE > cua binary (direct) > Windows
+// (powershell) > mcp. Older versions silently returned {"success":true} when
+// no backend existed; a machine action that lies about having executed is more
+// dangerous than refusing, so that path was removed. Now every action either
+// really happens or fails with an explicit error.
 package cua
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"gleam/internal/tools/desktop"
+	"gleam/internal/tools/toolutil"
+	"gleam/pkg/types"
 )
 
-// ComputerUse is the main interface for CUA integration.
+// ComputerUse implements types.Tool for desktop automation.
 type ComputerUse struct {
-	mode    string // "mcp", "direct", "uiautomation", or "mock"
+	mode    string
 	mcpURL  string
 	timeout time.Duration
+	// run is the execution seam tests can swap out; nil uses the real process.
+	run func(ctx context.Context, name string, args []string) (stdout []byte, err error)
+	// post is the test seam for mcp mode; nil uses real HTTP.
+	post func(ctx context.Context, url string, body []byte) (int, []byte, error)
 }
 
-// NewComputerUse creates a new ComputerUse instance with auto-detection of mode.
+// NewComputerUse creates the tool and picks an execution backend automatically.
 func NewComputerUse() *ComputerUse {
 	return &ComputerUse{
 		mode:    detectMode(),
-		mcpURL:  "http://localhost:8796/rpc",
+		mcpURL:  mcpURLOrDefault(),
 		timeout: 30 * time.Second,
 	}
 }
 
-// detectMode chooses between MCP and direct execution based on availability.
+func mcpURLOrDefault() string {
+	if u := strings.TrimSpace(os.Getenv("GLEAM_CUA_MCP_URL")); u != "" {
+		return u
+	}
+	return "http://127.0.0.1:8796/rpc"
+}
+
+// detectMode: env var > cua binary > native Windows > mcp.
 func detectMode() string {
+	switch m := strings.ToLower(strings.TrimSpace(os.Getenv("GLEAM_CUA_MODE"))); m {
+	case "direct", "powershell", "mcp", "mock":
+		return m
+	}
 	if _, err := exec.LookPath("cua"); err == nil {
-		// Check if running on Windows to prefer uiautomation
-		if runtime.GOOS == "windows" {
-			return "uiautomation"
-		}
 		return "direct"
 	}
-	// Default to MCP if cua binary not found
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
 	return "mcp"
 }
 
-// Execute implements types.Tool interface.
+func (cu *ComputerUse) Name() string { return "computer_use" }
+
+func (cu *ComputerUse) Description() string {
+	return "控制桌面应用：截屏、点击屏幕坐标、输入文本、启动应用。" +
+		"当前执行方式：" + cu.mode + "。会真实操作这台机器，调用前确认目标必要。" +
+		"典型顺序：先 screenshot 观察画面，再 click/type_text，完成后再 screenshot 验证结果。"
+}
+
+func (cu *ComputerUse) Permission() types.Permission { return types.PermissionUserApproved }
+
+func (cu *ComputerUse) Schema() map[string]any {
+	return toolutil.Schema("桌面自动化动作", []string{"action"}, map[string]any{
+		"action": map[string]any{
+			"type":        "string",
+			"description": "动作：screenshot 截屏（返回 PNG 路径）；click 点击坐标；type_text 输入文本（粘贴到当前焦点）；open_app 启动应用",
+			"enum":        []string{"screenshot", "click", "type_text", "open_app"},
+		},
+		"x":        toolutil.SchemaProp("click：屏幕 X 坐标（像素，来自 screenshot 画面）", "integer"),
+		"y":        toolutil.SchemaProp("click：屏幕 Y 坐标（像素）", "integer"),
+		"text":     toolutil.SchemaProp("type_text：要输入的文本（先 Set-Clipboard 再 Ctrl+V，中文可靠）", "string"),
+		"app_name": toolutil.SchemaProp("open_app：应用名或可执行文件路径（如 notepad）", "string"),
+	})
+}
+
+// Execute runs a single action. The executed field in its result is always
+// true; faked actions never escape from here.
 func (cu *ComputerUse) Execute(ctx context.Context, args map[string]any) (any, error) {
-	action, _ := args["action"].(string)
-	params, _ := args["params"].(map[string]any)
+	action := strings.ToLower(toolutil.Str(args, "action"))
+	ctx, cancel := context.WithTimeout(ctx, cu.timeout)
+	defer cancel()
 
 	switch action {
 	case "screenshot":
-		return cu.takeScreenshot(ctx)
+		return cu.screenshot(ctx)
 	case "click":
-		x, _ := params["x"].(float64)
-		y, _ := params["y"].(float64)
-		return cu.click(ctx, int(x), int(y))
+		x, y := toolutil.Int(args, "x", -1), toolutil.Int(args, "y", -1)
+		if x < 0 || y < 0 {
+			return nil, fmt.Errorf("click 需要非负的 x/y 坐标")
+		}
+		return cu.click(ctx, x, y)
 	case "type_text":
-		text, _ := params["text"].(string)
+		text := toolutil.Str(args, "text")
+		if strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("type_text 需要非空 text")
+		}
 		return cu.typeText(ctx, text)
 	case "open_app":
-		app, _ := params["app_name"].(string)
+		app := toolutil.Str(args, "app_name")
+		if err := validateSingleToken(app, "app_name"); err != nil {
+			return nil, err
+		}
 		return cu.openApp(ctx, app)
 	default:
-		return nil, fmt.Errorf("unknown action: %s", action)
+		return nil, fmt.Errorf("未知动作 %q（可选 screenshot|click|type_text|open_app）", action)
 	}
 }
 
-// Schema returns the tool schema.
-func (cu *ComputerUse) Schema() map[string]any {
-	return map[string]any{
-		"name":        "computer_use",
-		"description": fmt.Sprintf("Control native applications via screen capture and UI actions (current mode: %s)", cu.mode),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action": map[string]any{
-					"type":        "string",
-					"enum":        []string{"screenshot", "click", "type_text", "open_app"},
-					"deprecation": "use params instead",
-				},
-				"params": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"x":        map[string]any{"type": "number", "description": "X coordinate for click"},
-						"y":        map[string]any{"type": "number", "description": "Y coordinate for click"},
-						"text":     map[string]any{"type": "string", "description": "Text to type"},
-						"app_name": map[string]any{"type": "string", "description": "Application name to launch"},
-						"use_uiautomation": map[string]any{
-							"type":    "boolean",
-							"default": true,
-							"hint":    "Use Windows UI Automation API for precise control when on Windows",
-						},
-					},
-				},
-			},
-		},
+// validateSingleToken rejects characters that could escalate an argument into
+// a command: these actions splice their arguments into a command line, so
+// quotes and separators must be kept out.
+func validateSingleToken(s, field string) error {
+	if strings.TrimSpace(s) == "" {
+		return fmt.Errorf("%s 不能为空", field)
 	}
+	if strings.ContainsAny(s, "\"'`|;&$<>(){}\n\r") {
+		return fmt.Errorf("%s 含有不允许的字符（引号/管道/分号等）", field)
+	}
+	return nil
 }
 
-// takeScreenshot captures current screen state.
-func (cu *ComputerUse) takeScreenshot(ctx context.Context) (any, error) {
-	if cu.mode == "direct" {
-		cmd := exec.CommandContext(ctx, "cua", "screenshot", "--format", "base64")
-		output, err := cmd.Output()
+func (cu *ComputerUse) screenshot(ctx context.Context) (any, error) {
+	switch cu.mode {
+	case "mock":
+		return nil, fmt.Errorf("mock 模式不产生真实截图（设置 GLEAM_CUA_MODE=powershell|direct|mcp 以真实执行）")
+	case "direct":
+		out, err := cu.runCmd(ctx, "cua", "screenshot", "--format", "base64")
 		if err != nil {
-			return nil, fmt.Errorf("screenshot failed: %w", err)
+			return nil, fmt.Errorf("cua 截屏失败: %w", err)
 		}
-		return map[string]any{
-			"type": "image",
-			"data": string(output),
-		}, nil
+		return map[string]any{"action": "screenshot", "mode": "direct", "format": "base64", "data": strings.TrimSpace(string(out))}, nil
+	case "mcp":
+		return cu.mcpCall(ctx, "cua:screenshot", map[string]any{"format": "base64"})
+	default: // powershell
+		dir := filepath.Join(os.TempDir(), "gleam-screenshots")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		path := filepath.Join(dir, fmt.Sprintf("cua-%d.png", time.Now().UnixNano()))
+		// desktop.Capture and the desktop.screenshot tool share one platform implementation.
+		if err := runSeparate(ctx, func(ctx context.Context) error { return desktop.Capture(path) }); err != nil {
+			return nil, fmt.Errorf("截屏失败: %w", err)
+		}
+		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+			return nil, fmt.Errorf("截屏文件未生成或为空: %s", path)
+		}
+		return map[string]any{"action": "screenshot", "mode": cu.mode, "path": path}, nil
 	}
-
-	// MCP mode: HTTP POST
-	payload := marshalJSON(map[string]any{
-		"method": "cua:screenshot",
-		"params": map[string]any{"format": "base64"},
-	})
-	resp, err := http.Post(cu.mcpURL, "application/json", strings.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result["result"], nil
 }
 
-// click performs click at coordinates.
 func (cu *ComputerUse) click(ctx context.Context, x, y int) (any, error) {
 	switch cu.mode {
+	case "mock":
+		return mockDeferred("click", fmt.Sprintf("(%d,%d)", x, y)), nil
 	case "direct":
-		cmd := exec.CommandContext(ctx, "cua", "click", "--x", fmt.Sprintf("%d", x), "--y", fmt.Sprintf("%d", y))
-		output, err := cmd.Output()
+		out, err := cu.runCmd(ctx, "cua", "click", "--x", strconv.Itoa(x), "--y", strconv.Itoa(y))
 		if err != nil {
-			return nil, fmt.Errorf("click failed: %w", err)
+			return nil, fmt.Errorf("cua 点击失败: %w", err)
 		}
-		return map[string]any{
-			"type": "action_result",
-			"data": string(output),
-		}, nil
-
-	case "uiautomation":
-		// Windows UI Automation mode - use structured control information
-		return cu.clickWithUIAutomation(ctx, x, y)
-
+		return map[string]any{"action": "click", "mode": "direct", "executed": true, "output": strings.TrimSpace(string(out))}, nil
 	case "mcp":
-		// MCP mode
-		payload := marshalJSON(map[string]any{
-			"method": "cua:click",
-			"params": map[string]any{"x": x, "y": y},
-		})
-		http.Post(cu.mcpURL, "application/json", strings.NewReader(payload))
-		return map[string]any{"success": true}, nil
-
-	default:
-		// Fallback to mock mode for safety
-		return map[string]any{"success": true, "note": "mock execution"}, nil
+		return cu.mcpCall(ctx, "cua:click", map[string]any{"x": x, "y": y})
+	default: // powershell
+		// user32: SetCursorPos to move + mouse_event(2=LEFTDOWN, 4=LEFTUP).
+		script := psWrap(fmt.Sprintf(`
+Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class GleamMouse{[DllImport("user32.dll")]public static extern bool SetCursorPos(int x,int y);[DllImport("user32.dll")]public static extern void mouse_event(uint f,uint dx,uint dy,uint d,int e);}';
+[GleamMouse]::SetCursorPos(%d,%d) | Out-Null; Start-Sleep -Milliseconds 80;
+[GleamMouse]::mouse_event(2,0,0,0,0); Start-Sleep -Milliseconds 40; [GleamMouse]::mouse_event(4,0,0,0,0);`, x, y))
+		if _, err := cu.runPowerShell(ctx, script); err != nil {
+			return nil, fmt.Errorf("点击失败: %w", err)
+		}
+		return map[string]any{"action": "click", "mode": "powershell", "executed": true, "x": x, "y": y}, nil
 	}
 }
 
-// clickWithUIAutomation uses Windows UI Automation API for precise control interaction.
-func (cu *ComputerUse) clickWithUIAutomation(ctx context.Context, x, y int) (any, error) {
-	// Simulate UI Automation call - in production this would use:
-	// - Microsoft UI Automation API (MSAA or WinAcc)
-	// - Parse screen structure to identify buttons, edit controls, lists
-	// - Match coordinates to actual controls rather than raw mouse movement
-
-	// For testing: create a mock response that includes control info
-	controlInfo := map[string]any{
-		"x":           x,
-		"y":           y,
-		"controlType": "button", // Would be detected from screen scan
-		"className":   "ButtonControlClass",
-		"name":        "Submit", // Detected control name
-		"isClickable": true,
-	}
-
-	return map[string]any{
-		"type":      "action_result_with_control",
-		"details":   controlInfo,
-		"precision": "high", // Much higher than raw coordinate clicks
-	}, nil
-}
-
-// typeText types text into active element.
 func (cu *ComputerUse) typeText(ctx context.Context, text string) (any, error) {
 	switch cu.mode {
+	case "mock":
+		return mockDeferred("type_text", strconv.Itoa(len([]rune(text)))+" chars"), nil
 	case "direct":
-		cmd := exec.CommandContext(ctx, "cua", "type", "--text", text)
-		output, err := cmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("type failed: %w", err)
+		if _, err := cu.runCmd(ctx, "cua", "type", "--text", text); err != nil {
+			return nil, fmt.Errorf("cua 输入失败: %w", err)
 		}
-		_ = output
-		return map[string]any{
-			"type": "action_result",
-			"text": text,
-		}, nil
-
-	case "uiautomation":
-		// Use UI Automation for focused element detection
-		// Check for Chinese input methods and encoding
-		if hasChineseChars(text) {
-			// Simulate IME handling for Chinese characters
-			return cu.typeTextWithIME(ctx, text)
-		}
-		return map[string]any{
-			"type": "action_result",
-			"text": text,
-			"mode": "uiautomation",
-		}, nil
-
+		return map[string]any{"action": "type_text", "mode": "direct", "executed": true}, nil
 	case "mcp":
-		// MCP mode
-		payload := marshalJSON(map[string]any{
-			"method": "cua:type_text",
-			"params": map[string]any{"text": text},
-		})
-		http.Post(cu.mcpURL, "application/json", strings.NewReader(payload))
-		return map[string]any{"success": true}, nil
-
-	default:
-		// Fallback to mock mode for safety
-		return map[string]any{"success": true, "note": "mock execution"}, nil
-	}
-}
-
-// hasChineseChars checks if text contains Chinese characters.
-func hasChineseChars(s string) bool {
-	for _, r := range s {
-		if r >= '\u4e00' && r <= '\u9fff' { // CJK Unified Ideographs
-			return true
+		return cu.mcpCall(ctx, "cua:type_text", map[string]any{"text": text})
+	default: // powershell
+		// CJK text goes through clipboard paste (SendKeys is unreliable for CJK);
+		// the text is escaped for a PS single-quoted string.
+		script := psWrap(fmt.Sprintf(`
+Set-Clipboard -Value '%s';
+Add-Type -AssemblyName System.Windows.Forms;
+[System.Windows.Forms.SendKeys]::SendWait('^v');`, psEscape(text)))
+		if _, err := cu.runPowerShell(ctx, script); err != nil {
+			return nil, fmt.Errorf("输入失败: %w", err)
 		}
+		return map[string]any{"action": "type_text", "mode": "powershell", "executed": true, "chars": len([]rune(text)), "via": "clipboard-paste"}, nil
 	}
-	return false
 }
 
-// typeTextWithIME handles typing with Chinese Input Method Editor.
-func (cu *ComputerUse) typeTextWithIME(ctx context.Context, text string) (any, error) {
-	return map[string]any{
-		"type":     "action_result",
-		"text":     text,
-		"mode":     "ime_handled",
-		"encoding": "utf8",
-	}, nil
-}
-
-// openApp launches application.
-func (cu *ComputerUse) openApp(ctx context.Context, appName string) (any, error) {
+func (cu *ComputerUse) openApp(ctx context.Context, app string) (any, error) {
 	switch cu.mode {
+	case "mock":
+		return mockDeferred("open_app", app), nil
 	case "direct":
-		cmd := exec.CommandContext(ctx, "cua", "launch", appName)
-		output, err := cmd.Output()
+		out, err := cu.runCmd(ctx, "cua", "launch", app)
 		if err != nil {
-			return nil, fmt.Errorf("launch failed: %w", err)
+			return nil, fmt.Errorf("cua 启动失败: %w", err)
 		}
-		return map[string]any{
-			"type": "process_info",
-			"data": string(output),
-		}, nil
-
-	case "uiautomation":
-		// Windows UI Automation mode - check Chinese app whitelist
-		appLower := strings.ToLower(appName)
-
-		// Extended Chinese app whitelist
-		chineseApps := []string{"wechat", "qq", "dingtalk", "企业微信", "钉钉", "微信"}
-		for _, app := range chineseApps {
-			if strings.Contains(appLower, app) || strings.Contains(appLower, "wechat") || strings.Contains(appLower, "qq") || strings.Contains(appLower, "dingtalk") {
-				return cu.launchChineseApp(ctx, app)
-			}
-		}
-
-		// Standard app launch with UI Automation
-		cmd := exec.CommandContext(ctx, "cua", "launch", appName)
-		output, err := cmd.Output()
-		if err != nil {
-			return nil, fmt.Errorf("launch failed: %w", err)
-		}
-		return map[string]any{
-			"type":     "process_info",
-			"data":     string(output),
-			"mode":     "uiautomation",
-			"enhanced": true,
-		}, nil
-
+		return map[string]any{"action": "open_app", "mode": "direct", "executed": true, "output": strings.TrimSpace(string(out))}, nil
 	case "mcp":
-		// MCP mode
-		payload := marshalJSON(map[string]any{
-			"method": "cua:open_app",
-			"params": map[string]any{"app_name": appName},
-		})
-		http.Post(cu.mcpURL, "application/json", strings.NewReader(payload))
-		return map[string]any{"success": true}, nil
-
-	default:
-		// Fallback to mock mode for safety
-		return map[string]any{"success": true, "note": "mock execution"}, nil
+		return cu.mcpCall(ctx, "cua:open_app", map[string]any{"app_name": app})
+	default: // powershell
+		// Start-Process goes straight to the process table with no shell parsing;
+		// the argument has already passed validateSingleToken.
+		script := psWrap(fmt.Sprintf("Start-Process -FilePath '%s';", psEscape(app)))
+		if _, err := cu.runPowerShell(ctx, script); err != nil {
+			return nil, fmt.Errorf("启动应用失败: %w", err)
+		}
+		return map[string]any{"action": "open_app", "mode": "powershell", "executed": true, "app": app}, nil
 	}
 }
 
-// launchChineseApp handles launching of popular Chinese applications with special considerations.
-func (cu *ComputerUse) launchChineseApp(ctx context.Context, appName string) (any, error) {
+// mockDeferred is the only legitimate return shape for mock mode: it says
+// explicitly that nothing was executed.
+func mockDeferred(action, detail string) map[string]any {
 	return map[string]any{
-		"type":     "process_info",
-		"app":      appName,
-		"mode":     "chinese_app_optimized",
-		"encoding": "utf8_wide", // UTF-8 Wide support for Chinese apps
-	}, nil
+		"action": action, "mode": "mock", "executed": false,
+		"note": "mock 模式仅演练链路，未真实执行（GLEAM_CUA_MODE=mock）", "detail": detail,
+	}
 }
 
-// marshalJSON helper to convert map to JSON string.
-func marshalJSON(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
+// psEscape places text safely inside a PS single-quoted string: doubling
+// single quotes is enough; every other character passes through unchanged.
+func psEscape(s string) string { return strings.ReplaceAll(s, "'", "''") }
+
+// psWrap normalizes the shape of a PS invocation: collapse indented newlines,
+// run non-interactively, pass the exit code through.
+func psWrap(script string) string {
+	return strings.Join(strings.Fields(script), " ")
 }
 
-// base64Encode encodes data to base64.
-func base64Encode(data []byte) string {
-	return base64.StdEncoding.EncodeToString(data)
+func (cu *ComputerUse) runPowerShell(ctx context.Context, script string) ([]byte, error) {
+	return cu.runCmd(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 }
 
-// base64Decode decodes base64 string to bytes.
-func base64Decode(s string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(s)
+func (cu *ComputerUse) runCmd(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if cu.run != nil {
+		return cu.run(ctx, name, args)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return out, fmt.Errorf("%v: %s", err, msg)
+		}
+		return out, err
+	}
+	return out, nil
 }
 
-// formatPayload builds standardized MCP payload.
-func formatPayload(method string, params any) string {
-	return marshalJSON(map[string]any{
-		"method": method,
-		"params": params,
-	})
-}
-
-// sendMCPRequest sends an MCP request and returns response body.
-func sendMCPRequest(ctx context.Context, url string, method string, params any) (any, error) {
-	payload := formatPayload(method, params)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(payload))
+// mcpCall talks to the local CUA MCP service. Older versions ignored HTTP
+// errors and reported success; fixed: non-2xx statuses and parse failures
+// now come back as honest errors.
+func (cu *ComputerUse) mcpCall(ctx context.Context, method string, params map[string]any) (any, error) {
+	payload, err := json.Marshal(map[string]any{"method": method, "params": params})
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	var status int
+	var body []byte
+	if cu.post != nil {
+		status, body, err = cu.post(ctx, cu.mcpURL, payload)
+	} else {
+		req, err2 := http.NewRequestWithContext(ctx, http.MethodPost, cu.mcpURL, bytes.NewReader(payload))
+		if err2 != nil {
+			return nil, err2
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err2 := http.DefaultClient.Do(req)
+		if err2 != nil {
+			return nil, fmt.Errorf("CUA MCP 服务不可达（%s）: %w", cu.mcpURL, err2)
+		}
+		defer resp.Body.Close()
+		status = resp.StatusCode
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("CUA MCP 返回 %d: %s", status, types.Shorten(string(body), 200))
+	}
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result, nil
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("CUA MCP 响应不是 JSON: %w", err)
+	}
+	out := map[string]any{"action": method, "mode": "mcp", "executed": true, "result": result["result"]}
+	return out, nil
 }
+
+// runSeparate makes the blocking syscall respect ctx (desktop.Capture takes
+// no ctx parameter internally).
+func runSeparate(ctx context.Context, fn func(ctx context.Context) error) error {
+	done := make(chan error, 1)
+	go func() { done <- fn(ctx) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("动作超时（%v）", cuTimeoutHint())
+	}
+}
+
+func cuTimeoutHint() time.Duration { return 30 * time.Second }

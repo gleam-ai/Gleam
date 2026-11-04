@@ -70,8 +70,12 @@ func (t *ScreenshotTool) Execute(ctx context.Context, args map[string]any) (any,
 }
 
 func takeScreenshotWindows(path string) error {
-	script := `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $path=$args[0]; $b=[System.Drawing.Rectangle]::new(0,0,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $bmp=[System.Drawing.Bitmap]::new($b.Width,$b.Height); $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen(0,0,0,0,$b.Size); $bmp.Save($path,[System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()`
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script, path)
+	// The path travels through an env var: powershell -Command splices every
+	// following argument into one command string ($args[0] never binds), which
+	// turned the path into a stray statement and failed every screenshot.
+	script := `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $path=$env:GLEAM_SHOT_PATH; $b=[System.Drawing.Rectangle]::new(0,0,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width,[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height); $bmp=[System.Drawing.Bitmap]::new($b.Width,$b.Height); $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen(0,0,0,0,$b.Size); $bmp.Save($path,[System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()`
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	cmd.Env = append(os.Environ(), "GLEAM_SHOT_PATH="+path)
 	return cmd.Run()
 }
 
@@ -93,4 +97,18 @@ func takeScreenshotLinux(path string) error {
 		return fmt.Errorf("未找到截屏工具（scrot/gnome-screenshot/import）")
 	}
 	return nil
+}
+
+// Capture saves the current screen to the given PNG path, dispatching by
+// platform. Shared by the desktop.screenshot tool and the CUA adapter: one
+// platform implementation, not two.
+func Capture(path string) error {
+	switch runtime.GOOS {
+	case "windows":
+		return takeScreenshotWindows(path)
+	case "darwin":
+		return takeScreenshotMac(path)
+	default:
+		return takeScreenshotLinux(path)
+	}
 }

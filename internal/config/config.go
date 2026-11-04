@@ -81,6 +81,10 @@ type LLMConfig struct {
 	MaxTokens     int
 	TimeoutSecs   int
 	ContextWindow int
+	// ImageModel is the text-to-image model for the image.generate tool:
+	// cogview-4-250304 for GLM, gpt-image-1 for OpenAI. Empty = image
+	// generation unavailable (the tool reports a clear error).
+	ImageModel string
 }
 
 const DefaultMaxSteps = 32
@@ -295,6 +299,7 @@ func (c *Config) SaveOverlay(path string) error {
 	llm.Set("max_tokens", c.LLM.MaxTokens)
 	llm.Set("timeout_seconds", c.LLM.TimeoutSecs)
 	llm.Set("context_window", c.LLM.ContextWindow)
+	llm.Set("image_model", c.LLM.ImageModel)
 	root.Set("llm", llm)
 
 	agent := NewYMap()
@@ -480,6 +485,7 @@ func (c *Config) apply(m map[string]any) {
 		getInt(v, "max_tokens", &c.LLM.MaxTokens)
 		getInt(v, "timeout_seconds", &c.LLM.TimeoutSecs)
 		getInt(v, "context_window", &c.LLM.ContextWindow)
+		getStr(v, "image_model", &c.LLM.ImageModel)
 	}
 	if v, ok := sub(m, "agent"); ok {
 		getInt(v, "max_replans", &c.Agent.MaxReplans)
@@ -595,6 +601,13 @@ func (c *Config) apply(m map[string]any) {
 	getStr(m, "workspace", &c.Workspace)
 	getStrs(m, "workspace_recents", &c.WorkspaceRecents)
 }
+
+// ApplyEnv is called by outer layers after the config layering is reshuffled:
+// GLEAM_* env vars outrank the settings.yaml overlay (contract: config.yaml <
+// settings.yaml < env < CLI flags). Load only runs applyEnv during initial
+// assembly, and loading the overlay wipes whatever env just set -- so
+// buildRuntime must call this again after LoadOverlay.
+func (c *Config) ApplyEnv() { c.applyEnv() }
 
 func (c *Config) applyEnv() {
 	if v := os.Getenv("GLEAM_API_KEY"); v != "" {

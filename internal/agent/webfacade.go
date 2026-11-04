@@ -370,6 +370,7 @@ func (a *Agent) SettingsView() map[string]any {
 			"max_tokens":       cfg.LLM.MaxTokens,
 			"timeout_seconds":  cfg.LLM.TimeoutSecs,
 			"context_window":   cfg.LLM.ContextWindow,
+			"image_model":      cfg.LLM.ImageModel,
 			"api_key_set":      apiKeySet,
 			"api_key_host":     keyHost,
 			"api_key_host_cur": llm.KeyScope(cfg.LLM.BaseURL),
@@ -914,6 +915,9 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 		if v, ok := lm["fast_model"].(string); ok {
 			sub("llm")["fast_model"] = strings.TrimSpace(v)
+		}
+		if v, ok := lm["image_model"].(string); ok {
+			sub("llm")["image_model"] = strings.TrimSpace(v)
 		}
 		if v, ok := lm["tiers"].(map[string]any); ok {
 			tiers := map[string]any{}

@@ -8,7 +8,7 @@ import (
 	"gleam/internal/llm"
 )
 
-var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}
+var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote", "image.generate"}
 
 func EgressKinds() []string { return append([]string(nil), egressKinds...) }
 
@@ -45,7 +45,7 @@ func (a *Agent) ConnectionView(bindAddr string, en bool) ConnectionLedger {
 	rows = append(rows, a.mcpRows(en)...)
 	rows = append(rows, a.cloudRow(rep, en), a.feedbackRow(rep, en), updateRow(rep, en),
 		goToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),
-		a.gitRemoteRow(rep, en), marketRow(en))
+		a.gitRemoteRow(rep, en), imageGenerateRow(rep, en), marketRow(en))
 
 	return ConnectionLedger{
 		Rows: rows,
@@ -512,6 +512,38 @@ func marketRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 		Off: bi{
 			"不打开市场页就不发；目录连不上时自动退回内置目录与上次缓存，不影响已装好的 MCP",
 			"Nothing is sent unless you open the market page; if the catalog is unreachable it falls back to the built-in list and the last cache — installed MCP servers are unaffected",
+		}.pick(en),
+	}
+}
+
+func imageGenerateRow(rep safety.EgressReport, en bool) ConnectionRow {
+	return ConnectionRow{
+		ID: "image.generate", Title: bi{"文生图", "Image generation"}.pick(en), Kind: "out",
+		KindText: bi{"出网", "Egress"}.pick(en),
+		Target: bi{
+			"图像 API（与主模型同一 base_url 的 images/generations 端点；生成结果从该端点或其 CDN 下载）",
+			"The image API (images/generations on the main model's base_url; results are downloaded from that endpoint or its CDN)",
+		}.pick(en),
+		Status: bi{
+			"开着：未配置 llm.image_model 时调用会明确报错，不发任何请求",
+			"On: with llm.image_model unset the call fails loudly and sends nothing",
+		}.pick(en),
+		Trigger: bi{
+			"模型调用 image.generate 工具时（需你批准；提示词以 Authorization 头发往图像 API）",
+			"Whenever the model calls the image.generate tool (with your approval; the prompt goes to the image API in the Authorization header)",
+		}.pick(en),
+		Leaves: bi{
+			"画面提示词与模型名；图片字节只落在工作区 images/ 目录，不进模型上下文",
+			"The image prompt and model name; image bytes only land in the workspace images/ directory and never enter the model context",
+		}.pick(en),
+		Trace: bi{
+			"门控留痕 action=egress、kind=image.generate（记主机与字节）",
+			"Gate record action=egress, kind=image.generate (hosts and bytes only)",
+		}.pick(en),
+		Stats: egressStatsText(rep, "image.generate", en),
+		Off: bi{
+			"不配置 llm.image_model 就不会出网；要收回批准可在设置 → 工具 → image.generate 改「需我批准」",
+			"With llm.image_model unset nothing goes out; to gate every call, set Settings → Tools → image.generate → \"Ask first\"",
 		}.pick(en),
 	}
 }

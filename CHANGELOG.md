@@ -10,8 +10,12 @@
 - **真子任务委派**：`agent.delegate` 新增 `mode: task`——先规划（步数封顶 6）、再经 Executor 真实调用工具（安全门禁/审计/溢出逐项生效）、最后汇总返回；深度复用 `MaxDelegateDepth`，5 分钟硬超时，mock 模型下确定性汇总保证离线自测可复现。原 answer 模式（单次 LLM 直答）保持默认不变。
 - **会话全文检索**（dsh session-query 的精简版）：`conversation.Store.Search`（多词 AND、大小写不敏感、命中计数 + 上下文片段 + 命中消息定位，确定性排序），新增 `session.search` 只读工具与 `GET /api/conversations/search` 端点；刻意不建索引，全量扫描换零失效。
 - **工具生命周期 hooks**：配置 `safety.hooks`（`pre_tool`/`post_tool` × 工具过滤 × 命令），载荷经 stdin 传 JSON。`pre_tool` exit 2 阻断该次工具调用（其余退出码只告警，钩子自身故障不卡任务），`post_tool` 纯通知；门禁放行后才触发，三条执行路径（主任务/技能/子任务）全部生效。
+- **computer_use 桌面自动化工具落地**：原 CUA 适配器是从未接线的半成品（不符合 Tool 接口、mock 模式谎报执行成功、MCP 模式吞错误）。重写为合格工具并注册：四种后端（`GLEAM_CUA_MODE` > cua 二进制 > Windows powershell 原生 user32 截屏/点击/剪贴板粘贴输入/Start-Process 启动 > 本地 MCP），mock 模式明确标注"未真实执行"，动作参数过注入校验；截屏与 `desktop.screenshot` 共用同一平台实现（`desktop.Capture`）。
+- **image.generate 文生图工具**：调用 OpenAI 兼容 `images/generations` 端点（GLM cogview / OpenAI gpt-image-1 等），b64_json 与 url 两种响应都收，按魔数认格式落盘到工作区 `images/`；新增配置 `llm.image_model`（设置页可见可改），未配置/无密钥/主模型无图像能力时逐层明确报错；出网接安全台账。
+- **修复：配置分层优先级违反口径**（实测踩中）：settings.yaml 覆盖层加载在后，会把环境变量与 CLI 标志刚设的 `workspace`/`safety.mode` 等值悄悄冲掉（文件因此被写进旧目录）。现在 `LoadOverlay` 之后重放 `GLEAM_*` 环境变量与 `--workspace/--data-dir`，与文档口径 `config.yaml < settings.yaml < 环境变量 < 命令行` 一致。
+- **修复：Windows 截屏恒败**（存量 bug）：`powershell -Command script path` 会把 path 拼进同一条命令串，`$args[0]` 永远为空 → 截屏必报解析错误。改为经环境变量 `GLEAM_SHOT_PATH` 传路径。
 
-验证：`go build ./...`、`go vet ./...`、`gofmt` 全清；新增测试 mdskill 发现/遮蔽/失效剔除、skill.list 合并与 skill.open（含 user-only 拒开）、会话检索（排序/AND/片段/大小写）、子任务（执行/深度上限/失败透传/mode 路由）、hooks（阻断语义/退出码矩阵/超时/executor 集成/配置解析/真 shell）全部通过；`scripts/verify.sh` 六层全过（248s，2026-11-04）。
+验证：真实模型（DeepSeek）全链路实测五项——模型发送、代码编写（写 fizzbuzz.py→python 运行验证）、定时任务（创建→serve 触发→真实执行→归档 success→删除）、computer_use 截屏（真实 PNG 落盘）、image.generate（未配置时诚实报错；本地 mock images 服务端到端真实落盘）；`go build ./...`、`go vet ./...`、`gofmt`、`check-comments` 零违规；新增单测（CUA 工具契约/模式/注入校验、image 响应形态/路径穿越/工具契约）全过；`scripts/verify.sh` 六层全过。
 
 ## v0.0.27（2026-11-03）
 

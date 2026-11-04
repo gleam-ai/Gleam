@@ -52,8 +52,8 @@ MUTATIONS = [
         "file": "internal/agent/connections.go",
         "edits": [
             (
-                'var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}',
-                'var egressKinds = []string{"llm", "web.fetch", "cloud", "go.toolchain", "market.remote", "mcp.remote", "git.remote"}',
+                'var egressKinds = []string{"llm", "web.fetch", "cloud", "feedback", "update", "go.toolchain", "market.remote", "mcp.remote", "git.remote", "image.generate"}',
+                'var egressKinds = []string{"llm", "web.fetch", "cloud", "go.toolchain", "market.remote", "mcp.remote", "git.remote", "image.generate"}',
             )
         ],
         "targets": [EGRESS_CHECK],
@@ -97,8 +97,8 @@ MUTATIONS = [
         "file": "internal/agent/connections.go",
         "edits": [
             (
-                "rows = append(rows, a.cloudRow(rep, en), a.feedbackRow(rep, en), updateRow(rep, en),\n\t\tgoToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),\n\t\ta.gitRemoteRow(rep, en), marketRow(en))",
-                "rows = append(rows, a.feedbackRow(rep, en), updateRow(rep, en),\n\t\tgoToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),\n\t\ta.gitRemoteRow(rep, en), marketRow(en))",
+                "rows = append(rows, a.cloudRow(rep, en), a.feedbackRow(rep, en), updateRow(rep, en),\n\t\tgoToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),\n\t\ta.gitRemoteRow(rep, en), imageGenerateRow(rep, en), marketRow(en))",
+                "rows = append(rows, a.feedbackRow(rep, en), updateRow(rep, en),\n\t\tgoToolchainRow(rep, en), marketRemoteRow(rep, en), mcpRemoteRow(rep, en),\n\t\ta.gitRemoteRow(rep, en), imageGenerateRow(rep, en), marketRow(en))",
             )
         ],
         "targets": [

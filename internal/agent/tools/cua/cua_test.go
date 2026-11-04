@@ -2,208 +2,174 @@ package cua
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
-	"gleam/internal/harness/safety"
+	"gleam/internal/tools/toolutil"
+	"gleam/pkg/types"
 )
 
-func TestComputerUse_DetectMode(t *testing.T) {
+func newTestCUA(mode string, run func(ctx context.Context, name string, args []string) ([]byte, error)) *ComputerUse {
 	cu := NewComputerUse()
+	cu.mode = mode
+	cu.run = run
+	return cu
+}
 
-	if cu.mode != "mcp" && cu.mode != "direct" {
-		t.Errorf("invalid mode detected: %s", cu.mode)
+// Tool contract: the CUA must be a valid types.Tool, visible once registered
+// in the menu and judgeable by the permission gate.
+func TestComputerUse_ToolContract(t *testing.T) {
+	cu := NewComputerUse()
+	if cu.Name() != "computer_use" {
+		t.Errorf("name = %q", cu.Name())
 	}
-
-	expectedModes := []string{"mcp", "direct"}
-	valid := false
-	for _, m := range expectedModes {
-		if cu.mode == m {
-			valid = true
-			break
-		}
+	if cu.Permission() != types.PermissionUserApproved {
+		t.Errorf("permission = %v, want user_approved", cu.Permission())
 	}
-
-	if !valid {
-		t.Errorf("mode should be one of %v, got %s", expectedModes, cu.mode)
+	if strings.TrimSpace(cu.Description()) == "" {
+		t.Error("description 不能为空")
+	}
+	if err := toolutil.ValidateArgs(cu, map[string]any{"action": "screenshot"}); err != nil {
+		t.Errorf("screenshot 合法参数不应报错: %v", err)
+	}
+	if err := toolutil.ValidateArgs(cu, map[string]any{}); err == nil {
+		t.Error("缺 action 应报错")
 	}
 }
 
-func TestComputerUse_Schema(t *testing.T) {
-	cu := NewComputerUse()
-	schema := cu.Schema()
-
-	if schema["name"] != "computer_use" {
-		t.Errorf("schema name should be 'computer_use', got %v", schema["name"])
+func TestComputerUse_MockIsHonest(t *testing.T) {
+	cu := newTestCUA("mock", nil)
+	out, err := cu.Execute(context.Background(), map[string]any{"action": "click", "x": 3.0, "y": 4.0})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	inputSchema, ok := schema["inputSchema"].(map[string]any)
-	if !ok {
-		t.Fatal("inputSchema is not valid map")
+	m := out.(map[string]any)
+	if m["executed"] != false {
+		t.Errorf("mock 模式绝不能谎报 executed=true: %v", m)
 	}
-
-	properties, ok := inputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatal("properties is not valid map")
-	}
-
-	required, ok := inputSchema["required"].([]any)
-	if ok && len(required) == 0 {
-		t.Error("required fields missing or invalid")
-	}
-
-	_ = properties // TODO: validate action enum
-}
-
-// Note: inputSchema without required fields is valid for optional parameter schemas
-
-func TestComputerUse_Execute_NotFoundAction(t *testing.T) {
-	cu := NewComputerUse()
-	ctx := context.Background()
-
-	args := map[string]any{
-		"action": "nonexistent_action",
-		"params": map[string]any{},
-	}
-
-	result, err := cu.Execute(ctx, args)
-
-	if err == nil {
-		t.Error("expected error for unknown action, got nil")
-	}
-
-	if result != nil {
-		t.Errorf("expected nil result on error, got %v", result)
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "screenshot"}); err == nil {
+		t.Error("mock 模式截图应明确报错，而不是编造图片")
 	}
 }
 
-func TestComputerUse_Execute_TooShortGoal(t *testing.T) {
-	cu := NewComputerUse()
-	ctx := context.Background()
+func TestComputerUse_PowerShellMode(t *testing.T) {
+	var gotName string
+	var gotArgs []string
+	cu := newTestCUA("powershell", func(_ context.Context, name string, args []string) ([]byte, error) {
+		gotName, gotArgs = name, args
+		return []byte("ok"), nil
+	})
 
-	// Test click without coordinates
-	args := map[string]any{
-		"action": "click",
-		"params": map[string]any{}, // Missing x, y
+	out, err := cu.Execute(context.Background(), map[string]any{"action": "click", "x": 12.0, "y": 34.0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := out.(map[string]any); m["executed"] != true {
+		t.Errorf("真实后端应报告 executed=true: %v", m)
+	}
+	script := strings.Join(gotArgs, " ")
+	if gotName != "powershell" || !strings.Contains(script, "SetCursorPos(12,34)") || !strings.Contains(script, "mouse_event") {
+		t.Errorf("点击脚本缺少坐标注入: %s", script)
 	}
 
-	result, err := cu.Execute(ctx, args)
-
-	if err == nil {
-		t.Log("click with missing params succeeded (mock mode)")
-	} else {
-		t.Logf("click failed as expected in non-mock mode: %v", err)
+	// type_text: CJK goes through clipboard paste; single quotes must be
+	// escaped to prevent script injection.
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "type_text", "text": "it's 测试"}); err != nil {
+		t.Fatal(err)
+	}
+	script = strings.Join(gotArgs, " ")
+	if !strings.Contains(script, "Set-Clipboard") || !strings.Contains(script, "SendWait") {
+		t.Errorf("输入脚本缺少剪贴板粘贴: %s", script)
+	}
+	if !strings.Contains(script, "it''s") {
+		t.Errorf("单引号未转义（脚本注入风险）: %s", script)
 	}
 
-	_ = result
-}
-
-func TestComputerUse_Timeout(t *testing.T) {
-	cu := NewComputerUse()
-
-	if cu.timeout != 30*time.Second {
-		t.Errorf("default timeout should be 30s, got %v", cu.timeout)
+	// open_app: goes through Start-Process; the argument must be a clean token.
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "open_app", "app_name": "notepad"}); err != nil {
+		t.Fatal(err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// This would timeout if cua wasn't available
-	args := map[string]any{
-		"action": "screenshot",
-		"params": map[string]any{},
-	}
-
-	start := time.Now()
-	cu.Execute(ctx, args)
-	duration := time.Since(start)
-
-	// In mock mode, should complete quickly; in real mode might timeout
-	if duration > 6*time.Second {
-		t.Errorf("execution took too long: %v", duration)
+	if !strings.Contains(strings.Join(gotArgs, " "), "Start-Process") {
+		t.Errorf("启动脚本缺少 Start-Process: %s", strings.Join(gotArgs, " "))
 	}
 }
 
-func TestCUASafetyGate_AllowAction(t *testing.T) {
-	sg := safety.NewCUASafetyGate()
+func TestComputerUse_ArgValidation(t *testing.T) {
+	cu := newTestCUA("powershell", nil)
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "click"}); err == nil {
+		t.Error("click 缺坐标应报错")
+	}
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "type_text", "text": " "}); err == nil {
+		t.Error("type_text 空文本应报错")
+	}
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "open_app", "app_name": "notepad; rm -rf"}); err == nil {
+		t.Error("app_name 含命令分隔符应报错")
+	}
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "fly"}); err == nil {
+		t.Error("未知动作应报错")
+	}
+}
 
-	// Allow safe actions
-	safeActions := []string{"screenshot", "click", "type_text"}
-	for _, action := range safeActions {
-		err := sg.AllowAction(context.Background(), action, map[string]any{})
+func TestComputerUse_MCPErrorPropagation(t *testing.T) {
+	// Non-2xx must come back as an error; older versions reported
+	// {"success":true} here.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	defer srv.Close()
+	cu := NewComputerUse()
+	cu.mode = "mcp"
+	cu.mcpURL = srv.URL
+	cu.post = func(_ context.Context, url string, body []byte) (int, []byte, error) {
+		resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
 		if err != nil {
-			t.Errorf("action %q should be allowed, got error: %v", action, err)
+			return 0, nil, err
 		}
+		defer resp.Body.Close()
+		buf := make([]byte, 4096)
+		n, _ := resp.Body.Read(buf)
+		return resp.StatusCode, buf[:n], nil
+	}
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "click", "x": 1.0, "y": 1.0}); err == nil {
+		t.Fatal("MCP 500 应报错")
 	}
 
-	// Block dangerous commands (must contain exec or shell keywords)
-	blockedActions := []string{
-		"exec_command",
-		"shell_script",
-		"execute_risky_operation",
-	}
-	for _, action := range blockedActions {
-		err := sg.AllowAction(context.Background(), action, map[string]any{})
-		if err == nil {
-			t.Errorf("action %q should be blocked, but was allowed", action)
-		}
+	// An unreachable server must also fail explicitly, not succeed.
+	cu2 := NewComputerUse()
+	cu2.mode = "mcp"
+	cu2.mcpURL = "http://127.0.0.1:1/rpc"
+	if _, err := cu2.Execute(context.Background(), map[string]any{"action": "screenshot"}); err == nil {
+		t.Fatal("MCP 不可达应报错")
 	}
 }
 
-func TestCUASafetyGate_AppWhitelist(t *testing.T) {
-	sg := safety.NewCUASafetyGate()
-
-	// Pre-loaded apps should be allowed (via AllowAction)
-	allowedApps := []string{"chrome", "firefox", "vscode"}
-	for _, app := range allowedApps {
-		err := sg.AllowAction(context.Background(), "open_app", map[string]any{"app_name": app})
-		if err != nil {
-			t.Errorf("app %q should be in whitelist, got error: %v", app, err)
-		}
+func TestDetectMode_EnvOverrides(t *testing.T) {
+	t.Setenv("GLEAM_CUA_MODE", "mock")
+	if m := detectMode(); m != "mock" {
+		t.Errorf("GLEAM_CUA_MODE 应最高优先: got %s", m)
 	}
-
-	// Unknown apps should be blocked
-	unknownApps := []string{"malware", "virus_installer", "script.ki"}
-	for _, app := range unknownApps {
-		err := sg.AllowAction(context.Background(), "open_app", map[string]any{"app_name": app})
-		if err == nil {
-			t.Errorf("app %q should NOT be in whitelist, but was allowed", app)
-		}
+	t.Setenv("GLEAM_CUA_MODE", "")
+	m := detectMode()
+	switch m {
+	case "direct", "powershell", "mcp":
+	default:
+		t.Errorf("fallback 模式非法: %s", m)
 	}
 }
 
-func TestCUASafetyGate_History(t *testing.T) {
-	sg := safety.NewCUASafetyGate()
-
-	// Generate some history
-	for i := 0; i < 10; i++ {
-		sg.AllowAction(context.Background(), "click", map[string]any{"x": float64(i), "y": float64(i)})
+// validateSingleToken is the injection defense: action arguments get spliced
+// into a command line, so separators must be blocked.
+func TestValidateSingleToken(t *testing.T) {
+	bad := []string{"notepad; calc", `a"b`, "x&y", "a|b", "a'b", "$(calc)", "a\nb"}
+	for _, s := range bad {
+		if err := validateSingleToken(s, "app_name"); err == nil {
+			t.Errorf("应拒绝 %q", s)
+		}
 	}
-
-	history := sg.GetHistory(5)
-
-	if len(history) != 5 {
-		t.Errorf("history length should be 5, got %d", len(history))
-	}
-
-	lastAction := history[0].Action
-	if lastAction != "click" {
-		t.Errorf("last action should be 'click', got %q", lastAction)
-	}
-}
-
-func BenchmarkComputerUse_Execute(b *testing.B) {
-	cu := NewComputerUse()
-
-	args := map[string]any{
-		"action": "click",
-		"params": map[string]any{"x": 100, "y": 200},
-	}
-
-	ctx := context.Background()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		cu.Execute(ctx, args)
+	if err := validateSingleToken("notepad", "app_name"); err != nil {
+		t.Errorf("干净 token 不应拒绝: %v", err)
 	}
 }

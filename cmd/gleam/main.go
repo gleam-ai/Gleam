@@ -15,6 +15,7 @@ import (
 
 	"gleam/internal/agent"
 	"gleam/internal/agent/geo"
+	"gleam/internal/agent/tools/cua"
 	"gleam/internal/buildinfo"
 	"gleam/internal/config"
 	"gleam/internal/harness/auth"
@@ -35,6 +36,7 @@ import (
 	"gleam/internal/tools/file"
 	gittools "gleam/internal/tools/git"
 	"gleam/internal/tools/hardware"
+	imagetools "gleam/internal/tools/image"
 	"gleam/internal/tools/lsp"
 	"gleam/internal/tools/mcp"
 	"gleam/internal/tools/prompt"
@@ -200,6 +202,18 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 		cfg.DataDir = dataDir
 	}
 	_ = config.LoadOverlay(cfg, filepath.Join(cfg.DataDir, config.OverlayFile))
+	// Layer precedence: config.yaml < settings.yaml (overlay) < env < CLI flags.
+	// LoadOverlay just overwrote everything the lower layers set, so replay the
+	// higher ones here; otherwise a workspace in settings.yaml silently beats
+	// --workspace / GLEAM_WORKSPACE (hit in practice: files landed in the
+	// overlay's stale directory).
+	cfg.ApplyEnv()
+	if workspace != "" {
+		cfg.Workspace = workspace
+	}
+	if dataDir != "" {
+		cfg.DataDir = dataDir
+	}
 	if cfg.Workspace == "" && !rc.noDefaultWorkspace {
 		if cwd, err := os.Getwd(); err == nil {
 			cfg.Workspace = cwd
@@ -365,6 +379,22 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(std.NewSkillOpen(&mdSkillAdapter{workspace: func() string { return a.Cfg.Workspace }}))
 	reg.MustRegister(std.NewAgentDelegate(a))
 	reg.MustRegister(std.NewSessionSearch(convoStore))
+	reg.MustRegister(cua.NewComputerUse())
+	imageTool := imagetools.NewGenerate(
+		func(ctx context.Context) (string, string, string, error) {
+			// Resolve the key by host (same store as the main model); fetch it
+			// fresh each call so a new key takes effect immediately.
+			baseURL := a.Cfg.LLM.BaseURL
+			// An env/flag injected key (GLEAM_API_KEY) carries no host scope yet;
+			// mark it to this base_url first or the scope check below drops it.
+			agent.MarkInjectedLLMKey(a.Cfg, baseURL)
+			key, _ := agent.BindLLMKey(a.Cfg, credStore, baseURL, "", false)
+			return baseURL, key, a.Cfg.LLM.ImageModel, nil
+		},
+		func(ctx context.Context) []string { return fileTools.Roots },
+	)
+	imageTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("image.generate", host, nbytes) }
+	reg.MustRegister(imageTool)
 
 	startMCP := func() {}
 	connectMCP := func() {

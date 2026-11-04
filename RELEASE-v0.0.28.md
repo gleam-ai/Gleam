@@ -1,8 +1,8 @@
 # Gleam v0.0.28 更新日志 — 融入 DeepSeek Harness 可借鉴能力
 
-**发布日期**: 2026-11-04
+**发布日期**: 2026-11-05
 **版本**: v0.0.28
-**验证**: `scripts/verify.sh` 六层全过（248s）；发布二进制 `doctor --strict` 与 `eval --layer smoke --strict` 实测通过
+**验证**: `scripts/verify.sh` 六层全过；真实模型（DeepSeek）全链路实测五项基础能力——模型发送、代码编写（写码→跑码）、定时任务（创建→触发→归档）、computer_use 截屏（真实 PNG）、image.generate（mock 端到端真实落盘）；发布二进制 `doctor --strict` 与 `eval --layer smoke --strict` 实测通过
 
 ## 🎯 本次更新的由来
 
@@ -47,7 +47,21 @@
 
 各二进制均经 Mach-O/ELF/PE 魔数校验；桌面安装包内置 sidecar 实测 `gleam 0.0.28`、`doctor --strict` 通过。
 
+### 5. computer_use 桌面自动化（本轮补齐落地）
+
+- 四种后端：`GLEAM_CUA_MODE`（direct/powershell/mcp/mock）> cua 二进制 > Windows 原生 powershell（user32 截屏/点击、剪贴板粘贴输入中文、Start-Process 启动）> 本地 MCP
+- mock 模式诚实标注"未真实执行"，动作参数过注入校验；截屏与 `desktop.screenshot` 共用平台实现
+
+### 6. image.generate 文生图（新增能力）
+
+- OpenAI 兼容 `images/generations`（GLM cogview / OpenAI gpt-image-1 等）；b64/url 双响应形态；按魔数认格式落盘 `images/`
+- 新配置 `llm.image_model`（设置页可改）；未配置/无密钥/主模型无图像能力时逐层明确报错；出网接安全台账
+
 ## 🔧 顺带修复
+
+- **配置分层优先级**：settings.yaml 覆盖层曾把 `GLEAM_*` 环境变量与 `--workspace` 等CLI 标志的值悄悄冲掉（实测文件被写进旧目录）；现在覆盖层加载后重放环境变量与 CLI 标志，与文档口径一致
+- **Windows 截屏恒败**（存量）：`powershell -Command script path` 的 `$args[0]` 拿不到参数 → 截屏必报解析错误；改为环境变量传路径
+- 修复 `internal/webui/ask_todo_test.go` 引用不存在的测试辅助（`agent.WithTaskIDForTest` 已补导出）
 
 - 修复 `internal/webui/ask_todo_test.go` 引用不存在的测试辅助（`agent.WithTaskIDForTest` 已补导出）
 - 全仓 `.go` 注释统一为 ASCII（中文只保留在字符串字面量），通过 `scripts/check-comments.py` 零违规
