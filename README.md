@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.31](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.32](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -30,6 +30,13 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Electron 45.2.1**: Chromium 156 and current runtime security fixes without relaxing the sandbox
 - **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
 - **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
+
+## What's new in v0.0.32
+
+- **Update failures say what actually broke**: the engine no longer reports a bare "connection reset". It names the failing step, states that this is a local network problem rather than a Gleam fault, and points at the releases page for a manual download
+- **Desktop update errors are readable**: `electron-updater` used to dump its full request — URL and response headers — into the dialog. Only the status and the engine's own explanation are shown now, and HTML error pages are dropped
+- **No more doubled advice in the dialog**: the update modal strips trailing punctuation and skips the retry hint when the message already carries it
+- **Downloads still come from GitHub**: the update feed goes through the local engine only as a transport around hosts that get reset; every byte is fetched from `api.github.com` / release assets, never from a local path
 
 ## What's new in v0.0.31
 

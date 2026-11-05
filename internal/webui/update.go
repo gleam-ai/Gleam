@@ -3,8 +3,10 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -191,7 +193,17 @@ type releaseInfo struct {
 	Assets      []releaseAsset `json:"assets"`
 }
 
-var updateHTTPClient = &http.Client{Timeout: 12 * time.Second}
+// GitHub's first byte can take well over ten seconds on networks that route it
+// through a slow proxy; a 12s cap turned those into "context deadline exceeded"
+// and a 502 in the update dialog. Dial, TLS and header phases now each have
+// their own budget, and the overall cap is generous enough for one retry.
+var updateHTTPClient = func() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = 10 * time.Second
+	t.ResponseHeaderTimeout = 25 * time.Second
+	return &http.Client{Transport: t, Timeout: 45 * time.Second}
+}()
 
 func trustedAssetURL(raw string) bool {
 	u, err := url.Parse(raw)
@@ -230,6 +242,67 @@ func (a releaseAsset) downloadURL() string {
 }
 
 func fetchLatestRelease(ctx context.Context) (releaseInfo, int, error) {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return releaseInfo{}, 0, ctx.Err()
+			case <-time.After(600 * time.Millisecond):
+			}
+		}
+		rel, status, err := fetchLatestReleaseOnce(ctx)
+		if err == nil {
+			return rel, status, nil
+		}
+		lastErr = err
+		if !retryableNetErr(err) {
+			break
+		}
+	}
+	return releaseInfo{}, 0, lastErr
+}
+
+// retryableNetErr covers the cases where a second attempt usually wins: a slow
+// or dropped connection, not a 404 or a malformed body.
+func retryableNetErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// netErrSummary keeps the update dialog readable and stops request headers from
+// being echoed into it: url.Error's full text carries the URL and, via
+// net/http, can drag along connection details the user cannot act on.
+func netErrSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "请求 GitHub 超时（本机网络到 api.github.com 太慢或不通）"
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		if ue.Timeout() {
+			return "请求 GitHub 超时（本机网络到 api.github.com 太慢或不通）"
+		}
+		if inner := ue.Err; inner != nil {
+			return inner.Error()
+		}
+	}
+	return err.Error()
+}
+
+func fetchLatestReleaseOnce(ctx context.Context) (releaseInfo, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, updateLatestAPI, nil)
 	if err != nil {
 		return releaseInfo{}, 0, err
@@ -419,7 +492,7 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 func (s *Server) pickUpdateAsset(r *http.Request) (releaseAsset, error) {
 	rel, status, err := fetchLatestRelease(r.Context())
 	if err != nil {
-		return releaseAsset{}, fmt.Errorf("连不上更新源：%w", err)
+		return releaseAsset{}, fmt.Errorf("连不上 GitHub 更新源：%s。这是本机网络问题，不是 Gleam 故障；稍后重试，或到发布页手动下载", netErrSummary(err))
 	}
 	if status != http.StatusOK {
 		return releaseAsset{}, fmt.Errorf("更新源返回 %d", status)
@@ -543,7 +616,7 @@ func (s *Server) handleDesktopUpdateAsset(w http.ResponseWriter, r *http.Request
 	if asset.Name == "" {
 		rel, status, err := fetchLatestRelease(r.Context())
 		if err != nil {
-			writeErr(w, http.StatusBadGateway, "连不上更新源：%v", err)
+			writeErr(w, http.StatusBadGateway, "连不上 GitHub 更新源：%s。这是本机网络问题，不是 Gleam 故障；稍后重试，或到发布页手动下载", netErrSummary(err))
 			return
 		}
 		if status != http.StatusOK {

@@ -20,6 +20,38 @@ export type UpdateStatus =
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 const log = (message?: unknown) => console.log('[update]', message);
 
+// electron-updater's HttpError serialises the whole request into message: URL
+// plus response headers. The dialog only needs the status and the engine's own
+// explanation, so pull those out and drop the rest.
+function updateErrorText(err: unknown): string {
+  const e = err as {
+    statusCode?: number;
+    statusText?: string;
+    description?: unknown;
+    message?: string;
+  };
+  const status =
+    e.statusCode && e.statusCode >= 400
+      ? `${e.statusCode}${e.statusText ? ` ${e.statusText}` : ''}`
+      : '';
+  let body = '';
+  if (typeof e.description === 'string') {
+    const raw = e.description.trim();
+    try {
+      const parsed = JSON.parse(raw) as { error?: unknown };
+      body = typeof parsed.error === 'string' ? parsed.error : raw;
+    } catch {
+      // Non-JSON bodies are usually an HTML error page; showing it helps nobody.
+      body = raw.startsWith('<') ? '' : raw;
+    }
+  }
+  if (status || body) return [status, body].filter(Boolean).join(' · ');
+  return String(e.message ?? err)
+    .split('\n')[0]
+    .trim()
+    .slice(0, 200);
+}
+
 let latest: UpdateStatus = { kind: 'idle' };
 let version = '';
 let staged: string | null = null;
@@ -107,7 +139,7 @@ export function installUpdater(host: UpdaterHost): void {
     } catch (err) {
       log(`download failed: ${String(err)}`);
       push({ kind: 'available', version: attemptedVersion });
-      return { ok: false, error: String(err) };
+      return { ok: false, error: updateErrorText(err) };
     }
   });
   let restarting = false;
@@ -223,7 +255,7 @@ export function installUpdater(host: UpdaterHost): void {
     push({ kind: 'not-available' });
   });
   autoUpdater.on('error', (err: Error) =>
-    push({ kind: 'error', version, message: err.message }),
+    push({ kind: 'error', version, message: updateErrorText(err) }),
   );
 
   void check();

@@ -9542,10 +9542,20 @@ const Updater = (() => {
                 : '已是最新版本。';
               primary.hidden = true;
               break;
-            case 'error':
-              line.textContent = `检查更新失败：${s.message || '未知错误'}。可以稍后再试，或去发布页手动下载。`;
+            case 'error': {
+              // The shell already trims technical noise; strip a trailing period
+              // so "…失败：X。。" cannot happen, and skip the advice when the
+              // message itself carries it (the modal already has 去发布页).
+              const why = String(s.message || '未知错误')
+                .trim()
+                .replace(/[。.]+$/, '');
+              const advised = /稍后再试|稍后重试|手动下载|去发布页/.test(why);
+              line.textContent = advised
+                ? `检查更新失败：${why}。`
+                : `检查更新失败：${why}。可以稍后再试，或去发布页手动下载。`;
               primary.hidden = true;
               break;
+            }
           }
         };
         api('GET', '/api/info')
