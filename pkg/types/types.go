@@ -54,6 +54,14 @@ type PathAware interface {
 	Paths(ctx context.Context, args map[string]any) []string
 }
 
+// ArgNormalizer lets a tool repair loosely typed arguments before validation.
+// Models occasionally hand a free-text field a list of paragraphs or a wrapper
+// object instead of a string; a tool that knows what the value means can
+// flatten it there instead of failing the whole step on a type check.
+type ArgNormalizer interface {
+	NormalizeArgs(args map[string]any)
+}
+
 type StepOutcome string
 
 const (

@@ -147,6 +147,9 @@ func Schema(desc string, required []string, props map[string]any) map[string]any
 // ValidateArgs checks required fields and declared property types. It is the
 // single boundary check shared by planning, task execution and direct calls.
 func ValidateArgs(t types.Tool, args map[string]any) error {
+	if n, ok := t.(types.ArgNormalizer); ok {
+		n.NormalizeArgs(args)
+	}
 	schema := t.Schema()
 	props, _ := schema["properties"].(map[string]any)
 	for _, key := range requiredKeys(schema["required"]) {

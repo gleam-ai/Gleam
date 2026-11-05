@@ -27,6 +27,46 @@ func (f *fakeTool) Paths(_ context.Context, args map[string]any) []string {
 	return nil
 }
 
+// plainTool has no Paths method, so it exercises the branch the real
+// agent.delegate / web.fetch tools take: nothing to enumerate, nothing to
+// pin. fakeTool always satisfies PathAware, which is why this used to be
+// invisible to the suite.
+type plainTool struct {
+	name string
+	perm types.Permission
+}
+
+func (p *plainTool) Name() string                                         { return p.name }
+func (p *plainTool) Description() string                                  { return "plain" }
+func (p *plainTool) Schema() map[string]any                               { return map[string]any{"type": "object"} }
+func (p *plainTool) Permission() types.Permission                         { return p.perm }
+func (p *plainTool) Execute(context.Context, map[string]any) (any, error) { return "ok", nil }
+
+func TestGate_FullAccessAllowsMediumToolsWithoutPaths(t *testing.T) {
+	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
+	delegate := &plainTool{name: "agent.delegate", perm: types.PermissionUserApproved}
+
+	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); d.NeedApproval {
+		t.Fatalf("完全访问下无路径的中风险工具不该再弹审批: %+v", d)
+	} else if d.Risk != "medium" {
+		t.Errorf("risk = %s", d.Risk)
+	}
+
+	if d := g.Evaluate(&plainTool{name: "shell.exec", perm: types.PermissionFullAccess}, nil); !d.NeedApproval {
+		t.Error("高风险在任何模式下都必须审批")
+	}
+
+	g.SetToolPermission("agent.delegate", types.PermissionUserApproved)
+	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); !d.NeedApproval {
+		t.Errorf("显式覆盖为需批准时，更具体的设置应优先: %+v", d)
+	}
+
+	interactive := New("interactive", nil, nil, []string{`D:\ws`}, time.Minute)
+	if d := interactive.Evaluate(delegate, nil); !d.NeedApproval {
+		t.Errorf("每步批准模式下仍应逐次审批: %+v", d)
+	}
+}
+
 func TestGate_ReadOnlyAlwaysAllowed(t *testing.T) {
 	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
 	d := g.Evaluate(&fakeTool{name: "file.read", perm: types.PermissionReadOnly}, nil)

@@ -575,7 +575,9 @@ let currentPermLabel = 'auto';
 const TASK_LABEL = { chat: '对话', work: '工作', code: '编程' };
 
 function setPerm(mode, label) {
-  if (mode !== 'auto') {
+  // Both the auto-approve and full-access entries persist mode=auto; only the
+  // latter is the dangerous switch, so the confirmation keys off the label.
+  if (label !== 'full_access') {
     _doSetPerm(mode, label);
     return;
   }

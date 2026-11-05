@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.28](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.29](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -30,6 +30,13 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Electron 45.2.1**: Chromium 156 and current runtime security fixes without relaxing the sandbox
 - **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
 - **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
+
+## What's new in v0.0.29
+
+- **Full access actually means full access**: medium-risk tools without a path to inspect (`agent.delegate`, `web.fetch`) no longer ask for approval in `mode=auto`; high-risk tools still do, and an explicit per-tool override still wins
+- **Final replies stop disappearing**: `reply.text` sent as a paragraph list or a wrapper object is flattened by a new `ArgNormalizer` hook before validation, instead of failing the type check
+- **Bot-check pages are no longer treated as content**: `web.fetch` recognizes WeChat and Cloudflare interstitials and fails with an actionable message instead of handing the challenge page to the model
+- **Permission menu confirmation fixed**: "auto approve" no longer triggers the "switching to full access" warning
 
 ## What's new in v0.0.28
 
