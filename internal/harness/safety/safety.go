@@ -209,18 +209,10 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 		}
 		return Decision{NeedApproval: false, Risk: risk, Reason: "操作路径均在信任路径内"}
 	}
-	if mode == "auto" {
-		// "Full access" promises that only high-risk actions ask for approval
-		// (set-safety-mode title). Tools with no enumerable path, such as
-		// web.fetch and agent.delegate, used to fall through to the branch
-		// below and turn full access into an approval prompt on every call.
-		// An explicit per-tool override is a more specific instruction than
-		// the global mode, so it keeps asking.
-		if _, overridden := g.OverrideOf(t.Name()); overridden {
-			return Decision{NeedApproval: true, Risk: risk, Reason: "该工具被单独设为需要批准"}
-		}
-		return Decision{NeedApproval: false, Risk: risk, Reason: "完全访问：中风险操作自动放行"}
-	}
+	// No paths to inspect means the prompt cannot be narrowed, so it stays.
+	// "Full access" lifts the path restriction, it does not lift the one-time
+	// confirmation for tools that read private data (clipboard) or reach the
+	// network. Those become quiet after the first approval via TrustForSession.
 	return Decision{NeedApproval: true, Risk: risk, Reason: "无法确认操作范围，需要人工确认"}
 }
 

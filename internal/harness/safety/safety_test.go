@@ -42,28 +42,35 @@ func (p *plainTool) Schema() map[string]any                               { retu
 func (p *plainTool) Permission() types.Permission                         { return p.perm }
 func (p *plainTool) Execute(context.Context, map[string]any) (any, error) { return "ok", nil }
 
-func TestGate_FullAccessAllowsMediumToolsWithoutPaths(t *testing.T) {
+func TestGate_FullAccessStillConfirmsToolsWithoutPathsOnce(t *testing.T) {
 	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
 	delegate := &plainTool{name: "agent.delegate", perm: types.PermissionUserApproved}
 
-	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); d.NeedApproval {
-		t.Fatalf("完全访问下无路径的中风险工具不该再弹审批: %+v", d)
+	// Full access lifts the path restriction, not the one-time confirmation:
+	// with nothing to narrow, a human has to look once.
+	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); !d.NeedApproval {
+		t.Fatalf("完全访问仍应确认一次: %+v", d)
 	} else if d.Risk != "medium" {
 		t.Errorf("risk = %s", d.Risk)
+	}
+
+	if !g.TrustForSession("agent.delegate") {
+		t.Fatal("agent.delegate 应在会话信任白名单内")
+	}
+	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); d.NeedApproval {
+		t.Errorf("本会话批准后不该重复弹窗: %+v", d)
 	}
 
 	if d := g.Evaluate(&plainTool{name: "shell.exec", perm: types.PermissionFullAccess}, nil); !d.NeedApproval {
 		t.Error("高风险在任何模式下都必须审批")
 	}
-
-	g.SetToolPermission("agent.delegate", types.PermissionUserApproved)
-	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); !d.NeedApproval {
-		t.Errorf("显式覆盖为需批准时，更具体的设置应优先: %+v", d)
+	// Clipboard reads can leak passwords and are deliberately left off the
+	// quiet list for writes; only reads may be trusted for the session.
+	if d := g.Evaluate(&plainTool{name: "desktop.clipboard.write", perm: types.PermissionUserApproved}, nil); !d.NeedApproval {
+		t.Error("剪贴板写入在完全访问下仍必须审批")
 	}
-
-	interactive := New("interactive", nil, nil, []string{`D:\ws`}, time.Minute)
-	if d := interactive.Evaluate(delegate, nil); !d.NeedApproval {
-		t.Errorf("每步批准模式下仍应逐次审批: %+v", d)
+	if g.CanTrustForSession("desktop.clipboard.write") {
+		t.Error("剪贴板写入不该进入会话信任白名单")
 	}
 }
 

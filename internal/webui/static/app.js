@@ -587,7 +587,11 @@ function setPerm(mode, label) {
       return;
     }
     _doSetPerm(mode, label);
-    toast('已切换到“完全访问”，高风险操作仍会请你批准', 'warning', 5000);
+    toast(
+      '已切换到“完全访问”：路径不设限，敏感工具仍会确认一次',
+      'warning',
+      5000,
+    );
   });
 }
 
@@ -9164,7 +9168,7 @@ const ComposerControls = (() => {
       key === 'plan_first'
         ? '执行前始终询问（点击切换）'
         : key === 'full_access'
-          ? '完全访问：高风险操作仍会询问（点击切换）'
+          ? '完全访问：路径不设限，敏感工具仍会询问（点击切换）'
           : '自动审批：仅高风险操作才征求批准（点击切换）';
     // Set data-mode on #view-goals for CSS layout rules
     const viewGoals = document.getElementById('view-goals');

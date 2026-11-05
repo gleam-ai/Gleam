@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.29](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.30](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -31,12 +31,15 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
 - **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
 
-## What's new in v0.0.29
+## What's new in v0.0.30
 
-- **Full access actually means full access**: medium-risk tools without a path to inspect (`agent.delegate`, `web.fetch`) no longer ask for approval in `mode=auto`; high-risk tools still do, and an explicit per-tool override still wins
+- **v0.0.29 reverted**: full access no longer bypasses the one-time confirmation for pathless medium-risk tools; a clipboard read could leak passwords. Full access lifts path restrictions only, and sensitive tools stay quiet for the session after one approval
+- **Copy matches behavior**: the permission menu and switch toast now say "paths unrestricted; high-risk actions and sensitive tools still confirm once"
 - **Final replies stop disappearing**: `reply.text` sent as a paragraph list or a wrapper object is flattened by a new `ArgNormalizer` hook before validation, instead of failing the type check
 - **Bot-check pages are no longer treated as content**: `web.fetch` recognizes WeChat and Cloudflare interstitials and fails with an actionable message instead of handing the challenge page to the model
 - **Permission menu confirmation fixed**: "auto approve" no longer triggers the "switching to full access" warning
+
+> v0.0.29 should not be used; upgrade to v0.0.30.
 
 ## What's new in v0.0.28
 
