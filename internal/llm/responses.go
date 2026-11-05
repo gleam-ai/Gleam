@@ -66,8 +66,14 @@ func (c *ResponsesClient) payload(req ChatRequest, stream bool) responsesPayload
 	}
 	in := make([]responsesMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
+		// The Responses API requires content type output_text on assistant
+		// history items and rejects input_text there (strict OpenAI: 400).
+		contentType := "input_text"
+		if m.Role == RoleAssistant {
+			contentType = "output_text"
+		}
 		in = append(in, responsesMessage{Role: m.Role, Content: []map[string]any{
-			{"type": "input_text", "text": m.Content},
+			{"type": contentType, "text": m.Content},
 		}})
 	}
 	return responsesPayload{

@@ -499,7 +499,15 @@ func (a *Agent) bindModelKey(m *config.ModelEntry) error {
 	if key == "" || a.Creds == nil {
 		return nil
 	}
-	if _, err := BindLLMKey(a.Cfg, a.Creds, m.BaseURL, key, false); err != nil {
+	// Keys are stored per connection host. A preset provider may leave
+	// base_url empty in the entry, so resolve the real host first -- binding a
+	// key to an empty host fails and the whole save is rejected (hit in
+	// practice: pick a vendor preset + fill the key -> save refused).
+	base := m.BaseURL
+	if strings.TrimSpace(base) == "" {
+		base, _, _ = llm.ResolveTarget(m.ProviderID, m.Plan, "", "", "")
+	}
+	if _, err := BindLLMKey(a.Cfg, a.Creds, base, key, false); err != nil {
 		return err
 	}
 	m.APIKey = ""

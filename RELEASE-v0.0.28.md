@@ -61,6 +61,7 @@
 
 - **配置分层优先级**：settings.yaml 覆盖层曾把 `GLEAM_*` 环境变量与 `--workspace` 等CLI 标志的值悄悄冲掉（实测文件被写进旧目录）；现在覆盖层加载后重放环境变量与 CLI 标志，与文档口径一致
 - **Windows 截屏恒败**（存量）：`powershell -Command script path` 的 `$args[0]` 拿不到参数 → 截屏必报解析错误；改为环境变量传路径
+- **模型配置绑定**：厂商预设 + Key + 空 base_url 保存被拒（先按预设解析主机再入库）；openai_responses 历史 assistant 段改用 `output_text`（严格 OpenAI 否则 400）；新增多主机密钥隔离/三协议切换/流式/跨厂商辅助模型的绑定一致性测试，并以真实二进制对本地 mock 跑通 responses 与 anthropic 协议完整 goal
 - 修复 `internal/webui/ask_todo_test.go` 引用不存在的测试辅助（`agent.WithTaskIDForTest` 已补导出）
 
 - 修复 `internal/webui/ask_todo_test.go` 引用不存在的测试辅助（`agent.WithTaskIDForTest` 已补导出）

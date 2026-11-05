@@ -13,6 +13,7 @@
 - **computer_use 桌面自动化工具落地**：原 CUA 适配器是从未接线的半成品（不符合 Tool 接口、mock 模式谎报执行成功、MCP 模式吞错误）。重写为合格工具并注册：四种后端（`GLEAM_CUA_MODE` > cua 二进制 > Windows powershell 原生 user32 截屏/点击/剪贴板粘贴输入/Start-Process 启动 > 本地 MCP），mock 模式明确标注"未真实执行"，动作参数过注入校验；截屏与 `desktop.screenshot` 共用同一平台实现（`desktop.Capture`）。
 - **image.generate 文生图工具**：调用 OpenAI 兼容 `images/generations` 端点（GLM cogview / OpenAI gpt-image-1 等），b64_json 与 url 两种响应都收，按魔数认格式落盘到工作区 `images/`；新增配置 `llm.image_model`（设置页可见可改），未配置/无密钥/主模型无图像能力时逐层明确报错；出网接安全台账。
 - **修复：配置分层优先级违反口径**（实测踩中）：settings.yaml 覆盖层加载在后，会把环境变量与 CLI 标志刚设的 `workspace`/`safety.mode` 等值悄悄冲掉（文件因此被写进旧目录）。现在 `LoadOverlay` 之后重放 `GLEAM_*` 环境变量与 `--workspace/--data-dir`，与文档口径 `config.yaml < settings.yaml < 环境变量 < 命令行` 一致。
+- **模型配置绑定修复与三协议一致性测试**：①选厂商预设 + 填 Key + 不填 base_url 时保存被拒（密钥按空主机绑定必失败）——现在先按预设解析出真实主机再入库；②openai_responses 协议把对话历史里 assistant 段发成 `input_text`（严格 OpenAI 会 400）——改为 assistant 段用 `output_text`；新增绑定一致性测试：多主机密钥隔离与来回切换、切换模型即切换协议与端点（chat/responses/anthropic）、三协议流式、跨厂商辅助模型各自带 key、Anthropic 长系统提示词升级 cache_control 块；并以真实二进制对本地三协议 mock 跑通完整 goal（responses/anthropic 端点、认证头、流式全对）。
 - **修复：Windows 截屏恒败**（存量 bug）：`powershell -Command script path` 会把 path 拼进同一条命令串，`$args[0]` 永远为空 → 截屏必报解析错误。改为经环境变量 `GLEAM_SHOT_PATH` 传路径。
 
 验证：真实模型（DeepSeek）全链路实测五项——模型发送、代码编写（写 fizzbuzz.py→python 运行验证）、定时任务（创建→serve 触发→真实执行→归档 success→删除）、computer_use 截屏（真实 PNG 落盘）、image.generate（未配置时诚实报错；本地 mock images 服务端到端真实落盘）；`go build ./...`、`go vet ./...`、`gofmt`、`check-comments` 零违规；新增单测（CUA 工具契约/模式/注入校验、image 响应形态/路径穿越/工具契约）全过；`scripts/verify.sh` 六层全过。
