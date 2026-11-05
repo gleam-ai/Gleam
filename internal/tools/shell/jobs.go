@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -56,17 +55,12 @@ func (j *Jobs) Start(ctx context.Context, command, cwd string, env []string) (*J
 	}
 	j.mu.Unlock()
 
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
-	} else {
-		cmd = exec.Command("sh", "-c", command)
-	}
+	cmd := shellCommand(command)
 	setProcessGroup(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = env
+	cmd.Env = ensureWindowsSystemPath(env)
 
 	job := &Job{
 		ID:        "job-" + types.NewID(),

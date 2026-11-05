@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.30](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.31](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -30,6 +30,14 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Electron 45.2.1**: Chromium 156 and current runtime security fixes without relaxing the sandbox
 - **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
 - **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
+
+## What's new in v0.0.31
+
+- **Desktop shell tools work again**: the sidecar's inherited PATH could be trimmed, so `exec.Command("cmd")` failed and every `shell.*` call died with "executable file not found". The interpreter is now resolved via `COMSPEC` / `%SystemRoot%\System32\cmd.exe`, and System32 is kept on the child PATH
+- **`ask_user` cards land where you're looking**: appended to the conversation and scrolled into view instead of prepended to the top
+- **Model picker keeps its checkmark**: long model ids ellipsize instead of pushing the selected marker out of the clipping box
+- **`computer_use` can actually take over**: `open_app` accepts http(s) URLs (query strings were rejected as command separators), and the tool description states it is not an HTTP fetcher
+- **Anti-bot errors point at the next step**: `web.fetch` tells the model to open the URL through `computer_use` and read the screen, instead of retrying the same blocked URL
 
 ## What's new in v0.0.30
 

@@ -1,5 +1,18 @@
 # Gleam 优化变更日志
 
+## v0.0.31（2026-11-05）
+
+### 桌面版命令全挂、提问卡看不见、反爬无路可走
+
+- **修复桌面版 `exec: "cmd": executable file not found in $PATH`**：Electron 启动的 sidecar 继承的 PATH 可能被安装器或安全软件裁剪，`exec.Command("cmd")` 找不到解释器，导致 `shell.exec` / `shell.persistent` / 后台作业全部失败。现在按 `COMSPEC` → `%SystemRoot%\System32\cmd.exe` → `LookPath` 的顺序解析绝对路径，并保证子进程 PATH 含 System32，`curl`、`where` 这类内置命令也能解析。三个执行入口（一次性、持久、后台）共用同一套构造。
+- **提问卡不再跑到消息流顶部**：`ask_user` 的卡片此前 `prepend` 到会话最前，常常被顶到视口外，用户根本看不到。现在追加到会话末尾并滚动到可见位置。
+- **模型下拉不再切掉勾选**：长模型名 `nowrap` 会把右侧选中标记挤出裁剪区，模型名与 provider 改为可省略，勾选固定保留。
+- **`computer_use` 可以真正接管反爬页面**：`open_app` 现在接受 http(s) 网址（此前 `&`、`?` 会被当命令分隔符拒绝，导致只能传可执行文件名），工具描述写明「这不是 HTTP 抓取工具，被验证墙挡住时用 open_app 打开浏览器 + screenshot 读屏」。
+- **`web.fetch` 反爬错误直接给出下一步**：命中微信/Cloudflare 验证页时，错误信息明确要求改用 `computer_use` 打开浏览器让用户接管，并说明重试同一 URL 不会成功。
+- **审批理由不再让人以为会一直问**：无路径工具首次审批时，理由追加「批准后本会话不再询问该工具」。
+
+验证：`go build ./...`、`go vet ./...`、`gofmt`、`check-comments` 零违规；新增 `TestComputerUse_OpenAppAcceptsURL`（带查询串的 http 链接可用、非 http(s) 协议被拒）；`internal/tools/shell`、`internal/agent/tools/cua`、`internal/harness/safety`、`internal/tools/web` 全过。
+
 ## v0.0.30（2026-11-05）
 
 ### 撤回 v0.0.29 的权限放行，修正文案口径

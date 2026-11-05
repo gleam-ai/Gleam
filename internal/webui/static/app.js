@@ -2470,7 +2470,11 @@ function renderQuestion(q) {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') send.click();
   });
-  feed.prepend(box);
+  // The feed grows downwards, so prepending put the prompt above the message
+  // that triggered it, often off-screen. Append where the conversation actually
+  // is, then scroll just enough to make it visible.
+  feed.appendChild(box);
+  box.scrollIntoView({ block: 'nearest' });
   toast('Gleam 有一个问题需要你回答', 'info');
 }
 

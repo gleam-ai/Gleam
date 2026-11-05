@@ -30,8 +30,11 @@ func TestWeb_RejectsChallengePage(t *testing.T) {
 	if !strings.Contains(err.Error(), "微信访问验证页") {
 		t.Fatalf("错误信息应点名验证页类型，实际: %v", err)
 	}
-	if !strings.Contains(err.Error(), "不要重复请求") {
-		t.Errorf("错误信息应提示不要重试同一 URL，实际: %v", err)
+	if !strings.Contains(err.Error(), "重试同一 URL 不会成功") {
+		t.Errorf("错误信息应提示重试无效，实际: %v", err)
+	}
+	if !strings.Contains(err.Error(), "computer_use") {
+		t.Errorf("错误信息应给出 CUA 接管路径，实际: %v", err)
 	}
 }
 

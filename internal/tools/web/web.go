@@ -121,8 +121,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 			// spends steps "analyzing" a page that only says the request was
 			// rejected, then reports it could not find the content.
 			return nil, fmt.Errorf(
-				"目标站点返回了%s，没有拿到正文。这是对方的风控策略，不是网络故障；"+
-					"不要重复请求同一 URL，改换来源或请用户手动打开", kind)
+				"目标站点返回了%s，没有拿到正文。这是对方的风控策略，不是网络故障，重试同一 URL 不会成功。"+
+					"如果内容确实必要，改用 computer_use：用 open_app 传入该 URL 打开浏览器，"+
+					"请用户完成验证或登录，再用 screenshot 读取页面；否则换一个可访问的来源，或请用户直接粘贴正文", kind)
 		}
 	}
 	truncated := bodyTruncated || len(text) > maxTextLen

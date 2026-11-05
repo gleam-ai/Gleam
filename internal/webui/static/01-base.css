@@ -3449,6 +3449,7 @@ details.schema pre {
 .cp-model-list {
   max-height: 216px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 .cp-model-list .plus-item {
   font-size: var(--fs-xs);
@@ -3457,6 +3458,19 @@ details.schema pre {
 .cp-model-list .plus-item span:first-of-type {
   font-family: var(--font-mono);
   font-weight: 500;
+  /* Long model ids used to push the checkmark past the clipping edge. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-model-list .plus-item .plus-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+.cp-model-list .plus-item svg {
+  flex-shrink: 0;
 }
 /* 当前项：accent 底 + 左侧勾，不靠"看着像选中" */
 .cp-model-list .plus-item[aria-current="true"] {
