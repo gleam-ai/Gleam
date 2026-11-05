@@ -3,6 +3,7 @@ package webui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"gleam/internal/harness/space"
 )
@@ -67,6 +68,36 @@ func TestWebUI_DuplicateScheduleRejected(t *testing.T) {
 	}
 	if j, _ := list[0].(map[string]any); j["goal"] != "整理桌面" {
 		t.Errorf("原任务目标被改动: %v", j["goal"])
+	}
+}
+
+func TestSubscribeReplaysQuestionsAndTodos(t *testing.T) {
+	f := newFixture(t, nil)
+	s := f.srv
+	s.mu.Lock()
+	s.questions["q-replay"] = &questionWaiter{
+		ID:       "q-replay",
+		TaskID:   "task-replay",
+		Question: "继续吗？",
+		Choices:  []string{"继续"},
+		ch:       make(chan questionAnswer, 1),
+	}
+	s.todos["task-replay"] = []todoItemView{{Text: "整理文件", Status: "done"}}
+	s.mu.Unlock()
+
+	ch := s.subscribe()
+	defer s.unsubscribe(ch)
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		select {
+		case ev := <-ch:
+			seen[ev.Type] = true
+		case <-time.After(time.Second):
+			t.Fatalf("重放事件不足：%v", seen)
+		}
+	}
+	if !seen["question"] || !seen["todos"] {
+		t.Fatalf("重连必须重放待回答问题与待办快照，实际 %v", seen)
 	}
 }
 

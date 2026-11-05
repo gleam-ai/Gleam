@@ -1,11 +1,13 @@
 package webui
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type GoStatus struct {
@@ -98,7 +100,11 @@ func checkGoAt(dir string) GoStatus {
 	if st, err := os.Stat(goPath); err != nil || st.IsDir() {
 		return GoStatus{}
 	}
-	v, _ := exec.Command(goPath, "version").Output()
+	// A user-specified path is executed to read its version; bound it so a
+	// hung/non-Go binary cannot hold the HTTP handler forever.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	v, _ := exec.CommandContext(ctx, goPath, "version").Output()
 	return GoStatus{
 		Found:   true,
 		Path:    goPath,

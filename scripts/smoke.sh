@@ -30,6 +30,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 BIN=bin/gleam.exe
+mkdir -p bin
 TMP=$(mktemp -d)
 
 # Go 工具链环境噪声（`package X is not in std (…)`）的统一处理。
@@ -127,8 +128,12 @@ wait_out() {
   printf '%s\n' '{"jsonrpc":"2.0","id":9,"method":"shutdown","params":{}}'
   sleep 1
 } | GLEAM_NO_SYS_NOTIFY=1 "$BIN" serve --mock-llm --mock-script "$TMPC/script.json" --workspace "$WSC" --data-dir "$DATAC" >"$OUT" 2>"$TMP/err.log"
+# The pipeline's exit code is otherwise discarded (no set -e here): a crashed
+# serve that already wrote a marker used to leave every assertion green.
+SMOKE_PIPE_RC=("${PIPESTATUS[@]}")
 
 echo "===== 会话输出（关键行） ====="
+[ "${SMOKE_PIPE_RC[0]}" = "0" ] && [ "${SMOKE_PIPE_RC[1]}" = "0" ] && ok "serve 会话正常结束" || bad "serve 会话正常结束（PIPESTATUS=${SMOKE_PIPE_RC[*]}）"
 grep -q '"method":"goal/progress"' "$OUT" && ok "goal/progress 推送" || bad "goal/progress 推送"
 grep -q '"method":"goal/completed"' "$OUT" && ok "goal/completed 推送" || bad "goal/completed 推送"
 grep -q '"status":"success"' "$OUT" && ok "任务成功" || bad "任务成功"
@@ -136,7 +141,7 @@ grep -q '"suggestion"' "$OUT" && ok "主动提议推送" || bad "主动提议推
 grep -q '"id":3' "$OUT" && ok "memory/save 应答" || bad "memory/save 应答"
 grep -q '冒烟测试记忆条目' "$OUT" && ok "memory/search 命中" || bad "memory/search 命中"
 grep -q '"version":1' "$OUT" && ok "skills/save 版本化" || bad "skills/save 版本化"
-grep -q '"status":"success"' "$OUT" && ok "skills/run 执行成功" || bad "skills/run 执行成功"
+grep '"id":6' "$OUT" | grep -q '"result"' && ok "skills/run 执行成功（id:6 有应答）" || bad "skills/run 执行成功（id:6 有应答）"
 grep -q 'smoke-job' "$OUT" && ok "schedule/create + list" || bad "schedule/create + list"
 [ -f "$WS/smoke.txt" ] && [ "$(cat "$WS/smoke.txt")" = "Hello Gleam" ] && ok "目标产物 smoke.txt 内容正确" || bad "目标产物 smoke.txt 内容正确"
 [ -f "$WS/sk.txt" ] && [ "$(cat "$WS/sk.txt")" = "技能输出" ] && ok "技能产物 sk.txt 正确" || bad "技能产物 sk.txt 正确"

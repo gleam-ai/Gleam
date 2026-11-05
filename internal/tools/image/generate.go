@@ -24,6 +24,7 @@ import (
 
 	"gleam/internal/atomicfile"
 	"gleam/internal/tools/toolutil"
+	"gleam/internal/tools/web"
 	"gleam/pkg/types"
 )
 
@@ -188,11 +189,16 @@ func (t *Generate) get(ctx context.Context, url string) ([]byte, error) {
 	if t.httpGet != nil {
 		return t.httpGet(ctx, url)
 	}
+	// The URL is chosen by the remote image API, not by the user. Guard it
+	// with the same private-network policy as web.fetch before connecting.
+	if err := web.GuardURL(ctx, url); err != nil {
+		return nil, fmt.Errorf("拒绝下载生成图片：%w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := web.GuardedClient(30 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -1,34 +1,24 @@
-let geoSwitchBound = false;
+let geoLoadSeq = 0;
 
 async function loadGEO() {
   bindGEOControls();
+  const seq = ++geoLoadSeq;
   try {
     const data = await api('GET', '/api/geo?n=50');
+    if (seq !== geoLoadSeq) return;
     renderGEOStats(data.stats || {});
     const pr = $('#geo-principles');
     if (pr) pr.textContent = String(data.principles || '').trim();
     const cb = $('#geo-enabled');
-    if (cb && document.activeElement !== cb) {
+    // Don't overwrite a checkbox the user is currently operating.
+    if (cb && document.activeElement !== cb)
       cb.checked = data.enabled !== false;
-      if (!geoSwitchBound) {
-        geoSwitchBound = true;
-        cb.addEventListener('change', async () => {
-          const on = cb.checked;
-          try {
-            await api('POST', '/api/settings', { agent: { geo_enabled: on } });
-            toast(
-              on ? '已开启：创作完成后自动给出 GEO 建议' : '已关闭创作自动分析',
-              'success',
-            );
-          } catch (err) {
-            cb.checked = !on;
-            toast('设置保存失败：' + err.message, 'error');
-          }
-        });
-      }
-    }
     renderGEOList(data.records || []);
-  } catch {}
+  } catch (err) {
+    if (seq !== geoLoadSeq) return;
+    const wrap = $('#geo-list');
+    if (wrap) loadError(wrap, err, () => loadGEO());
+  }
 }
 
 function renderGEOStats(stats) {
@@ -136,10 +126,37 @@ function bindGEOControls() {
     btn.dataset.bound = '1';
     btn.addEventListener('click', runGEOAnalyze);
   }
+  const cb = $('#geo-enabled');
+  if (cb && !cb.dataset.bound) {
+    cb.dataset.bound = '1';
+    cb.addEventListener('change', async () => {
+      const on = cb.checked;
+      cb.disabled = true;
+      try {
+        await api('POST', '/api/settings', { agent: { geo_enabled: on } });
+        toast(
+          on ? '已开启：创作完成后自动给出 GEO 建议' : '已关闭创作自动分析',
+          'success',
+        );
+      } catch (err) {
+        cb.checked = !on;
+        toast('设置保存失败：' + err.message, 'error');
+      } finally {
+        cb.disabled = false;
+      }
+    });
+  }
   const clear = $('#geo-clear');
   if (clear && !clear.dataset.bound) {
     clear.dataset.bound = '1';
     clear.addEventListener('click', async () => {
+      const yes = await confirmModal(
+        '所有 GEO 分析记录会被永久删除，无法恢复。',
+        '清空 GEO 历史？',
+        { okText: '清空', danger: true },
+      );
+      if (!yes) return;
+      clear.disabled = true;
       try {
         await api('DELETE', '/api/geo/history');
         renderGEOList([]);
@@ -147,6 +164,8 @@ function bindGEOControls() {
         toast('已清空 GEO 历史', 'success');
       } catch (err) {
         toast('清空失败：' + err.message, 'error');
+      } finally {
+        clear.disabled = false;
       }
     });
   }
@@ -162,18 +181,36 @@ async function runGEOAnalyze() {
     return;
   }
   btn.disabled = true;
+  const controller = new AbortController();
+  let elapsed = 0;
+  const tick = setInterval(() => {
+    elapsed += 1;
+    hint.textContent = `分析中… 已用时 ${elapsed}s（最长约 90s）`;
+  }, 1000);
+  const guard = setTimeout(() => controller.abort(), 100000);
   hint.textContent = '分析中…';
   try {
-    const data = await api('POST', '/api/geo/analyze', { content, goal });
+    const data = await api(
+      'POST',
+      '/api/geo/analyze',
+      { content, goal },
+      { signal: controller.signal },
+    );
     const box = $('#geo-result');
     box.hidden = false;
     box.replaceChildren(geoCard(data.record || data.suggestion || {}));
     hint.textContent = '分析完成，已存入历史';
     await loadGEO();
   } catch (err) {
-    hint.textContent = '分析失败';
-    toast('分析失败：' + err.message, 'error');
+    const timedOut = controller.signal.aborted;
+    hint.textContent = timedOut ? '分析超时' : '分析失败';
+    toast(
+      timedOut ? '分析超时，请稍后重试' : '分析失败：' + err.message,
+      'error',
+    );
   } finally {
+    clearInterval(tick);
+    clearTimeout(guard);
     btn.disabled = false;
   }
 }

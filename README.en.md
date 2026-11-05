@@ -265,7 +265,7 @@ The Web UI REST endpoints match the routes registered in code one for one; `scri
 | `GET /api/network` · `GET /api/connections` | Connectivity check / the standing-boundary ledger for connections and egress |
 | `GET /api/security/audit` | Safety-gate trail (blocked / allowed / flagged by the review model) |
 | `GET /api/workspace` · `POST /api/workspace` · `POST /api/workspace/clear` | Read / switch workspace, list of open workspaces, and clearing |
-| `GET /api/fs` | Browse directories inside the workspace (for the file picker) |
+| `GET /api/fs` | Backs the workspace picker: lists directories anywhere on this machine (directories only, never files; local token required) |
 | `GET /api/goals` · `POST /api/goals` · `GET /api/goals/{id}` · `POST /api/goals/{id}/cancel` · `GET /api/goals/{id}/diff` · `POST /api/goals/{id}/revert` · `DELETE /api/goals/{id}` | Goals / tasks: submit, query, cancel, diff and revert changes, delete an archive |
 | `GET /api/approvals` · `POST /api/approvals/{id}` | Operations awaiting approval, and the verdict |
 | `GET /api/events` | SSE event stream |

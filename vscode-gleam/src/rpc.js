@@ -71,6 +71,13 @@ class JsonRpcClient {
       return; // Not our protocol (e.g. a stray log line on stdout).
     }
     const { id, method } = msg;
+    if (id === null) {
+      // Go replies with id:null for parse/invalid-request errors. It can never
+      // match a numeric pending id, so surface it instead of letting the
+      // original caller wait out its full timeout.
+      this.onNotification('rpc/serverError', msg.error || msg);
+      return;
+    }
     if (typeof id !== 'undefined' && (msg.result !== undefined || msg.error)) {
       this.settle(id, msg.result, msg.error);
       return;

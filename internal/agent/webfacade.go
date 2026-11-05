@@ -1721,6 +1721,10 @@ func gitBranch(dir string) string {
 	return branch
 }
 
+// WorkspaceBrowse backs the workspace picker, so it deliberately allows any
+// directory on the machine: restricting it to the current workspace would make
+// switching workspaces impossible. It lists directories only (never file
+// contents) and is reachable only from token-guarded loopback requests.
 func (a *Agent) WorkspaceBrowse(path string) (map[string]any, error) {
 	path = strings.TrimSpace(path)
 	type dirEntry struct {

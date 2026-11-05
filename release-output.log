@@ -70,3 +70,16 @@ tar: ./dist/linux/Gleam_0.0.25-beta.1_linux_amd64.tar.gz: Cannot write: Broken p
 tar: Child returned status 2
 tar: Error is not recoverable: exiting now
 [0;34m[INFO][0m Cleaning up temporary files...
+
+==================================================================
+[INFO] Gleam v0.0.28 release verification (2026-11-05)
+==================================================================
+[INFO] Release bundle: dist/release-v0.0.28/
+[INFO] Checksums: dist/release-v0.0.28/SHA256SUMS.txt
+[INFO] Verifying all assets against SHA256...
+[INFO] OK 7 BAD 0 (all 7 assets match)
+[INFO] Version consistency: buildinfo=0.0.28, latest.yml=0.0.28
+[INFO] Release notes: RELEASE-v0.0.28.md + CHANGELOG.md v0.0.28 entry
+[INFO] README synced to v0.0.28
+[INFO] RELEASE-COMPLETE.md v0.0.28 record added
+[INFO] Gleam v0.0.28 release complete

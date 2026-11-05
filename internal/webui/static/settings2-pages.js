@@ -863,13 +863,24 @@
         )
           return;
         let ok = 0;
+        const failed = [];
         for (const g of done) {
           try {
             await api('DELETE', `/api/goals/${encodeURIComponent(g.task_id)}`);
             ok++;
-          } catch {}
+          } catch {
+            failed.push(g.task_id);
+          }
         }
-        toast(`已删除 ${ok} 条记录`, 'success');
+        if (failed.length) {
+          toast(
+            `已删除 ${ok} 条，${failed.length} 条失败：${failed.slice(0, 3).join('、')}${failed.length > 3 ? '…' : ''}`,
+            'warning',
+            7000,
+          );
+        } else {
+          toast(`已删除 ${ok} 条记录`, 'success');
+        }
         try {
           loadGoals();
         } catch {}

@@ -256,7 +256,7 @@ Web UI の REST エンドポイントはコードに登録されたルートと�
 | `GET /api/network` · `GET /api/connections` | 接続チェック / 接続と送信の常駐境界台帳 |
 | `GET /api/security/audit` | 安全ゲートの記録（遮断 / 通過 / 審査モデルによる追加遮断） |
 | `GET /api/workspace` · `POST /api/workspace` · `POST /api/workspace/clear` | ワークスペースの取得 / 切替、開いている一覧とクリア |
-| `GET /api/fs` | ワークスペース内のディレクトリ閲覧（ファイル選択用） |
+| `GET /api/fs` | ワークスペース選択用：このマシン上の任意のディレクトリを列挙（ディレクトリのみ、ファイルは返さない。ローカルトークン必須） |
 | `GET /api/goals` · `POST /api/goals` · `GET /api/goals/{id}` · `POST /api/goals/{id}/cancel` · `GET /api/goals/{id}/diff` · `POST /api/goals/{id}/revert` · `DELETE /api/goals/{id}` | 目標 / タスク：投入、照会、中止、差分と巻き戻し、アーカイブ削除 |
 | `GET /api/approvals` · `POST /api/approvals/{id}` | 承認待ちの操作とその裁定 |
 | `GET /api/events` | SSE イベントストリーム |

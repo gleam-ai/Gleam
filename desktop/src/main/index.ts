@@ -93,6 +93,16 @@ function run(): void {
     log('quit: stopping sidecar');
     void sidecar.stop().then((how) => {
       log(`sidecar stopped (${how})`);
+      if (how === 'stuck') {
+        // Force kill failed: leaving this app would strand the backend (and
+        // its MCP children) on the HTTP port for the next launch.
+        quitting = false;
+        dialog.showErrorBox(
+          '无法退出 Gleam',
+          '后台引擎仍在运行且无法停止。请退出后手动结束 gleam 进程再试。',
+        );
+        return;
+      }
       app.quit();
     });
   });

@@ -1,7 +1,7 @@
 package webui
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -17,7 +17,8 @@ func (s *Server) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := mgr.Status()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		fmt.Fprintf(os.Stderr, "[webui] daemon status failed: %v\n", err)
+		writeErr(w, http.StatusInternalServerError, "读取服务状态失败，详见服务端日志")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -32,7 +33,7 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Action string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSONCap(r, 1<<20, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "无效请求")
 		return
 	}
@@ -59,7 +60,8 @@ func (s *Server) handleDaemonAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		fmt.Fprintf(os.Stderr, "[webui] daemon %s failed: %v\n", req.Action, err)
+		writeErr(w, http.StatusInternalServerError, "操作失败，详见服务端日志")
 		return
 	}
 

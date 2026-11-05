@@ -256,11 +256,13 @@ func (m *Manager) SignIn(email, password string) error {
 func (m *Manager) SignOut() error {
 	if s := m.creds.GetSession(); s != nil && s.AccessToken != "" {
 		if c, err := m.cfg(); err == nil {
-			req, _ := http.NewRequest(http.MethodPost, c.SupabaseURL+"/auth/v1/logout", nil)
-			req.Header.Set("apikey", c.SupabaseAnonKey)
-			req.Header.Set("Authorization", "Bearer "+s.AccessToken)
-			if resp, err := m.do(req); err == nil {
-				resp.Body.Close()
+			req, rerr := http.NewRequest(http.MethodPost, c.SupabaseURL+"/auth/v1/logout", nil)
+			if rerr == nil {
+				req.Header.Set("apikey", c.SupabaseAnonKey)
+				req.Header.Set("Authorization", "Bearer "+s.AccessToken)
+				if resp, err := m.do(req); err == nil {
+					resp.Body.Close()
+				}
 			}
 		}
 	}
@@ -406,7 +408,10 @@ func (m *Manager) EnsureFreshToken() error {
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", s.RefreshToken)
-	req, _ := http.NewRequest(http.MethodPost, c.SupabaseURL+"/auth/v1/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(http.MethodPost, c.SupabaseURL+"/auth/v1/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("刷新令牌的地址无效: %w", err)
+	}
 	req.Header.Set("apikey", c.SupabaseAnonKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	t, err := m.doToken(req)

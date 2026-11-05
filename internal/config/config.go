@@ -260,6 +260,14 @@ func (c *Config) Snapshot() types.ConfigSnapshot {
 
 const OverlayFile = "settings.yaml"
 
+func strsToAny(in []string) []any {
+	out := make([]any, 0, len(in))
+	for _, s := range in {
+		out = append(out, s)
+	}
+	return out
+}
+
 func (c *Config) SaveOverlay(path string) error {
 	root := NewYMap()
 	llm := NewYMap()
@@ -334,6 +342,19 @@ func (c *Config) SaveOverlay(path string) error {
 		tpMap.Set(name, perm)
 	}
 	safety.Set("tool_permissions", tpMap)
+	safety.Set("trusted_paths", strsToAny(c.Safety.TrustedPaths))
+	safety.Set("trusted_tools", strsToAny(c.Safety.TrustedTools))
+	if len(c.Safety.Hooks) > 0 {
+		hookArr := make([]any, 0, len(c.Safety.Hooks))
+		for _, h := range c.Safety.Hooks {
+			hm := NewYMap()
+			hm.Set("event", h.Event)
+			hm.Set("command", h.Command)
+			hm.Set("tools", strsToAny(h.Tools))
+			hookArr = append(hookArr, hm)
+		}
+		safety.Set("hooks", hookArr)
+	}
 	root.Set("safety", safety)
 
 	mem := NewYMap()
@@ -428,7 +449,12 @@ func LoadOverlay(cfg *Config, path string) error {
 	}
 	m, err := ParseYAML(string(data))
 	if err != nil {
-		_ = os.Rename(path, path+".corrupt")
+		corrupt := path + ".corrupt"
+		if rerr := os.Rename(path, corrupt); rerr == nil {
+			fmt.Fprintf(os.Stderr, "[config] %s 解析失败（%v），已改名为 %s，本次使用默认配置\n", path, err, corrupt)
+		} else {
+			fmt.Fprintf(os.Stderr, "[config] %s 解析失败（%v），且无法改名备份（%v），本次使用默认配置\n", path, err, rerr)
+		}
 		return nil
 	}
 	cfg.apply(m)

@@ -200,7 +200,7 @@ func RegisterAll(ctx context.Context, reg interface {
 }, cfgs []ServerConfig, logf func(string, ...any)) []*Client {
 	var clients []*Client
 	for _, cfg := range cfgs {
-		if !cfg.Enabled || cfg.Command == "" {
+		if !cfg.Enabled || (cfg.Command == "" && cfg.URL == "") {
 			continue
 		}
 		client, err := Start(ctx, cfg, logf)

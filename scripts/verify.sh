@@ -121,7 +121,12 @@ step() { # step <层名> <命令…>
 # （先问归属，再谈实现）。落盘写法、接口清单同理。
 text_layer() {
   local out
-  out=$(gofmt -l ./internal ./pkg ./cmd)
+  # Empty output is not the same as "the command ran". Without this check a
+  # missing/broken gofmt silently reports a clean first layer.
+  if ! out=$(gofmt -l ./internal ./pkg ./cmd); then
+    echo "  gofmt 执行失败（命令不可用或参数有误），这一层不算通过"
+    return 1
+  fi
   if [ -n "$out" ]; then
     echo "  以下文件未格式化（跑 gofmt -w 修）："
     printf '%s\n' "$out" | sed 's/^/    /'
@@ -190,6 +195,7 @@ test_layer() { go_retry "go test" go test ./... -count=1 -timeout 300s; }
 # 所以统一走 `go_retry`（判据只在 scripts/lib/gonoise.sh 里写一份）。
 # 这一层额外先建二进制再调用它：二进制建一次跑两次，比 `go run` 少一次工具链往返。
 ready_layer() {
+  mkdir -p bin || return 1
   go_retry "go build" go build -o bin/gleam.exe ./cmd/gleam || return 1
   ./bin/gleam.exe doctor --strict || return 1
   ./bin/gleam.exe eval --layer smoke --strict || return 1

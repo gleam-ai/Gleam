@@ -328,10 +328,11 @@ func (t *searchTool) Execute(ctx context.Context, args map[string]any) (any, err
 		pattern = "*"
 	}
 	var hits []string
+	truncated := false
 	deadline := time.Now().Add(20 * time.Second)
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 		select {
 		case <-ctx.Done():
@@ -345,14 +346,18 @@ func (t *searchTool) Execute(ctx context.Context, args map[string]any) (any, err
 			if ok, _ := filepath.Match(pattern, d.Name()); ok {
 				hits = append(hits, path)
 				if len(hits) >= 200 {
-					return fmt.Errorf("已达结果上限")
+					truncated = true
+					return filepath.SkipAll
 				}
 			}
 		}
 		return nil
 	})
 	sort.Strings(hits)
-	result := map[string]any{"root": root, "pattern": pattern, "count": len(hits), "files": hits}
+	result := map[string]any{
+		"root": root, "pattern": pattern, "count": len(hits),
+		"files": hits, "truncated": truncated,
+	}
 	if err != nil {
 		result["note"] = err.Error()
 	}

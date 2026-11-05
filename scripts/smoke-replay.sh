@@ -18,6 +18,7 @@ cd "$(dirname "$0")/.."
 source scripts/lib/gonoise.sh
 
 BIN=bin/gleam-replay-smoke.exe
+mkdir -p bin
 # 临时目录用系统临时目录，**而且不清理**。
 #
 # 两个原因，都是被环境教出来的：

@@ -389,7 +389,7 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := verifyUpdateBinary(tmp, asset, runtime.GOOS); err != nil {
 		_ = os.Remove(tmp)
-		writeErr(w, 400, "下载到的文件不像可执行程序，这次更新已中止：%v", err)
+		writeErr(w, 400, "这次更新已中止：%v", err)
 		return
 	}
 
@@ -624,10 +624,14 @@ func verifyUpdateBinary(path string, a releaseAsset, goos string) error {
 	if !executableMagic(head, goos) {
 		return fmt.Errorf("文件头 %x 不是 %s 可执行格式", head[:4], goos)
 	}
-	if !strings.HasPrefix(strings.ToLower(a.Digest), "sha256:") {
-		return nil
+	digest := strings.ToLower(strings.TrimSpace(a.Digest))
+	if !strings.HasPrefix(digest, "sha256:") {
+		// GitHub only attaches digests to recent releases. Skipping the check
+		// when it is missing means any middlebox can swap the binary; better to
+		// fail the auto-update than to silently downgrade to no verification.
+		return fmt.Errorf("发布物没有 sha256 摘要，拒绝在未校验的情况下自动安装")
 	}
-	want := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(a.Digest), "sha256:"))
+	want := strings.TrimSpace(strings.TrimPrefix(digest, "sha256:"))
 	sum, err := sha256File(path)
 	if err != nil {
 		return err

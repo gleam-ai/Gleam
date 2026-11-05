@@ -76,6 +76,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	if timeout <= 0 {
 		timeout = t.DefaultTimeout
 	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

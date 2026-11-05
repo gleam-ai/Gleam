@@ -156,6 +156,11 @@ async function startClient() {
         vscode.window.showInformationMessage(
           `Gleam: ${(params || {}).text || ''}`,
         );
+      } else if (method === 'rpc/serverError') {
+        const message =
+          (params && params.message) || 'engine rejected a message';
+        log(`engine protocol error: ${message}`);
+        vscode.window.showErrorMessage?.(`Gleam: ${message}`);
       } else {
         log(`${method} ${JSON.stringify(params || {})}`);
       }
@@ -170,6 +175,17 @@ async function startClient() {
   };
   const transportFailed = (message) => {
     rpc.failAllPending(message);
+    // A stdin EPIPE does not reliably produce an 'exit' event. Without an
+    // explicit kill the engine stays alive while startClient spawns a second
+    // one, and the two consume the same workspace.
+    if (
+      !proc.killed &&
+      (proc.exitCode === null || proc.exitCode === undefined)
+    ) {
+      try {
+        proc.kill();
+      } catch {}
+    }
     cleanup();
   };
   proc.stdin.on('error', (err) => {
@@ -187,9 +203,14 @@ async function startClient() {
       if (line.trim()) log(`stderr: ${line}`);
   });
   proc.on('error', (err) => {
-    log(`engine spawn failed: ${err.message}`);
-    setStatus('stopped', `engine failed to start: ${err.message}`);
-    rpc.failAllPending(`engine failed to start: ${err.message}`);
+    const detail = `engine failed to start: ${err.message}`;
+    log(detail);
+    setStatus('stopped', detail);
+    rpc.failAllPending(detail);
+    // spawn('error') is not guaranteed to be followed by 'exit'; without this
+    // the already-running tasks stay 'running' forever with no visible error.
+    failTasks(currentGeneration, detail);
+    vscode.window.showErrorMessage?.(`Gleam: ${detail}`);
     cleanup();
   });
   proc.on('exit', (code, signal) => {
@@ -254,17 +275,27 @@ async function submit(options) {
   const goal = options && options.goal;
   if (!goal) return;
   setStatus('running', goal);
-  const res = await rpcCallWithErrorHandling(c, 'goal/submit', {
+  const params = {
     goal,
     mode: (options && options.mode) || cfg('defaultMode', 'auto'),
-    task_mode: (options && options.taskMode) || cfg('defaultTaskMode', 'auto'),
     references: (options && options.references) || [],
-  });
-  record(res.task_id, goal, 'running', '', c.generation);
-  log(`submitted ${res.task_id}: ${goal}`);
-  vscode.window.showInformationMessage(
-    `Gleam is working on it (task ${res.task_id}).`,
-  );
+  };
+  const taskMode =
+    (options && options.taskMode) || cfg('defaultTaskMode', '') || '';
+  if (taskMode) params.task_mode = taskMode;
+  try {
+    const res = await rpcCallWithErrorHandling(c, 'goal/submit', params);
+    record(res.task_id, goal, 'running', '', c.generation);
+    log(`submitted ${res.task_id}: ${goal}`);
+    vscode.window.showInformationMessage(
+      `Gleam is working on it (task ${res.task_id}).`,
+    );
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    setStatus('stopped', `goal failed: ${message}`);
+    vscode.window.showErrorMessage?.(`Gleam: ${message}`);
+    throw err;
+  }
 }
 
 async function goalFromSelection(prompt) {
@@ -373,10 +404,12 @@ function activate(context) {
     }
   });
 
-  register(context, 'gleam.showResult', async (taskID) => {
-    const id =
-      taskID ||
-      (
+  register(context, 'gleam.showResult', async (arg) => {
+    // Tree item clicks pass a string id; the context menu passes the tree
+    // item object itself. Both must reach goal/status as a string.
+    let id = typeof arg === 'string' ? arg : arg && arg.id;
+    if (!id) {
+      id = (
         await vscode.window.showQuickPick(
           [...tasks.values()].map((t) => ({ label: t.goal, id: t.id })),
           {
@@ -384,6 +417,7 @@ function activate(context) {
           },
         )
       )?.id;
+    }
     if (!id) return;
     const status = await rpcCallWithErrorHandling(
       await ensureClient(),

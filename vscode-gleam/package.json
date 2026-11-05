@@ -123,8 +123,14 @@
         },
         "gleam.defaultTaskMode": {
           "type": "string",
-          "default": "auto",
-          "description": "Task mode used for new goals."
+          "enum": [
+            "",
+            "chat",
+            "work",
+            "code"
+          ],
+          "default": "",
+          "description": "Task mode used for new goals. Empty lets the engine choose; 'auto' is a goal mode, not a task mode."
         },
         "gleam.uiUrl": {
           "type": "string",

@@ -25,7 +25,12 @@
           <a href="#features" data-i18n="nav.features">Features</a>
           <a href="#how-it-works" data-i18n="nav.showcase">How it works</a>
           <a href="#download" data-i18n="nav.download">Download</a>
-          <a href="https://github.com/gleam-ai/Gleam" target="_blank">GitHub</a>
+          <a
+            href="https://github.com/gleam-ai/Gleam"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub</a
+          >
         </div>
         <div class="nav-actions">
           <a href="index-zh.html" class="lang-toggle" title="切换到中文"
@@ -60,6 +65,7 @@
           <a
             href="https://github.com/gleam-ai/Gleam"
             target="_blank"
+            rel="noopener noreferrer"
             class="btn-ghost"
             >Star on GitHub</a
           >
@@ -336,6 +342,15 @@
             <a
               class="dl-row reveal"
               data-delay="200"
+              href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-darwin-amd64"
+            >
+              <span class="dl-name">macOS</span>
+              <span class="dl-desc">Intel</span>
+              <span class="dl-size">~15 MB</span>
+            </a>
+            <a
+              class="dl-row reveal"
+              data-delay="250"
               href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-linux-amd64"
             >
               <span class="dl-name">Linux</span>
@@ -346,8 +361,11 @@
         </div>
 
         <p class="download-alt" data-i18n="download.alt">
-          Or install from source:
-          <code>go install gleam/cmd/gleam@latest</code>
+          Or build from source:
+          <code
+            >git clone https://github.com/gleam-ai/Gleam.git &amp;&amp; cd Gleam
+            &amp;&amp; go build -o gleam ./cmd/gleam</code
+          >
         </p>
       </div>
     </section>
@@ -361,24 +379,30 @@
             <span>Gleam</span>
           </div>
           <div class="footer-links">
-            <a href="https://github.com/gleam-ai/Gleam" target="_blank"
+            <a
+              href="https://github.com/gleam-ai/Gleam"
+              target="_blank"
+              rel="noopener noreferrer"
               >GitHub</a
             >
             <a
               href="https://github.com/gleam-ai/Gleam/releases"
               target="_blank"
+              rel="noopener noreferrer"
               data-i18n="footer.releases"
               >Releases</a
             >
             <a
               href="https://github.com/gleam-ai/Gleam/blob/master/LICENSE"
               target="_blank"
+              rel="noopener noreferrer"
               data-i18n="footer.license"
               >MIT License</a
             >
             <a
               href="https://github.com/gleam-ai/Gleam/issues"
               target="_blank"
+              rel="noopener noreferrer"
               data-i18n="footer.issues"
               >Issues</a
             >

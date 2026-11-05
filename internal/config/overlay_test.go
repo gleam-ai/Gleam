@@ -19,6 +19,11 @@ func TestSaveLoadOverlay_Roundtrip(t *testing.T) {
 	cfg.Persona.Style = "gentle"
 	cfg.Persona.Name = "小光"
 	cfg.LLM.ContextWindow = 200000
+	cfg.Safety.TrustedPaths = []string{"/workspace/alpha", "/workspace/beta"}
+	cfg.Safety.TrustedTools = []string{"file.read", "web.fetch"}
+	cfg.Safety.Hooks = []HookConfig{{
+		Event: "pre_tool", Command: "echo ok", Tools: []string{"shell.exec"},
+	}}
 
 	path := filepath.Join(dir, OverlayFile)
 	if err := cfg.SaveOverlay(path); err != nil {
@@ -46,6 +51,16 @@ func TestSaveLoadOverlay_Roundtrip(t *testing.T) {
 	}
 	if fresh.LLM.ContextWindow != 200000 {
 		t.Errorf("context_window = %d，应为 200000", fresh.LLM.ContextWindow)
+	}
+	if len(fresh.Safety.TrustedPaths) != 2 || fresh.Safety.TrustedPaths[0] != "/workspace/alpha" {
+		t.Errorf("trusted_paths 在保存后丢失: %+v", fresh.Safety.TrustedPaths)
+	}
+	if len(fresh.Safety.TrustedTools) != 2 {
+		t.Errorf("trusted_tools 在保存后丢失: %+v", fresh.Safety.TrustedTools)
+	}
+	if len(fresh.Safety.Hooks) != 1 || fresh.Safety.Hooks[0].Command != "echo ok" ||
+		len(fresh.Safety.Hooks[0].Tools) != 1 {
+		t.Errorf("hooks 在保存后丢失: %+v", fresh.Safety.Hooks)
 	}
 }
 

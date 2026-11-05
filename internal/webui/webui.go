@@ -228,9 +228,15 @@ func (s *Server) subscribe() chan sseEvent {
 	ch := make(chan sseEvent, 256)
 	s.mu.Lock()
 	s.clients[ch] = struct{}{}
-	pending := make([]sseEvent, 0, len(s.approvals))
+	pending := make([]sseEvent, 0, len(s.approvals)+len(s.questions)+len(s.todos))
 	for _, w := range s.approvals {
 		pending = append(pending, newEvent("approval", w.view()))
+	}
+	for _, w := range s.questions {
+		pending = append(pending, newEvent("question", questionView(w)))
+	}
+	for taskID, items := range s.todos {
+		pending = append(pending, newEvent("todos", map[string]any{"task_id": taskID, "items": items}))
 	}
 	s.mu.Unlock()
 	for _, ev := range pending {

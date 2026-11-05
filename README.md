@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.27](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.28](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -30,6 +30,15 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Electron 45.2.1**: Chromium 156 and current runtime security fixes without relaxing the sandbox
 - **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
 - **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
+
+## What's new in v0.0.28
+
+- **原生 SKILL.md 指导技能**：自动发现工作区 `.gleam/skills`、`.agents/skills` 与 `<name>/SKILL.md`，`skill.open` 实现渐进披露（先摘要、按需打开全文）
+- **真子任务委派**：`agent.delegate mode=task` —— 先规划（步数封顶 6）、经安全门禁真实调用工具、再汇总返回；原 answer 模式保持不变
+- **会话全文检索**：`session.search` 与 `GET /api/conversations/search`，多词 AND、大小写不敏感、上下文片段定位，刻意不建索引
+- **工具生命周期钩子**：`safety.hooks` 的 `pre_tool`/`post_tool`，exit 2 阻断工具调用、其余仅告警，主任务 / 技能 / 子任务三条路径全部生效
+- **桌面自动化与文生图**：CUA 桌面自动化（direct / powershell / MCP / mock 四种后端）、`image.generate` 文生图（OpenAI 兼容端点）
+- **修复**：配置分层优先级（环境变量与 CLI 标志不再被覆盖层冲掉）、Windows 截屏恒败、模型配置绑定与三协议一致性
 
 ## What you get
 

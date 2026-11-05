@@ -43,7 +43,11 @@ func cmdApp(args []string) error {
 			if *daemonMode {
 				msg = "守护进程已在运行，本次启动直接退出"
 			} else {
-				_, _ = http.Post("http://"+*addr+"/api/show-window", "", nil)
+				client := &http.Client{Timeout: 2 * time.Second}
+				resp, perr := client.Post("http://"+*addr+"/api/show-window", "", nil)
+				if perr == nil {
+					_ = resp.Body.Close()
+				}
 			}
 			fmt.Fprintf(os.Stderr, "[gleam] 已有实例运行于 http://%s，%s\n", *addr, msg)
 			return nil
@@ -62,13 +66,7 @@ func cmdApp(args []string) error {
 	bindSchedulerFire(rt)
 
 	srv := webui.NewServer(rt.agent)
-	inner := srv.Handler()
-	lastSeen := time.Now()
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lastSeen = time.Now()
-		inner.ServeHTTP(w, r)
-	})
-	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -148,7 +146,6 @@ func cmdApp(args []string) error {
 		_ = httpServer.Close()
 		return nil
 	}
-	_ = lastSeen
 	return err
 }
 

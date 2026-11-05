@@ -143,17 +143,21 @@ func (s *Server) installGoToolchain(ctx context.Context, name, dest string, urls
 			lastErr = fmt.Sprintf("%s：%v", hostOf(u), err)
 			continue
 		}
-		if verified {
-			got, err := sha256File(archive)
-			if err != nil {
-				lastErr = "算校验和失败：" + err.Error()
-				continue
-			}
-			if !strings.EqualFold(got, want) {
-				lastErr = fmt.Sprintf("%s 下到的文件 sha256 与官方清单不符，已丢弃", hostOf(u))
-				_ = os.Remove(archive)
-				continue
-			}
+		if !verified {
+			// Fail closed: unpacking and running an unverified toolchain is a
+			// supply-chain downgrade, not a graceful degradation.
+			out["message"] = "拿不到官方 SHA-256 清单，已取消安装：不允许解压并执行未经校验的工具链"
+			return out
+		}
+		got, err := sha256File(archive)
+		if err != nil {
+			lastErr = "算校验和失败：" + err.Error()
+			continue
+		}
+		if !strings.EqualFold(got, want) {
+			lastErr = fmt.Sprintf("%s 下到的文件 sha256 与官方清单不符，已丢弃", hostOf(u))
+			_ = os.Remove(archive)
+			continue
 		}
 		out["bytes"] = n
 		_ = os.RemoveAll(staging)

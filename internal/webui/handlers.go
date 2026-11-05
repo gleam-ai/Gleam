@@ -232,9 +232,18 @@ func staticHeaders(next http.Handler) http.Handler {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		// Never emit a half-written 200 body: an unserialisable value must
+		// surface as an error the client can parse.
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"响应序列化失败"}`))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(append(data, '\n'))
 }
 
 func writeErr(w http.ResponseWriter, status int, format string, args ...any) {
@@ -294,6 +303,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	logger.Info("client connected", map[string]any{"path": r.URL.Path})
 	flusher.Flush()
 
+	controller := http.NewResponseController(w)
+	write := func(text string) bool {
+		// A tab that stops reading must not pin this goroutine forever.
+		_ = controller.SetWriteDeadline(time.Now().Add(30 * time.Second))
+		if _, err := io.WriteString(w, text); err != nil {
+			return false
+		}
+		return controller.Flush() == nil
+	}
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -301,11 +319,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-ch:
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, ev.Data)
-			flusher.Flush()
+			if !write(fmt.Sprintf("event: %s\ndata: %s\n\n", ev.Type, ev.Data)) {
+				return
+			}
 		case <-heartbeat.C:
-			fmt.Fprint(w, ": ping\n\n")
-			flusher.Flush()
+			if !write(": ping\n\n") {
+				return
+			}
 		}
 	}
 }
@@ -810,7 +830,17 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleShowWindow(w http.ResponseWriter, _ *http.Request) {
 	if s.ShowWindowFunc != nil {
-		go s.ShowWindowFunc()
+		callback := s.ShowWindowFunc
+		go func() {
+			// A panic in a derived goroutine is not caught by net/http and
+			// would take down the whole process.
+			defer func() {
+				if p := recover(); p != nil {
+					fmt.Fprintf(os.Stderr, "[webui] show-window callback panicked: %v\n", p)
+				}
+			}()
+			callback()
+		}()
 		writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}

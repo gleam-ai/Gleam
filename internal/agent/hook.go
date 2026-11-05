@@ -118,7 +118,8 @@ func (h *HookRunner) exec(ctx context.Context, command string, stdin []byte) (in
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
 	cmd.Stdin = bytes.NewReader(stdin)
-	var out bytes.Buffer
+	var out boundedBuffer
+	out.limit = maxHookOutput
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	err := cmd.Run()
@@ -131,6 +132,26 @@ func (h *HookRunner) exec(ctx context.Context, command string, stdin []byte) (in
 		}
 	}
 	return code, out.String(), nil
+}
+
+const maxHookOutput = 64 << 10
+
+// boundedBuffer keeps the head of a hook's output without letting a noisy hook
+// grow the process heap for the whole timeout. Write always reports the full
+// length so cmd never treats the truncation as a short write.
+type boundedBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	if room := b.limit - b.Buffer.Len(); room > 0 {
+		if room > len(p) {
+			room = len(p)
+		}
+		_, _ = b.Buffer.Write(p[:room])
+	}
+	return len(p), nil
 }
 
 func hookMatches(patterns []string, tool string) bool {

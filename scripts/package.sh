@@ -36,8 +36,9 @@ DIST="dist"
 
 echo "[0/5] 编译检查"
 go build ./...
-# vet 仅在工具链健康时执行：本机 GOROOT 异常（internal/godebug 缺失）不应阻断打包
-go vet ./... 2>/dev/null || echo "（go vet 因本地 Go 工具链问题跳过，不影响产物）"
+# 真实静态错误也必须挡住打包；工具链噪声由 go_retry 统一重试（见 lib/gonoise.sh）。
+source scripts/lib/gonoise.sh
+go_retry "go vet" go vet ./... || exit 1
 
 mkdir -p "$DIST"
 

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
@@ -33,6 +34,27 @@ type Tool struct {
 
 func New() *Tool {
 	return &Tool{HTTP: &http.Client{Timeout: 20 * time.Second}}
+}
+
+// GuardURL applies web.fetch's private-network policy to URLs that come from
+// remote responses rather than from the user.
+func GuardURL(ctx context.Context, raw string) error {
+	return (&Tool{}).guardURL(ctx, raw)
+}
+
+// GuardedClient returns a client that re-checks every redirect and dials the
+// exact IP that passed the check, so a URL cannot be swapped for a loopback
+// address between validation and connect.
+func GuardedClient(timeout time.Duration) *http.Client {
+	t := &Tool{HTTP: &http.Client{}}
+	c := &http.Client{Timeout: timeout, Transport: t.pinnedTransport()}
+	c.CheckRedirect = func(r *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("重定向次数过多")
+		}
+		return t.guardURL(r.Context(), r.URL.String())
+	}
+	return c
 }
 
 func (t *Tool) Name() string        { return "web.fetch" }
@@ -83,10 +105,10 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
-	contentType := resp.Header.Get("Content-Type")
-	if err != nil && len(body) == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
+	contentType := resp.Header.Get("Content-Type")
 	bodyTruncated := len(body) > maxBodyBytes
 	if bodyTruncated {
 		body = body[:maxBodyBytes]
@@ -97,7 +119,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	}
 	truncated := bodyTruncated || len(text) > maxTextLen
 	if len(text) > maxTextLen {
-		text = text[:maxTextLen]
+		end := maxTextLen
+		for end > 0 && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		text = text[:end]
 	}
 	return map[string]any{
 		"url":          u,

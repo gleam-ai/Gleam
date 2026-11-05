@@ -27,6 +27,10 @@ desktop/dist2/
 # 发布校验和的手动副本（构建流程只认 dist/SHA256SUMS-<date>.txt，见 scripts/package.sh；
 # 仓库根目录这几个是人工核对产物时的散落副本，重新生成即可，不入库）
 SHA256SUMS*.txt
+# 根目录散落的发布物副本：无扩展名的 macOS/Linux 二进制、自动更新清单、合集 zip
+gleam-*-v0.*
+latest*.yml
+Gleam-release-*.zip
 
 # AI Agent 工具目录（本机专用，不入库）
 .workbuddy-ai/

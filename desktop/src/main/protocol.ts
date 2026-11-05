@@ -128,9 +128,11 @@ function buildCSP(html: string): string {
     `script-src 'self' ${inlineScriptHashes(html).join(' ')}`.trim(),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: blob: https:",
+    "img-src 'self' data: blob:",
     "connect-src 'self'",
-    'frame-src http: https:',
+    // Remote iframes run inside a privileged app:// document; do not allow
+    // arbitrary http(s) content to be embedded there.
+    "frame-src 'none'",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",

@@ -91,8 +91,9 @@ const esc = (s) =>
       ],
   );
 
-async function api(method, url, body) {
+async function api(method, url, body, extra = {}) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (extra.signal) opts.signal = extra.signal;
   if (method === 'POST' && url === '/api/tools/call') {
     body = { ...body, request_id: body?.request_id || crypto.randomUUID() };
   }
@@ -541,9 +542,9 @@ document.addEventListener('click', (e) => {
   if (!card) return;
   goalInput.value = card.dataset.prompt || '';
   const task = card.dataset.task;
-  const taskBtn = document.querySelector(
-    `#task-seg button[data-task="${task}"]`,
-  );
+  const taskBtn = [
+    ...document.querySelectorAll('#task-seg button[data-task]'),
+  ].find((b) => b.dataset.task === task);
   if (taskBtn) taskBtn.click();
   autoResize();
   goalInput.focus();
@@ -2272,6 +2273,25 @@ function applyEvent(taskID, type, data) {
   } else if (type === 'suggest_skill') {
     renderSkillSuggestion(t, data);
     scrollToBottom();
+  } else if (type === 'tool') {
+    const key = [
+      data.step_id || '',
+      data.tool || '',
+      data.phase || '',
+      data.status || '',
+    ].join('|');
+    if (
+      [...tl.querySelectorAll('[data-tool-key]')].some(
+        (n) => n.dataset.toolKey === key,
+      )
+    )
+      return;
+    const row = el('div', 'callout');
+    row.dataset.toolKey = key;
+    const label = data.phase === 'start' ? '调用' : '完成';
+    row.innerHTML = `<div class="callout-body"><div class="callout-title">${esc(label)} ${esc(data.tool || '工具')}</div>${esc(data.title || data.detail || data.error || '')}</div>`;
+    tl.appendChild(row);
+    tl.scrollTop = tl.scrollHeight;
   }
 }
 
@@ -2384,6 +2404,105 @@ function renderStandaloneApproval(ap) {
   feed.prepend(box);
   // 用户可能停留在其它视图，弹提示引导
   toast('工具调用需要你的批准，请前往目标视图处理', 'info');
+}
+
+// ask_user broadcasts a question and waits up to 5 minutes on the server.
+// Without a card the user never sees it and the task always times out.
+function renderQuestion(q) {
+  if (!q || !q.id) return;
+  const feed = $('#goal-feed');
+  if (!feed) return;
+  if (
+    [...feed.querySelectorAll('[data-question-id]')].some(
+      (n) => n.dataset.questionId === q.id,
+    )
+  )
+    return;
+  const box = el('div', 'approval-card standalone-question');
+  box.dataset.questionId = q.id;
+  box.innerHTML = `
+    <div class="approval-head">${ICONS.bulb}<span class="approval-title">需要你回答</span></div>
+    <div class="approval-reason">${esc(q.question || '')}</div>
+    <div class="approval-actions question-choices"></div>
+    <div class="approval-actions">
+      <input class="input" type="text" maxlength="2000" aria-label="你的回答" placeholder="或直接输入答案" />
+      <button class="btn btn-primary btn-sm" data-act="send">提交</button>
+    </div>`;
+  const controls = () => [...box.querySelectorAll('button, input')];
+  const submit = async (payload) => {
+    if (box.dataset.busy) return;
+    box.dataset.busy = '1';
+    controls().forEach((n) => (n.disabled = true));
+    try {
+      await api('POST', `/api/questions/${encodeURIComponent(q.id)}`, payload);
+      retireQuestion(q.id, '已提交回答');
+    } catch (err) {
+      delete box.dataset.busy;
+      controls().forEach((n) => (n.disabled = false));
+      toast('提交失败：' + err.message, 'error');
+    }
+  };
+  const choices = Array.isArray(q.choices) ? q.choices : [];
+  const choiceBox = box.querySelector('.question-choices');
+  choices.forEach((choice) => {
+    const b = el('button', 'btn btn-secondary btn-sm', String(choice));
+    b.type = 'button';
+    b.addEventListener('click', () => submit({ choice: String(choice) }));
+    choiceBox.appendChild(b);
+  });
+  const input = box.querySelector('input');
+  const send = box.querySelector('[data-act="send"]');
+  send.addEventListener('click', () => {
+    const text = (input.value || '').trim();
+    if (!text) {
+      toast('请输入回答或选择一个选项', 'warning');
+      input.focus();
+      return;
+    }
+    submit({ free_text: text });
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') send.click();
+  });
+  feed.prepend(box);
+  toast('Gleam 有一个问题需要你回答', 'info');
+}
+
+function retireQuestion(id, note) {
+  if (!id) return;
+  document.querySelectorAll('[data-question-id]').forEach((box) => {
+    if (box.dataset.questionId !== id) return;
+    box.classList.remove('approval-card');
+    box.removeAttribute('data-question-id');
+    box.replaceChildren(el('div', 'approval-resolved', note || '该问题已结束'));
+  });
+}
+
+const todoCards = new Map();
+function renderTodos(d) {
+  if (!d || !d.task_id) return;
+  const feed = $('#goal-feed');
+  if (!feed) return;
+  let box = todoCards.get(d.task_id);
+  if (!box || !box.isConnected) {
+    box = el('div', 'approval-card todo-card');
+    box.dataset.todoTask = d.task_id;
+    feed.prepend(box);
+    todoCards.set(d.task_id, box);
+  }
+  const items = Array.isArray(d.items) ? d.items : [];
+  box.innerHTML = `<div class="approval-head">${ICONS.check}<span class="approval-title">任务清单</span><span class="badge">${items.length}</span></div>`;
+  const list = el('ul', 'approval-list');
+  items.forEach((it) => {
+    const status = String(it.status || '');
+    const mark = /done|complete|success/i.test(status)
+      ? '✓ '
+      : /progress|doing|active/i.test(status)
+        ? '→ '
+        : '· ';
+    list.appendChild(el('li', null, mark + String(it.text || '')));
+  });
+  box.appendChild(list);
 }
 
 let pendingApprovals = 0;
@@ -2941,6 +3060,25 @@ function connectSSE() {
     const d = sseData(e);
     if (d && d.id) retireApproval(d.id);
   });
+  es.addEventListener('question', (e) => {
+    const d = sseData(e);
+    if (d && d.id) renderQuestion(d);
+  });
+  es.addEventListener('question_resolved', (e) => {
+    const d = sseData(e);
+    if (d && d.id) retireQuestion(d.id, '该问题已结束');
+  });
+  es.addEventListener('todos', (e) => {
+    const d = sseData(e);
+    if (d && d.task_id) renderTodos(d);
+  });
+  es.addEventListener('tool', async (e) => {
+    const d = sseData(e);
+    if (!d || !d.task_id || isTaskFinished(d.task_id)) return;
+    if (viewingConvo && !tasks.has(d.task_id)) return;
+    await ensureTask(d.task_id);
+    applyEvent(d.task_id, 'tool', d);
+  });
   es.addEventListener('completed', async (e) => {
     const r = sseData(e);
     if (!r) return;
@@ -3285,6 +3423,15 @@ function connectionRow(r) {
 }
 
 let cueGoals = new Map();
+let cueDeckSuppressed = false;
+let cueDeckHasContent = false;
+
+// One owner for deck visibility: thread-mode suppression and data-driven
+// emptiness used to fight over inline display vs the hidden attribute.
+function applyCueDeckVisibility() {
+  const deck = $('#cu-deck');
+  if (deck) deck.hidden = cueDeckSuppressed || !cueDeckHasContent;
+}
 
 async function loadCues() {
   const deck = $('#cu-deck');
@@ -3293,7 +3440,8 @@ async function loadCues() {
     renderCues(await api('GET', '/api/cues' + langQS()));
   } catch (err) {
     cueGoals = new Map();
-    deck.hidden = false;
+    cueDeckHasContent = true;
+    applyCueDeckVisibility();
     $('#cu-scope').textContent = `候补目标读不出来：${err.message}`;
     $('#cu-list').innerHTML = '';
     $('#cu-tail').textContent = '';
@@ -3303,13 +3451,13 @@ async function loadCues() {
 }
 
 function renderCues(led) {
-  const deck = $('#cu-deck');
   const rows = led.rows || [];
   const sup = led.suppressed || [];
   // A scan only proves the archive was read, not that there is anything to say:
   // with no rows, suppressed entries, or read warning the deck holds empty space.
   const silent = !rows.length && !sup.length && !led.note;
-  deck.hidden = silent;
+  cueDeckHasContent = !silent;
+  applyCueDeckVisibility();
   if (silent) return;
 
   $('#cu-scope').textContent = led.coverage || '';
@@ -5490,10 +5638,9 @@ function setThreadMode(on) {
   sec.classList.toggle('is-home', !on);
   goalInput.placeholder = composerPlaceholder();
   // command-deck / quick-launch were retired with the old home layout (their
-  // DOM is gone), so only cue-deck is looked up; querySelector may return
-  // null and touching .style directly would throw.
-  const cue = document.querySelector('.cue-deck');
-  if (cue) cue.style.display = on ? 'none' : '';
+  // DOM is gone), so only cue-deck is looked up. Visibility has a single owner.
+  cueDeckSuppressed = on;
+  applyCueDeckVisibility();
 }
 
 const HOME_EMPTY = $('#goals-empty').cloneNode(true);
@@ -5693,7 +5840,8 @@ async function openTaskDetail(taskID) {
       const steps = (info.result && info.result.steps) || [];
       if (steps.length) {
         const wrap = el('details', 'tl-steps');
-        wrap.innerHTML = '<summary class="tl-sum">执行步骤（点击展开/收起）</summary>';
+        wrap.innerHTML =
+          '<summary class="tl-sum">执行步骤（点击展开/收起）</summary>';
         const list = el('div', 'timeline');
         steps.forEach((st) => {
           const it = el('div', 'timeline-item');
@@ -6304,7 +6452,7 @@ const UIPrefs = (() => {
   const KEY = 'gleam-ui';
   let p = Object.assign(
     {
-      themeMode: 'light',
+      themeMode: 'dark',
       accent: 'gleam',
       lang: 'zh',
       font: 'sans',
@@ -6575,26 +6723,43 @@ $('#me-auth-form').addEventListener('submit', async (e) => {
   }
 });
 
+let oauthTimer = null;
+function stopOAuthPolling() {
+  if (oauthTimer !== null) {
+    clearInterval(oauthTimer);
+    oauthTimer = null;
+  }
+}
+window.addEventListener('pagehide', stopOAuthPolling);
+
 async function oauthLogin(provider) {
+  // Clicking GitHub then Google used to leave two 3-minute pollers running,
+  // each firing its own "登录成功" toast.
+  stopOAuthPolling();
   try {
     await api('POST', '/api/account/oauth', { provider });
     toast('已在浏览器打开授权页，完成后自动登录…', 'info', 5000);
     let tries = 0;
-    const timer = setInterval(async () => {
+    oauthTimer = setInterval(async () => {
       tries++;
       try {
         const s = await api('GET', '/api/account');
         if (s.signed_in) {
-          clearInterval(timer);
+          stopOAuthPolling();
           toast('登录成功', 'success');
           loadAccount();
+          return;
         }
       } catch {
         /* 等待中 */
       }
-      if (tries > 60) clearInterval(timer);
+      if (tries > 60) {
+        stopOAuthPolling();
+        toast('登录等待超时，请重试', 'warning');
+      }
     }, 3000);
   } catch (err) {
+    stopOAuthPolling();
     toast(err.message, 'error');
   }
 }

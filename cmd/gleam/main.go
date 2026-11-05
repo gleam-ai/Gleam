@@ -1018,7 +1018,16 @@ func permFromStr(s string) types.Permission {
 func toMCPCfgs(in []config.MCPServerConfig) []mcp.ServerConfig {
 	out := make([]mcp.ServerConfig, 0, len(in))
 	for _, s := range in {
-		out = append(out, mcp.ServerConfig{Name: s.Name, Command: s.Command, Args: s.Args, Trust: s.Trust, Enabled: s.Enabled})
+		out = append(out, mcp.ServerConfig{
+			Name:    s.Name,
+			Command: s.Command,
+			Args:    s.Args,
+			Env:     s.Env,
+			URL:     s.URL,
+			Headers: s.Headers,
+			Trust:   s.Trust,
+			Enabled: s.Enabled,
+		})
 	}
 	return out
 }
