@@ -471,6 +471,24 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			notify("context", a.contextActionText(compressed, tightened, true), 92, "info")
 		}
 
+		// An external obstacle that only a human can clear (risk-control page,
+		// login wall, CAPTCHA) is not a retryable failure. Every replan would
+		// just be another way to fetch the same blocked page, so stop before
+		// reflection and hand the user the next step. This also prevents a
+		// hallucinated "done" verdict from marking a blocked task complete.
+		if handoff := humanHandoff(exec); handoff != "" {
+			notify("reflect", "遇到需要人工处理的障碍，停止自动重规划", 90, "warn")
+			result := a.buildResult(goal, exec,
+				types.Reflection{Score: 0, Verdict: "failed", Reason: "外部页面需要人工验证，自动重试不会成功"},
+				plan.Acceptance, planner.LastBreakdown)
+			result.Summary = handoff
+			result.Suggestion = handoffSuggestion
+			last = result
+			markCancelled(result)
+			a.finalize(ctx, taskID, result, &plan, req.Role)
+			return result
+		}
+
 		// Reflect
 		notify("reflect", tell.ReflectStart(), 92, "info")
 		// Acceptance criteria were set at planning time; the reflector judges

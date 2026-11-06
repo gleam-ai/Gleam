@@ -43,9 +43,20 @@ func TestJobs_StartListOutput(t *testing.T) {
 		t.Error("job should be running")
 	}
 
-	// give the output time to accumulate
-	time.Sleep(300 * time.Millisecond)
-	stdout, _, running := job.Output()
+	// Windows has to spawn cmd.exe before ping writes its first line; under a
+	// loaded test run that takes well over 300ms. Wait for the first byte
+	// instead of assuming a fixed delay -- the old sleep made this test fail
+	// whenever the whole suite ran in parallel.
+	var stdout string
+	var running bool
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		stdout, _, running = job.Output()
+		if stdout != "" || !running {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if !running {
 		t.Error("still should be running")
 	}

@@ -6173,7 +6173,10 @@ async function deleteConvo(id, title) {
   try {
     await api('DELETE', `/api/conversations/${encodeURIComponent(id)}`);
     if (currentConvo && currentConvo.id === id) await exitConvoToWorkbench();
-    else await loadConvoList(currentConvo && currentConvo.id);
+    // exitConvoToWorkbench() only clears local state; without this refresh the
+    // deleted row stays in the sidebar and needs a second click (the second
+    // DELETE is idempotent, so it looked like "delete twice to succeed").
+    await loadConvoList(currentConvo && currentConvo.id);
     toast('对话已删除', 'success');
   } catch (err) {
     toast(`删除失败：${err.message}`, 'error');

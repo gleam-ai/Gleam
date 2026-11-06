@@ -1,5 +1,16 @@
 # Gleam 优化变更日志
 
+## v0.0.33（2026-11-06）
+
+### 会话删除不再点两次，反爬页面不再空转二十轮
+
+- **删除当前会话一次即生效**：`deleteConvo` 命中当前会话时只调 `exitConvoToWorkbench()`，它清本地状态但不重绘 `#convo-list`；后端第一次 DELETE 就已删掉记录（且幂等），所以第二次点击才让列表消失。现在两个分支都调 `loadConvoList()`。新增 Playwright 用例 `delete`，分别验证当前/非当前会话只发一次 DELETE 且行立即消失。
+- **风控验证页归为「需要人工接管」**：新增 `ErrNeedsHuman`，`ClassifyError` 优先识别「风控 / 验证页 / 人机验证 / 请用户完成验证 / 请用户直接粘贴正文」。此前这类错误只是 `ErrUnknown`，反思器一直要求「换个打法再试」，而打转熔断只认完全相同的 `tool|args` 指纹，于是每轮换工具都能绕过去，预算耗尽后 `reply` 因依赖失败被跳过，用户只看到「执行了 3 个步骤：成功 0，失败 1，跳过 2」。
+- **第一轮就熔断并给出下一步**：新增 `humanHandoff()`，在反思之前判断本轮是否被外部障碍挡住且没有给过用户回复；命中则直接结束，返回「请把正文粘贴到对话里 / 在浏览器完成验证后重发 / 换一个能访问的来源」，不再反思、不再重规划，也避免幻觉的 `done` 把受阻任务判成成功。`cueKindText` 补上该归因的中文/英文口径。
+- **顺手修掉挡住验证的 flaky 用例**：`TestJobs_StartListOutput` 固定 `sleep 300ms` 等首行输出，全仓并发跑时 Windows 启动 `cmd.exe` 会超时；改成最多 5 秒轮询首字节，断言不变。
+
+验证：真实 `web.fetch` 验证页测试断言错误归类为 `needs_human`；Agent 集成测试把 `MaxReplans=5`，实测只发生 1 次规划、0 次反思，Summary 为人工接管文案；Playwright 用例做了 A/B（旧逻辑 `Actual value: 1` 报错、新逻辑 PASS）；`go test ./...` 42 个包全过（本机 Windows 符号链接策略导致的 `TestFileTools_RejectsSymlinkEscape` 显式 `-skip`）；`gleam eval --layer smoke --strict` 10/10、`doctor --strict` 通过。
+
 ## v0.0.32（2026-11-05）
 
 ### 更新失败时说的是人话，而不是一串请求头和 URL

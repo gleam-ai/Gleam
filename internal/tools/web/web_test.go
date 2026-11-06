@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"gleam/pkg/types"
 )
 
 func localTool() *Tool {
@@ -35,6 +37,11 @@ func TestWeb_RejectsChallengePage(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "computer_use") {
 		t.Errorf("错误信息应给出 CUA 接管路径，实际: %v", err)
+	}
+	// The agent loop only stops and hands off on this kind. If the wording
+	// drifts, classification must be updated in the same change.
+	if got := types.ClassifyError(err.Error()); got != types.ErrNeedsHuman {
+		t.Errorf("风控错误被归类为 %q，应为 %q", got, types.ErrNeedsHuman)
 	}
 }
 

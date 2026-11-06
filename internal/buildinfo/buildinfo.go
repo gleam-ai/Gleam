@@ -1,4 +1,4 @@
 package buildinfo
 
-var Version = "0.0.32"
-var Date = "2026-11-05"
+var Version = "0.0.33"
+var Date = "2026-11-06"

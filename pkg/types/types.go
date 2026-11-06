@@ -86,11 +86,19 @@ const (
 	ErrUpstream   ErrorKind = "upstream"
 	ErrUnknown    ErrorKind = "unknown"
 	ErrInternal   ErrorKind = "internal"
+	// ErrNeedsHuman means the blocker is outside the agent: a risk-control
+	// page, a login wall, a CAPTCHA. Replanning with another tool cannot clear
+	// it, so the loop must stop and ask the user instead of burning attempts.
+	ErrNeedsHuman ErrorKind = "needs_human"
 )
 
 func ClassifyError(msg string) ErrorKind {
 	s := strings.ToLower(msg)
 	switch {
+	// Checked first: the challenge-page error also mentions browsers and
+	// retries, and must not fall through to the generic buckets below.
+	case containsAny(s, "风控", "验证页", "人机验证", "请用户完成验证", "请用户直接粘贴正文", "needs_human"):
+		return ErrNeedsHuman
 	case containsAny(s, "timeout", "deadline", "超时", "限流", "rate limit", "too many requests", "429"):
 		return ErrTimeout
 	case containsAny(s, "5xx", "502", "503", "504", "bad gateway", "service unavailable", "internal server error", "上游"):

@@ -359,6 +359,8 @@ func cueKindText(k types.ErrorKind, en bool) string {
 		return bi{"上游服务异常（有限重试）", "upstream service error (limited retries)"}.pick(en)
 	case types.ErrInternal:
 		return bi{"工具自身缺陷（要改代码）", "the tool itself is faulty (needs a code change)"}.pick(en)
+	case types.ErrNeedsHuman:
+		return bi{"需要人工接管（换工具重试无用）", "needs a human (changing tools will not help)"}.pick(en)
 	case types.ErrUnknown:
 		return bi{"归不了类的失败", "unclassified failure"}.pick(en)
 	}

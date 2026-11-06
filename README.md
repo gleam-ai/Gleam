@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.32](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.33](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -30,6 +30,12 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 - **Electron 45.2.1**: Chromium 156 and current runtime security fixes without relaxing the sandbox
 - **Reliable updater startup**: IPC handlers register before page load; development mode reports status without contacting the release feed
 - **Dependabot unblocked**: minimatch 11.0.1 removes the vulnerable dependency path, with zero root npm audit findings
+
+## What's new in v0.0.33
+
+- **Deleting a conversation takes one click**: removing the conversation that was open only cleared local state; the sidebar row stayed until a second click. The list is now refreshed on both branches
+- **Blocked pages stop the loop**: a WeChat/Cloudflare challenge page used to be an unclassified failure, so the reflector kept replanning with different tools and the user got a step counter after 20+ rounds. It is now classified as `needs_human`; the first blocked round ends with an actionable handoff (paste the text, complete the browser check, or use another source)
+- **Verification gate is stable again**: the background-job test polls for the first byte instead of assuming a fixed 300 ms startup delay on Windows
 
 ## What's new in v0.0.32
 
