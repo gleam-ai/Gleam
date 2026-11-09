@@ -160,7 +160,7 @@ build_for_platform() {
   export CGO_ENABLED=0
   
   # 添加版本信息到编译标志
-  LDFLAGS="-ldflags=\"-s -w -X gleam/pkg/buildinfo.Version=$VERSION -X gleam/pkg/buildinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+  LDFLAGS="-ldflags='-s -w -X gleam/pkg/buildinfo.Version=$VERSION -X gleam/pkg/buildinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
   
   mkdir -p "$PROJECT_ROOT/dist/$goos/$goarch"
   
