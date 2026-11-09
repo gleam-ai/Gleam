@@ -114,12 +114,22 @@ export class Sidecar extends EventEmitter {
       // stat failed for other reasons: let spawn fail naturally
     }
 
+    // Ensure PowerShell is always available for computer_use automation
+    const systemPowerShell = 
+      process.platform === 'win32' 
+        ? `${process.env.SystemRoot}\\system32\\WindowsPowerShell\\v1.0`
+        : '';
+    
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       GLEAM_WEBUI_TOKEN: this.token,
     };
-    if (this.spec.extraPath?.length) {
-      env.PATH = pathWithRuntimes(env.PATH, this.spec.extraPath);
+    if (this.spec.extraPath?.length || systemPowerShell) {
+      const extraPaths = [
+        ...(this.spec.extraPath ?? []),
+        ...(systemPowerShell ? [systemPowerShell] : []),
+      ];
+      env.PATH = pathWithRuntimes(env.PATH, extraPaths);
     }
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(this.spec.bin, ['desktop-sidecar', ...this.spec.args], {

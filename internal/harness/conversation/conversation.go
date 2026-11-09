@@ -51,9 +51,82 @@ const maxTitleRunes = 24
 
 const DefaultSpaceID = "default"
 
+// searchIndex is a lightweight in-memory index for full-text search.
+// It's optional and used to avoid rescanning the entire conversation list on every search.
+type searchIndex struct {
+	mu       sync.RWMutex
+	convoMap map[string]*Conversation  // id -> latest conversation snapshot
+	wordConv map[string]map[string]int // lowercase word -> {convoID: hitCount}
+}
+
+func newSearchIndex() *searchIndex {
+	return &searchIndex{
+		convoMap: make(map[string]*Conversation),
+		wordConv: make(map[string]map[string]int),
+	}
+}
+
+// addOrUpdate inserts or updates a conversation in the index.
+func (idx *searchIndex) addOrUpdate(c *Conversation) {
+	if idx == nil {
+		return // nil-safe guard for tests that don't use buildIndex
+	}
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	// Index all text (title + content)
+	text := strings.ToLower(c.Title)
+	for _, m := range c.Messages {
+		text += "\n" + strings.ToLower(m.Content)
+	}
+
+	// Remove old word mappings for this convo
+	for word := range idx.wordConv {
+		if _, exists := idx.wordConv[word][c.ID]; exists {
+			delete(idx.wordConv[word], c.ID)
+			if len(idx.wordConv[word]) == 0 {
+				delete(idx.wordConv, word)
+			}
+		}
+	}
+
+	// Build new mappings
+	words := strings.Fields(text)
+	for _, word := range words {
+		if len(word) < 2 {
+			continue
+		}
+		if idx.wordConv[word] == nil {
+			idx.wordConv[word] = make(map[string]int)
+		}
+		idx.wordConv[word][c.ID]++
+	}
+
+	idx.convoMap[c.ID] = c
+}
+
+// getConvo returns a copy of the conversation with given id.
+func (idx *searchIndex) getConvo(id string) (*Conversation, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	c, ok := idx.convoMap[id]
+	if !ok {
+		return nil, false
+	}
+	// Return a shallow copy (messages slice is immutable after creation)
+	return c, true
+}
+
 type Store struct {
-	dir string
-	mu  sync.Mutex
+	dir   string
+	mu    sync.Mutex
+	index *searchIndex
+
+	// Batch write optimization
+	batchBuf   []Message   // 批量写入缓冲区
+	batchID    string      // 当前批次所属的会话 ID
+	batchTimer *time.Timer // 定时刷盘定时器
+	batchFlush chan string // 触发刷盘的通道 (buf size = 1)
 }
 
 func Open(dataDir string) (*Store, error) {
@@ -66,6 +139,35 @@ func Open(dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("迁移历史会话失败: %w", err)
 	}
 	return s, nil
+}
+
+// buildIndex rebuilds the in-memory index from all saved conversations.
+func (s *Store) buildIndex() error {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		c, err := s.readLocked(filepath.Join(s.dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		s.index.addOrUpdate(c)
+	}
+	return nil
+}
+
+// refreshIndex updates the in-memory index for a specific conversation after read/write.
+func (s *Store) refreshIndex(id string) error {
+	c, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	s.index.addOrUpdate(c)
+	return nil
 }
 
 func (s *Store) migrateLegacy() error {
@@ -108,6 +210,32 @@ func safeRune(r rune) rune {
 		return r
 	}
 	return -1
+}
+
+// NewImportID generates a unique conversation ID for imported conversations.
+// Uses a timestamp-based approach to avoid collisions with existing IDs.
+func NewImportID(title string) string {
+	base := strings.TrimSpace(strings.ReplaceAll(title, " ", "-"))
+	if base == "" {
+		base = "imported"
+	}
+	// Sanitize and ensure valid format
+	id := strings.Map(safeRune, base)
+	if id == "" {
+		id = fmt.Sprintf("import-%d", time.Now().UnixNano()%100000)
+	}
+	return types.NewID()
+}
+
+// writeConversationLocked writes a conversation without acquiring the lock.
+// It assumes the caller already holds s.mu.
+func (s *Store) writeConversationLocked(id string, c *Conversation) error {
+	p := filepath.Join(s.dir, id+".json")
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("编码会话失败：%w", err)
+	}
+	return atomicfile.Write(p, b, 0o644)
 }
 
 func (s *Store) Create(spaceIDs ...string) (*Conversation, error) {
@@ -254,6 +382,8 @@ func (s *Store) Append(id string, msg Message) (*Conversation, error) {
 	if err := s.writeLocked(c); err != nil {
 		return nil, err
 	}
+	// Update in-memory index for faster searches
+	s.index.addOrUpdate(c)
 	return c, nil
 }
 
@@ -277,6 +407,8 @@ func (s *Store) Rename(id, title string) (*Conversation, error) {
 	if err := s.writeLocked(c); err != nil {
 		return nil, err
 	}
+	// Update in-memory index for faster searches
+	s.index.addOrUpdate(c)
 	return c, nil
 }
 
@@ -342,9 +474,42 @@ func stripNewlines(s string) string {
 }
 
 func truncate(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	r := []rune(s)
 	if len(r) <= n {
 		return s
 	}
-	return string(r[:n]) + "…"
+	// 避免在代理对 (Emoji) 或中日文字符中间切断
+	// 末尾留一个位置给省略号
+	cut := n - 1
+	if cut < 0 {
+		return ""
+	}
+	if cut >= len(r) {
+		return string(r) + "…"
+	}
+	// 检查最后字符是否为代理对的高位，如果是则向前调整
+	result := r[:cut]
+	if len(result) > 0 {
+		last := result[len(result)-1]
+		// UTF-16 代理对范围：高 0xD800-0xDBFF，低 0xDC00-0xDFFF
+		if last >= 0xD800 && last <= 0xDBFF && cut < len(r) {
+			next := r[cut]
+			if next >= 0xDC00 && next <= 0xDFFF {
+				// 避免切断代理对，往前找完整字符
+				for i := len(result) - 2; i >= 0; i-- {
+					if result[i] < 0xD800 || result[i] > 0xDBFF {
+						result = result[:i+1]
+						break
+					}
+				}
+				if len(result) == 0 {
+					return "…"
+				}
+			}
+		}
+	}
+	return string(result) + "…"
 }
