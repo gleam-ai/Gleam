@@ -186,3 +186,4 @@ PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions and l
 ## License
 
 [MIT](LICENSE) · Built with Go, running locally.
+// Release template for v0.0.34
