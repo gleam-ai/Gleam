@@ -115,11 +115,11 @@ export class Sidecar extends EventEmitter {
     }
 
     // Ensure PowerShell is always available for computer_use automation
-    const systemPowerShell = 
-      process.platform === 'win32' 
+    const systemPowerShell =
+      process.platform === 'win32'
         ? `${process.env.SystemRoot}\\system32\\WindowsPowerShell\\v1.0`
         : '';
-    
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       GLEAM_WEBUI_TOKEN: this.token,
