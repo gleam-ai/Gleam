@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"gleam/internal/atomicfile"
 )
 
 // ExportOptions configures how conversations are exported.
@@ -61,7 +63,7 @@ func (s *Store) Export(path string, opts ExportOptions) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(path, out, 0o644); err != nil {
+	if err := atomicfile.Write(path, out, 0o644); err != nil {
 		return fmt.Errorf("写入导出文件失败：%w", err)
 	}
 
@@ -159,5 +161,5 @@ func exportConversationToFile(path string, c *Conversation) error {
 	if err != nil {
 		return fmt.Errorf("编码会话失败：%w", err)
 	}
-	return os.WriteFile(path, out, 0o644)
+	return atomicfile.Write(path, out, 0o644)
 }
