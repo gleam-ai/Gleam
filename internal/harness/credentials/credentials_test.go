@@ -55,6 +55,21 @@ func TestResolveLLMAPIKeyBoundToHost(t *testing.T) {
 	}
 }
 
+func TestResolveMigratesDefaultPortScope(t *testing.T) {
+	s := openStore(t)
+	// Pre-normalization files stored the explicit default port in the scope.
+	if err := s.SetLLMAPIKey("sk-port", "api.example.com:443"); err != nil {
+		t.Fatal(err)
+	}
+	k, host := s.ResolveLLMAPIKey("api.example.com")
+	if k != "sk-port" || host != "api.example.com" {
+		t.Fatalf("旧端口 scope 应迁移到规范主机: %q / %q", k, host)
+	}
+	if k2, _ := s.ResolveLLMAPIKey("api.example.com"); k2 != "sk-port" {
+		t.Errorf("迁移后应稳定回读: %q", k2)
+	}
+}
+
 func TestKeepsKeysPerHost(t *testing.T) {
 	s := openStore(t)
 	if err := s.SetLLMAPIKey("sk-glm", hostA); err != nil {

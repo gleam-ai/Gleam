@@ -136,6 +136,105 @@ func TestSignInRecordsEgress(t *testing.T) {
 	}
 }
 
+func newOAuthTestManager(t *testing.T, status int, body string) *Manager {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(ts.Close)
+	creds, err := credentials.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := creds.SetCloudConfig(credentials.CloudConfig{SupabaseURL: ts.URL, SupabaseAnonKey: "anon"}); err != nil {
+		t.Fatal(err)
+	}
+	return New(creds)
+}
+
+func callbackWithCode(t *testing.T, m *Manager, code string) string {
+	t.Helper()
+	authURL, err := m.StartOAuth("github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := queryOf(authURL, "redirect_to")
+	state := queryOf(authURL, "state")
+	waitForListener(t, base)
+	return get(t, base+"?code="+code+"&state="+state)
+}
+
+// The callback page may only claim success after the token exchange actually
+// saved a session; the code arriving alone proves nothing.
+func TestOAuthCallbackSuccessSavesSession(t *testing.T) {
+	m := newOAuthTestManager(t, 200, `{"access_token":"a","refresh_token":"b","expires_in":3600,`+
+		`"token_type":"bearer","user":{"id":"u1","email":"me@example.com"}}`)
+	body := callbackWithCode(t, m, "ok-code")
+	if !strings.Contains(body, "登录成功") {
+		t.Fatalf("换令牌成功应显示登录成功: %s", body)
+	}
+	s := m.creds.GetSession()
+	if s == nil || s.Email != "me@example.com" {
+		t.Fatalf("会话应已落盘: %+v", s)
+	}
+}
+
+func TestOAuthCallbackFailureDoesNotClaimSuccess(t *testing.T) {
+	m := newOAuthTestManager(t, 400, `{"error":"invalid_grant","error_description":"code expired"}`)
+	body := callbackWithCode(t, m, "bad-code")
+	if strings.Contains(body, "登录成功") {
+		t.Fatalf("换令牌失败不该显示登录成功: %s", body)
+	}
+	if !strings.Contains(body, "登录失败") {
+		t.Fatalf("应显示登录失败: %s", body)
+	}
+	if s := m.creds.GetSession(); s != nil {
+		t.Fatalf("失败不应留下会话: %+v", s)
+	}
+}
+
+// Clicking login twice must retire the first flow's loopback listener instead
+// of leaking it for the full 5-minute timeout.
+func TestStartOAuthSupersedesPreviousFlow(t *testing.T) {
+	m := newTestManager(t)
+	first, err := m.StartOAuth("github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBase := queryOf(first, "redirect_to")
+	waitForListener(t, firstBase)
+	second, err := m.StartOAuth("google")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBase := queryOf(second, "redirect_to")
+	waitForListener(t, secondBase)
+	if firstBase == secondBase {
+		t.Fatal("两次登录应使用不同的回调端口")
+	}
+	u, _ := url.Parse(firstBase)
+	dead := false
+	for i := 0; i < 100; i++ {
+		resp, err := http.Get("http://" + u.Host + "/callback")
+		if err != nil {
+			dead = true
+			break
+		}
+		_ = resp.Body.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !dead {
+		t.Fatal("被取代的登录监听器没有关闭")
+	}
+	m.mu.Lock()
+	pending := m.pending
+	m.mu.Unlock()
+	if pending == nil || pending.redirect != secondBase {
+		t.Fatal("当前待完成的登录应是第二次发起的流程")
+	}
+}
+
 func TestSignInWithoutHookStillWorks(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"access_token":"a","expires_in":3600,"user":{"id":"u1"}}`)

@@ -34,7 +34,9 @@ func BindLLMKey(cfg *config.Config, creds *credentials.Store, baseURL, explicit 
 		return "", fmt.Errorf("请先填写 base_url 再保存密钥：密钥按接入主机绑定")
 	}
 	if clear {
-		if creds != nil {
+		// An empty scope means "no endpoint": the store reads that as "wipe
+		// every vendor's key", which a form submit must never trigger.
+		if creds != nil && scope != "" {
 			if err := creds.SetLLMAPIKey("", scope); err != nil {
 				return "", fmt.Errorf("密钥已清除但本地凭证文件更新失败: %w", err)
 			}

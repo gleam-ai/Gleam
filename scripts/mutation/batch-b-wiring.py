@@ -141,8 +141,8 @@ MUTATIONS = [
         "file": "internal/llm/providers.go",
         "edits": [
             (
-                "	return strings.ToLower(u.Host)",
-                "	return strings.ToLower(s)",
+                "	host := strings.ToLower(u.Host)",
+                "	host := strings.ToLower(s)",
             )
         ],
         "targets": [

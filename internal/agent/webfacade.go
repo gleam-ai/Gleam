@@ -1672,7 +1672,10 @@ func (a *Agent) MCPRetry(name string) (map[string]any, error) {
 	if !srv.Enabled {
 		return nil, fmt.Errorf("MCP 服务器 %q 已停用，请先启用", name)
 	}
-	a.MCP.Remove(name)
+	// Detach unregisters the old tools too: Remove alone closes the client but
+	// leaves registry entries pointing at it, so a failed retry (or a changed
+	// tool list) keeps dead tools callable.
+	a.mcpDetach(name)
 	tools, err := a.mcpConnect(*srv)
 	res := map[string]any{
 		"name": name, "connected": err == nil, "tools": tools, "mcp": a.MCPList(),
