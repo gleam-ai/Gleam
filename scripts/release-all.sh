@@ -39,9 +39,9 @@ cp "dist/darwin/arm64/gleam-v$VERSION-darwin-arm64" dist/gleam-darwin-arm64
 
 cd dist
 # 校验和必须对应 Release 上的扁平资产名，下载后 sha256sum -c 才能直接通过。
-sha256sum gleam-windows-amd64.exe > windows-amd64-checksums.txt
-sha256sum gleam-linux-amd64 > linux-amd64-checksums.txt
-sha256sum gleam-windows-amd64.exe gleam-linux-amd64 gleam-darwin-amd64 gleam-darwin-arm64 > "CHECKSUMS-v$VERSION.txt"
+sha256sum gleam-windows-amd64.exe >windows-amd64-checksums.txt
+sha256sum gleam-linux-amd64 >linux-amd64-checksums.txt
+sha256sum gleam-windows-amd64.exe gleam-linux-amd64 gleam-darwin-amd64 gleam-darwin-arm64 >"CHECKSUMS-v$VERSION.txt"
 
 for target in linux/amd64 darwin/amd64 darwin/arm64; do
   os=${target%/*}
