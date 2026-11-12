@@ -127,6 +127,7 @@ func (s *Server) handleGoalDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if inMem {
 		delete(s.tasks, id)
+		delete(s.todos, id)
 	}
 	s.mu.Unlock()
 	err := os.Remove(path)

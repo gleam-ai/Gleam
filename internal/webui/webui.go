@@ -179,8 +179,17 @@ func (s *Server) onApprovalContext(ctx context.Context, req types.ApprovalReques
 		}
 		return resp
 	case <-timer.C:
-		s.resolve(w.ID, types.ApprovalResponse{Approved: false, Note: "审批超时，自动拒绝"})
-		return types.ApprovalResponse{Approved: false, Note: "审批超时，自动拒绝"}
+		timeout := types.ApprovalResponse{Approved: false, Note: "审批超时，自动拒绝"}
+		if s.resolve(w.ID, timeout) {
+			return timeout
+		}
+		// A user decision won the race and is already buffered; the timeout
+		// must not swallow it.
+		resp := <-w.ch
+		if ctx.Err() != nil {
+			return cancelled
+		}
+		return resp
 	}
 }
 

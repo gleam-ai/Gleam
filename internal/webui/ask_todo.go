@@ -35,37 +35,45 @@ func (s *Server) AskUser(ctx context.Context, q std.UserQuestion) (std.UserAnswe
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		s.dropQuestion(w.ID)
+		if _, ok := s.takeQuestion(w.ID); ok {
+			s.broadcast(newEvent("question_resolved", map[string]any{"id": w.ID}))
+		}
 		return std.UserAnswer{}, ctx.Err()
 	case ans := <-w.ch:
 		return std.UserAnswer{Choice: ans.Choice, FreeText: ans.FreeText}, nil
 	case <-timer.C:
-		s.dropQuestion(w.ID)
-		return std.UserAnswer{}, fmt.Errorf("提问超时（5 分钟无回应）")
+		if _, ok := s.takeQuestion(w.ID); ok {
+			s.broadcast(newEvent("question_resolved", map[string]any{"id": w.ID}))
+			return std.UserAnswer{}, fmt.Errorf("提问超时（5 分钟无回应）")
+		}
+		// An answer won the race and is already buffered; the timeout must
+		// not swallow it.
+		ans := <-w.ch
+		return std.UserAnswer{Choice: ans.Choice, FreeText: ans.FreeText}, nil
 	}
 }
 
-func (s *Server) dropQuestion(id string) {
+// takeQuestion removes a pending question under the lock. Whoever removes it
+// owns the outcome: the answer sender or the timeout, never both.
+func (s *Server) takeQuestion(id string) (*questionWaiter, bool) {
 	s.mu.Lock()
-	delete(s.questions, id)
+	w, ok := s.questions[id]
+	if ok {
+		delete(s.questions, id)
+	}
 	s.mu.Unlock()
-	s.broadcast(newEvent("question_resolved", map[string]any{"id": id}))
+	return w, ok
 }
 
 // AnswerQuestion is called by the HTTP handler to deliver the user's answer
 // to the tool that is waiting for it.
 func (s *Server) AnswerQuestion(id string, ans questionAnswer) error {
-	s.mu.Lock()
-	w, ok := s.questions[id]
-	s.mu.Unlock()
+	w, ok := s.takeQuestion(id)
 	if !ok {
 		return fmt.Errorf("提问 %s 不存在或已结束", id)
 	}
-	select {
-	case w.ch <- ans:
-	default:
-	}
-	s.dropQuestion(id)
+	w.ch <- ans
+	s.broadcast(newEvent("question_resolved", map[string]any{"id": id}))
 	return nil
 }
 

@@ -3,12 +3,14 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"gleam/internal/agent"
 	"gleam/internal/config"
 	"gleam/internal/tools/std"
+	"gleam/pkg/types"
 )
 
 // newTestAgent builds a minimal usable Agent: NewServer needs DataDir
@@ -128,4 +130,105 @@ func TestServerPublishTodos_BroadcastsAndStores(t *testing.T) {
 // Tiny helper to avoid repeating json.Unmarshal throughout the tests.
 func jsonUnmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
+}
+
+// waitQuestionID pulls the first question id from the SSE stream.
+func waitQuestionID(t *testing.T, ch chan sseEvent) string {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type != "question" {
+				continue
+			}
+			var payload map[string]any
+			if err := jsonUnmarshal(ev.Data, &payload); err == nil {
+				if id, _ := payload["id"].(string); id != "" {
+					return id
+				}
+			}
+		case <-deadline:
+			t.Fatal("did not receive question event")
+		}
+	}
+}
+
+func TestAnswerQuestion_SecondAnswerRejected(t *testing.T) {
+	s := NewServer(newTestAgent(t))
+	ch := s.subscribe()
+	defer s.unsubscribe(ch)
+
+	ctx := agent.WithTaskIDForTest(context.Background(), "task-1")
+	done := make(chan std.UserAnswer, 1)
+	go func() {
+		ans, _ := s.AskUser(ctx, std.UserQuestion{Question: "?"})
+		done <- ans
+	}()
+	qID := waitQuestionID(t, ch)
+	if err := s.AnswerQuestion(qID, questionAnswer{Choice: "A"}); err != nil {
+		t.Fatalf("first answer: %v", err)
+	}
+	if err := s.AnswerQuestion(qID, questionAnswer{Choice: "B"}); err == nil {
+		t.Error("已结束的提问不应再接受回答")
+	}
+	select {
+	case ans := <-done:
+		if ans.Choice != "A" {
+			t.Errorf("answer = %q, want A", ans.Choice)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("AskUser did not return")
+	}
+}
+
+func TestAskUser_CancelRetiresQuestion(t *testing.T) {
+	s := NewServer(newTestAgent(t))
+	ch := s.subscribe()
+	defer s.unsubscribe(ch)
+
+	ctx, cancel := context.WithCancel(agent.WithTaskIDForTest(context.Background(), "task-1"))
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.AskUser(ctx, std.UserQuestion{Question: "?"})
+		errCh <- err
+	}()
+	qID := waitQuestionID(t, ch)
+	cancel()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected ctx error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("AskUser did not return on cancel")
+	}
+	if err := s.AnswerQuestion(qID, questionAnswer{Choice: "A"}); err == nil {
+		t.Error("取消后的提问不应再接受回答")
+	}
+	s.mu.Lock()
+	n := len(s.questions)
+	s.mu.Unlock()
+	if n != 0 {
+		t.Errorf("取消后仍残留 %d 个提问", n)
+	}
+}
+
+func TestPruneTasksLocked_ClearsTodos(t *testing.T) {
+	s := NewServer(newTestAgent(t))
+	ctx := agent.WithTaskIDForTest(context.Background(), "old-task")
+	if err := s.PublishTodos(ctx, []std.TodoItem{{Text: "x", Status: "done"}}); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.tasks["old-task"] = &taskInfo{ID: "old-task", Status: types.GoalSuccess, Started: time.Now().Add(-time.Hour)}
+	for i := 0; i < maxRetainedTasks; i++ {
+		id := fmt.Sprintf("t-%03d", i)
+		s.tasks[id] = &taskInfo{ID: id, Status: types.GoalSuccess, Started: time.Now()}
+	}
+	s.pruneTasksLocked("keep")
+	s.mu.Unlock()
+	if got := s.Todos("old-task"); len(got) != 0 {
+		t.Errorf("被修剪任务的 todos 应清空，got %+v", got)
+	}
 }
