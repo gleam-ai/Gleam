@@ -11,8 +11,9 @@ import (
 var errSpaceUnavailable = errors.New("空间存储未启用")
 
 func (a *Agent) SpaceView() map[string]any {
+	workspace := a.Config().Workspace
 	if a.Spaces == nil {
-		return map[string]any{"active_id": conversation.DefaultSpaceID, "spaces": []any{}, "workspace": a.Cfg.Workspace}
+		return map[string]any{"active_id": conversation.DefaultSpaceID, "spaces": []any{}, "workspace": workspace}
 	}
 	list, err := a.Spaces.List()
 	if err != nil {
@@ -39,7 +40,7 @@ func (a *Agent) SpaceView() map[string]any {
 	return map[string]any{
 		"active_id": a.ActiveSpaceID(),
 		"spaces":    spacesOut,
-		"workspace": a.Cfg.Workspace,
+		"workspace": workspace,
 	}
 }
 

@@ -170,7 +170,7 @@ MUTATIONS = [
         "file": "internal/agent/webfacade.go",
         "edits": [
             (
-                """	if err := SaveTaskResult(a.Cfg.DataDir, g); err != nil {
+                """	if err := SaveTaskResult(dataDir, g); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 改动清单已还原但归档没更新（下次读档案会看不到这一位）：%v\\n", err)
 	}
 """,
@@ -203,7 +203,7 @@ MUTATIONS = [
         "file": "internal/agent/rungoal.go",
         "edits": [
             (
-                """			DataDir:        a.Cfg.DataDir,
+                """			DataDir:        cfg.DataDir,
 			OnUsage:        a.BumpUsage,
 """,
                 """			OnUsage:        a.BumpUsage,

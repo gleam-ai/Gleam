@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -230,6 +232,38 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) Apply(m map[string]any) { c.apply(m) }
+
+// Clone returns a deep copy: every slice and map is freshly allocated, so the
+// copy can be mutated without touching the original. Hot-reload publishes
+// clones (see agent.updateConfig); a published Config must never be mutated in
+// place, because readers hold it without locks.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	out.LLM.Tiers = maps.Clone(c.LLM.Tiers)
+	out.LLM.Models = slices.Clone(c.LLM.Models)
+	out.Safety.TrustedPaths = slices.Clone(c.Safety.TrustedPaths)
+	out.Safety.TrustedTools = slices.Clone(c.Safety.TrustedTools)
+	out.Safety.ToolPermissions = maps.Clone(c.Safety.ToolPermissions)
+	if c.Safety.Hooks != nil {
+		out.Safety.Hooks = slices.Clone(c.Safety.Hooks)
+		for i := range out.Safety.Hooks {
+			out.Safety.Hooks[i].Tools = slices.Clone(c.Safety.Hooks[i].Tools)
+		}
+	}
+	out.WorkspaceRecents = slices.Clone(c.WorkspaceRecents)
+	if c.MCP != nil {
+		out.MCP = slices.Clone(c.MCP)
+		for i := range out.MCP {
+			out.MCP[i].Args = slices.Clone(c.MCP[i].Args)
+			out.MCP[i].Env = maps.Clone(c.MCP[i].Env)
+			out.MCP[i].Headers = maps.Clone(c.MCP[i].Headers)
+		}
+	}
+	return &out
+}
 
 func (c *Config) Snapshot() types.ConfigSnapshot {
 	if c == nil {

@@ -97,9 +97,9 @@ MUTATIONS = [
         "file": "internal/agent/cues.go",
         "edits": [
             (
-                "\tkept := loadCueStore(a.Cfg.DataDir)",
+                "\tkept := loadCueStore(dataDir)",
                 '\ta.RunGoal(nil, types.GoalRequest{Goal: "顺手把这件事做了"})\n'
-                "\tkept := loadCueStore(a.Cfg.DataDir)",
+                "\tkept := loadCueStore(dataDir)",
             )
         ],
         "targets": [CUE_CHECK],

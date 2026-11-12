@@ -390,7 +390,7 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		result := <-done
 		cancel()
-		if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
+		if err := agent.SaveTaskResult(s.Agent.Config().DataDir, result); err != nil {
 			fmt.Fprintf(os.Stderr, "[gleam] 界面任务未存档：%v\n", err)
 		}
 		s.mu.Lock()
@@ -401,8 +401,8 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 		s.broadcast(newEvent("completed", result))
 	}()
 	resp := map[string]any{"task_id": taskID, "status": "running"}
-	if s.Agent.Cfg.LLM.Provider != "mock" {
-		if key, storedHost := agent.LLMKeyFor(s.Agent.Cfg, s.Agent.Creds, s.Agent.Cfg.LLM.BaseURL, ""); key == "" {
+	if cfg := s.Agent.Config(); cfg.LLM.Provider != "mock" {
+		if key, storedHost := agent.LLMKeyFor(cfg, s.Agent.Creds, cfg.LLM.BaseURL, ""); key == "" {
 			if storedHost != "" {
 				resp["warning"] = fmt.Sprintf("当前接入主机没有可用密钥（本机存着的是发给 %s 的那把）。密钥按接入主机绑定，请为现在的厂商重新填一次。", storedHost)
 			} else {
@@ -447,7 +447,7 @@ func (s *Server) handleGoalList(w http.ResponseWriter, _ *http.Request) {
 		seen[t.ID] = true
 	}
 	s.mu.Unlock()
-	archived, skipped, err := agent.ListTaskResults(s.Agent.Cfg.DataDir, listArchiveLimit)
+	archived, skipped, err := agent.ListTaskResults(s.Agent.Config().DataDir, listArchiveLimit)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 任务归档列表读不动：%v\n", err)
 	}
@@ -486,7 +486,7 @@ func (s *Server) handleGoalGet(w http.ResponseWriter, r *http.Request) {
 var safeIDChars = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func (s *Server) archivedTask(id string) (*taskInfo, bool) {
-	g, err := agent.ReadTaskResult(s.Agent.Cfg.DataDir, id)
+	g, err := agent.ReadTaskResult(s.Agent.Config().DataDir, id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 任务归档 %s 读不动：%v\n", id, err)
 		return nil, false
@@ -1329,8 +1329,8 @@ func (s *Server) handleGoStatusSet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOnboardingGet(w http.ResponseWriter, _ *http.Request) {
 	needs := false
-	if s.Agent.Cfg.LLM.Provider != "mock" {
-		key, _ := agent.LLMKeyFor(s.Agent.Cfg, s.Agent.Creds, s.Agent.Cfg.LLM.BaseURL, "")
+	if cfg := s.Agent.Config(); cfg.LLM.Provider != "mock" {
+		key, _ := agent.LLMKeyFor(cfg, s.Agent.Creds, cfg.LLM.BaseURL, "")
 		needs = key == ""
 	}
 	writeJSON(w, 200, map[string]any{

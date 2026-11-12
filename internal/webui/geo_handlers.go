@@ -28,8 +28,8 @@ func (s *Server) handleGEOHistory(w http.ResponseWriter, r *http.Request) {
 		total, avg, best = s.Agent.GEO.Stats()
 	}
 	enabled := true
-	if s.Agent.Cfg != nil {
-		enabled = s.Agent.Cfg.Agent.GEOEnabled
+	if cfg := s.Agent.Config(); cfg != nil {
+		enabled = cfg.Agent.GEOEnabled
 	}
 	writeJSON(w, 200, map[string]any{
 		"records":    records,
@@ -61,7 +61,8 @@ func (s *Server) handleGEOAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "内容过长，请控制在 %d 字以内", maxGEOAnalyzeRunes)
 		return
 	}
-	if s.Agent.LLM == nil {
+	client := s.Agent.PrimaryLLM()
+	if client == nil {
 		writeErr(w, 503, "未配置模型，无法分析")
 		return
 	}
@@ -69,7 +70,7 @@ func (s *Server) handleGEOAnalyze(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 
-	suggestion, err := geo.NewAnalyzer(s.Agent.LLM).Analyze(ctx, content)
+	suggestion, err := geo.NewAnalyzer(client).Analyze(ctx, content)
 	if err != nil {
 		writeErr(w, 502, "%v", err)
 		return

@@ -83,7 +83,7 @@ func (s *Service) handleInitialize(_ context.Context, _ json.RawMessage) (any, *
 	return map[string]any{
 		"name":    "gleam",
 		"version": buildinfo.Version,
-		"model":   s.Agent.LLM.Name(),
+		"model":   s.Agent.PrimaryLLM().Name(),
 		"capabilities": map[string]any{
 			"goal":      true,
 			"tools":     true,
@@ -226,7 +226,7 @@ func (s *Service) pruneTasksLocked() {
 }
 
 func (s *Service) saveTaskResult(result *types.GoalResult) {
-	if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
+	if err := agent.SaveTaskResult(s.Agent.Config().DataDir, result); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 任务未存档：%v\n", err)
 	}
 }

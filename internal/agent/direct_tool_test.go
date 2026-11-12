@@ -28,7 +28,7 @@ func TestDirectToolCall_FreezesRootsAndShowsArgs(t *testing.T) {
 	}, func(req types.ApprovalRequest) types.ApprovalResponse {
 		approval = req
 		// Simulate a workspace hot-switch while the user is deciding.
-		a.FileTools.Roots = []string{workB}
+		a.FileTools.SetRoots([]string{workB})
 		a.Gate.SetWorkspaceRoots([]string{workB})
 		return types.ApprovalResponse{Approved: true}
 	})

@@ -45,12 +45,12 @@ func (a *Agent) WorktreesView() map[string]any {
 	var enabled, fetch, autoDelete bool
 	var maxCount int
 	ws := ""
-	if a.Cfg != nil {
-		ws = a.Cfg.Workspace
-		enabled = a.Cfg.Worktrees.Enabled
-		fetch = a.Cfg.Worktrees.FetchBeforeCreate
-		autoDelete = a.Cfg.Worktrees.AutoDelete
-		maxCount = a.Cfg.Worktrees.MaxCount
+	if cfg := a.Config(); cfg != nil {
+		ws = cfg.Workspace
+		enabled = cfg.Worktrees.Enabled
+		fetch = cfg.Worktrees.FetchBeforeCreate
+		autoDelete = cfg.Worktrees.AutoDelete
+		maxCount = cfg.Worktrees.MaxCount
 	}
 	return map[string]any{
 		"enabled": enabled, "fetch_before_create": fetch,
@@ -70,13 +70,16 @@ func (a *Agent) RemoveWorktree(taskID string, force bool) error {
 }
 
 func (a *Agent) worktreeManager() *worktree.Manager {
-	if a.Cfg == nil || strings.TrimSpace(a.Cfg.DataDir) == "" {
+	cfg := a.Config()
+	if cfg == nil || strings.TrimSpace(cfg.DataDir) == "" {
 		return nil
 	}
 	return &worktree.Manager{
-		DataDir:      a.Cfg.DataDir,
-		BranchPrefix: func() string { return a.Cfg.Git.BranchPrefix },
-		Fetch:        func() bool { return a.Cfg.Worktrees.FetchBeforeCreate },
+		DataDir: cfg.DataDir,
+		// Read at call time, not capture time: the manager outlives this call
+		// and must see settings hot-reloaded after it was built.
+		BranchPrefix: func() string { return a.Config().Git.BranchPrefix },
+		Fetch:        func() bool { return a.Config().Worktrees.FetchBeforeCreate },
 		Egress: func(host string, n int) {
 			if a.Gate != nil {
 				a.Gate.RecordEgress("git.remote", host, n)
@@ -87,13 +90,14 @@ func (a *Agent) worktreeManager() *worktree.Manager {
 
 func (a *Agent) isolateForTask(ctx context.Context, req types.GoalRequest, taskID string, notify func(phase, msg string, pct int, kind string)) isolation {
 	cwd := a.workspaceOf(req)
-	if a.Cfg == nil || !a.Cfg.Worktrees.Enabled {
+	cfg := a.Config()
+	if cfg == nil || !cfg.Worktrees.Enabled {
 		return isolation{cwd: cwd}
 	}
 	if v, ok := req.Context["cwd"].(string); ok && strings.TrimSpace(v) != "" {
 		return isolation{cwd: cwd}
 	}
-	ws := strings.TrimSpace(a.Cfg.Workspace)
+	ws := strings.TrimSpace(cfg.Workspace)
 	if ws == "" {
 		notify("plan", "已开启 worktree 隔离，但还没选工作区：这次没有可建副本的仓库，在工作区里直接执行", 2, "warn")
 		return isolation{cwd: cwd}
@@ -116,7 +120,8 @@ func (a *Agent) isolateForTask(ctx context.Context, req types.GoalRequest, taskI
 }
 
 func (a *Agent) settleWorktree(taskID string) {
-	if a.Cfg == nil || !a.Cfg.Worktrees.Enabled {
+	cfg := a.Config()
+	if cfg == nil || !cfg.Worktrees.Enabled {
 		return
 	}
 	m := a.worktreeManager()
@@ -128,7 +133,7 @@ func (a *Agent) settleWorktree(taskID string) {
 		return
 	}
 	ctx := context.Background()
-	if a.Cfg.Worktrees.AutoDelete {
+	if cfg.Worktrees.AutoDelete {
 		dirty, detail, err := worktree.Dirty(ctx, meta.Path)
 		switch {
 		case err != nil:
@@ -141,7 +146,7 @@ func (a *Agent) settleWorktree(taskID string) {
 			}
 		}
 	}
-	if keep := a.Cfg.Worktrees.MaxCount; keep > 0 {
+	if keep := cfg.Worktrees.MaxCount; keep > 0 {
 		removed, keptDirty := m.PruneClean(ctx, keep)
 		if len(removed) > 0 {
 			a.notifyWorktree("worktree 超过上限，已清掉最旧的 "+strconv.Itoa(len(removed))+" 个", "info")

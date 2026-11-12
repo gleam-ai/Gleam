@@ -197,7 +197,8 @@ func (a *Agent) checkDelivery() ReadinessItem {
 		}
 	}
 	chatCheck := "关闭"
-	if a.Cfg.Agent.ChatAcceptance {
+	cfg := a.Config()
+	if cfg.Agent.ChatAcceptance {
 		chatCheck = "开启"
 	}
 	ev := []string{
@@ -217,7 +218,7 @@ func (a *Agent) checkDelivery() ReadinessItem {
 		it.Status = ReadyWarn
 		it.Summary = "只有只读工具：能查不能改，交付不了东西"
 		it.Fix = "补上 file.write / shell.exec 这类产出型工具。"
-	case !a.Cfg.Agent.ChatAcceptance:
+	case !cfg.Agent.ChatAcceptance:
 		it.Status = ReadyWarn
 		it.Summary = "工具齐备，但对话模式没有独立自检，问答结果无人把关"
 		it.Fix = "打开设置里的 agent.chat_acceptance（对话模式回答后由辅助模型做一次独立自检）。"
@@ -229,7 +230,9 @@ func (a *Agent) checkDelivery() ReadinessItem {
 }
 
 func (a *Agent) checkModelLock() ReadinessItem {
-	tiers := a.Cfg.LLM.Tiers
+	cfg := a.Config()
+	primary := a.PrimaryLLM()
+	tiers := cfg.LLM.Tiers
 	names := make([]string, 0, len(tiers))
 	for k := range tiers {
 		names = append(names, k)
@@ -251,8 +254,8 @@ func (a *Agent) checkModelLock() ReadinessItem {
 		}
 	}
 	fast := "未配置（辅助调用走主模型）"
-	if a.FastLLM != nil {
-		fast = a.FastLLM.Name()
+	if fc := a.FastClient(); fc != nil {
+		fast = fc.Name()
 	}
 	verifyDesc := fmt.Sprintf("%s（与执行者同源：%s 档未配置或与执行者同模型）", a.VerifyModel(""), DefaultVerifyTier)
 	if a.verifyIndependent("") {
@@ -271,7 +274,7 @@ func (a *Agent) checkModelLock() ReadinessItem {
 
 	it := ReadinessItem{Evidence: ev}
 	switch {
-	case a.LLM == nil:
+	case primary == nil:
 		it.Status = ReadyFail
 		it.Summary = "没有可用的模型客户端"
 		it.Fix = "先在设置页配置厂商与模型。"
@@ -328,10 +331,11 @@ func (a *Agent) checkAuditSplit() ReadinessItem {
 		channelDesc = "未接入"
 	}
 
+	cfg := a.Config()
 	ev := []string{
 		fmt.Sprintf("统一门控：%d 个工具全部经同一 Gate 裁决（门面视图 %d 条）", toolCount, listed),
 		fmt.Sprintf("权限分布：只读 %d / 需审批 %d / 完全放行 %d", readonly, writable, executable),
-		fmt.Sprintf("安全模式：%s（审批超时 %d 秒）", a.Cfg.Safety.Mode, a.Cfg.Safety.ApprovalTimeoutSecs),
+		fmt.Sprintf("安全模式：%s（审批超时 %d 秒）", cfg.Safety.Mode, cfg.Safety.ApprovalTimeoutSecs),
 		fmt.Sprintf("审批通道：%s", channelDesc),
 		fmt.Sprintf("审计留痕：%d 条（放行 %d / 拦截 %d）", len(audit), approved, denied),
 		"审计覆盖的是需要人裁决的动作：审批结果与审核模型拦截",
@@ -410,7 +414,7 @@ func (a *Agent) checkBusinessGap() ReadinessItem {
 			convos = len(l)
 		}
 	}
-	ws := strings.TrimSpace(a.Cfg.Workspace)
+	ws := strings.TrimSpace(a.Config().Workspace)
 	wsDesc := ws
 	if wsDesc == "" {
 		wsDesc = "未设置（使用默认目录）"
@@ -538,19 +542,20 @@ func (a *Agent) measurePromptPrefix() (stable, shortest, lenA, lenB int, layoutO
 		return 0, 0, 0, 0, false
 	}
 	role := "general"
+	cfg := a.Config()
 	build := func(goal, cwd string) string {
 		p := &Planner{
 			Reg:            a.Reg,
-			MaxSteps:       a.Cfg.Agent.MaxSteps,
-			Style:          a.Cfg.Persona.Style,
+			MaxSteps:       cfg.Agent.MaxSteps,
+			Style:          cfg.Persona.Style,
 			TaskMode:       string(types.TaskWork),
 			Role:           role,
-			MaxToolSchemas: a.Cfg.Agent.MaxToolSchemas,
+			MaxToolSchemas: cfg.Agent.MaxToolSchemas,
 			RoleTools:      FindRole(role).Tools,
 		}
 		return p.buildSystemPrompt(goal, cwd, nil, nil, "", "")
 	}
-	cwdA := a.Cfg.Workspace
+	cwdA := cfg.Workspace
 	pa := build("分析上季度销售数据，输出一份带结论的报告", cwdA)
 	pb := build("重构登录模块的鉴权逻辑，并补充单元测试", filepath.Join(cwdA, "sub"))
 
@@ -633,16 +638,17 @@ func (a *Agent) checkExtensibleMemory() ReadinessItem {
 	if a.Skills != nil {
 		skills = len(a.Skills.List())
 	}
+	cfg := a.Config()
 	compress := "关闭"
-	if a.Cfg.Agent.ContextCompress {
+	if cfg.Agent.ContextCompress {
 		compress = "开启"
 	}
 
 	ev := []string{
-		fmt.Sprintf("长期记忆：%d 条（上限 %d）", items, a.Cfg.Memory.MaxItems),
+		fmt.Sprintf("长期记忆：%d 条（上限 %d）", items, cfg.Memory.MaxItems),
 		fmt.Sprintf("短期窗口：%d / %d 轮（溢出 %d 轮待压缩）", st.ShortTurns, st.ShortCap, st.Overflow),
 		fmt.Sprintf("上下文压缩：%s（累计节省约 %d token）", compress, st.SavedTokens),
-		fmt.Sprintf("扩展点：MCP 服务器 %d 个；技能 %d 个；模型档位 %d 档", len(a.Cfg.MCP), skills, len(a.Cfg.LLM.Tiers)),
+		fmt.Sprintf("扩展点：MCP 服务器 %d 个；技能 %d 个；模型档位 %d 档", len(cfg.MCP), skills, len(cfg.LLM.Tiers)),
 		"压缩机制：超出窗口的对话被摘要进滚动上下文，而不是直接丢弃",
 	}
 
@@ -651,7 +657,7 @@ func (a *Agent) checkExtensibleMemory() ReadinessItem {
 		bd.State, bd.Total, bd.StateShare()*100))
 	it := ReadinessItem{Evidence: ev}
 	switch {
-	case !a.Cfg.Agent.ContextCompress:
+	case !cfg.Agent.ContextCompress:
 		it.Status = ReadyWarn
 		it.Summary = "上下文压缩关闭：长任务会撑爆窗口，或把早期对话整段丢掉"
 		it.Fix = "打开设置里的 agent.context_compress。"
@@ -671,13 +677,14 @@ func (a *Agent) sampleStateShare() types.ContextBreakdown {
 	if a.Reg == nil {
 		return types.ContextBreakdown{}
 	}
+	cfg := a.Config()
 	p := &Planner{
 		Reg:            a.Reg,
-		MaxSteps:       a.Cfg.Agent.MaxSteps,
-		Style:          a.Cfg.Persona.Style,
+		MaxSteps:       cfg.Agent.MaxSteps,
+		Style:          cfg.Persona.Style,
 		TaskMode:       string(types.TaskWork),
 		Role:           "general",
-		MaxToolSchemas: a.Cfg.Agent.MaxToolSchemas,
+		MaxToolSchemas: cfg.Agent.MaxToolSchemas,
 		RoleTools:      FindRole("general").Tools,
 	}
 	recent := make([]memory.Turn, 0, recentTurnsInjected)
@@ -693,7 +700,7 @@ func (a *Agent) sampleStateShare() types.ContextBreakdown {
 	for i := 0; i < memoryHitsInjected; i++ {
 		relevant = append(relevant, memory.Hit{Content: strings.Repeat("这", memoryHitContentCap)})
 	}
-	_, bd := p.buildSystemPromptMeasured("整理下载目录并汇总本周新增文件", a.Cfg.Workspace, recent, relevant, summary, "")
+	_, bd := p.buildSystemPromptMeasured("整理下载目录并汇总本周新增文件", cfg.Workspace, recent, relevant, summary, "")
 	return bd
 }
 

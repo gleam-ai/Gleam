@@ -29,8 +29,8 @@ func TestWebUI_WorkspaceViewAndSet(t *testing.T) {
 	if f.agent.Cfg.Workspace != filepath.Clean(newWs) {
 		t.Error("cfg.Workspace 未更新")
 	}
-	if len(f.agent.FileTools.Roots) != 1 || f.agent.FileTools.Roots[0] != filepath.Clean(newWs) {
-		t.Errorf("FileTools.Roots = %v", f.agent.FileTools.Roots)
+	if roots := f.agent.FileTools.Roots(); len(roots) != 1 || roots[0] != filepath.Clean(newWs) {
+		t.Errorf("FileTools.Roots = %v", roots)
 	}
 
 	noApproval := func(types.ApprovalRequest) types.ApprovalResponse {
@@ -81,8 +81,8 @@ func TestWebUI_WorkspaceClear(t *testing.T) {
 	if f.agent.Cfg.Workspace != "" {
 		t.Errorf("cfg.Workspace = %q，应为空", f.agent.Cfg.Workspace)
 	}
-	if len(f.agent.FileTools.Roots) != 0 {
-		t.Errorf("FileTools.Roots = %v，应为空", f.agent.FileTools.Roots)
+	if roots := f.agent.FileTools.Roots(); len(roots) != 0 {
+		t.Errorf("FileTools.Roots = %v，应为空", roots)
 	}
 	fresh := config.Default()
 	if err := config.LoadOverlay(fresh, filepath.Join(f.dataDir, config.OverlayFile)); err != nil {

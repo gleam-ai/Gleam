@@ -52,8 +52,9 @@ func (a *Agent) grantBudget(taskID string) {
 		b = &taskBudget{}
 		a.budget[taskID] = b
 	}
-	b.extraCalls += a.Cfg.Agent.MaxLLMCallsPerTask
-	b.extraTokens += a.Cfg.Agent.MaxTokensPerTask
+	cfg := a.Config()
+	b.extraCalls += cfg.Agent.MaxLLMCallsPerTask
+	b.extraTokens += cfg.Agent.MaxTokensPerTask
 }
 
 // taskStarted returns the task's start time.
@@ -69,10 +70,14 @@ func (a *Agent) taskStarted(taskID string) (time.Time, bool) {
 // overBudget reports whether the task is over budget, returning the reason
 // (empty means within budget). No limit applies when all budgets are 0.
 func (a *Agent) overBudget(taskID string) string {
-	if a == nil || a.Cfg == nil {
+	if a == nil {
 		return ""
 	}
-	cfg := a.Cfg.Agent
+	c := a.Config()
+	if c == nil {
+		return ""
+	}
+	cfg := c.Agent
 	if cfg.MaxLLMCallsPerTask <= 0 && cfg.MaxTokensPerTask <= 0 && cfg.MaxTaskDurationSecs <= 0 {
 		return ""
 	}
@@ -139,10 +144,15 @@ func (a *Agent) confirmDeepReview(ctx context.Context, taskID, reason string) bo
 // reviewer builds the action reviewer: nil when review is off or no auxiliary
 // model is configured (no interception).
 func (a *Agent) reviewer() Reviewer {
-	if a == nil || a.Cfg == nil || !a.Cfg.Safety.AIReview || a.FastLLM == nil {
+	if a == nil {
 		return nil
 	}
-	return &llmReviewer{LLM: a.FastLLM, TaskID: ""}
+	c := a.Config()
+	fast := a.FastClient()
+	if c == nil || !c.Safety.AIReview || fast == nil {
+		return nil
+	}
+	return &llmReviewer{LLM: fast, TaskID: ""}
 }
 
 // Anti-spin (in-place spinning detection across replans)
@@ -153,10 +163,14 @@ func (a *Agent) reviewer() Reviewer {
 // deduplication are not counted twice. Only steps that actually ran count:
 // steps skipped due to a failed dependency are not an attempt.
 func (a *Agent) noteSteps(taskID string, steps []types.StepResult) (fp string, rounds int) {
-	if a == nil || a.Cfg == nil || a.Cfg.Agent.StuckThreshold <= 0 {
+	if a == nil {
 		return "", 0
 	}
-	th := a.Cfg.Agent.StuckThreshold
+	c := a.Config()
+	if c == nil || c.Agent.StuckThreshold <= 0 {
+		return "", 0
+	}
+	th := c.Agent.StuckThreshold
 	seen := make(map[string]struct{}, len(steps))
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()

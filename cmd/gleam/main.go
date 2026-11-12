@@ -374,24 +374,17 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 		reg.MustRegister(std.NewScheduleList(&schedAdapter{a: a}))
 		reg.MustRegister(std.NewScheduleDelete(&schedAdapter{a: a}))
 	}
-	reg.MustRegister(std.NewSkillList(&stepSkillAdapter{s: skills}, &mdSkillAdapter{workspace: func() string { return a.Cfg.Workspace }}))
+	reg.MustRegister(std.NewSkillList(&stepSkillAdapter{s: skills}, &mdSkillAdapter{workspace: func() string { return a.Config().Workspace }}))
 	reg.MustRegister(std.NewSkillRun(&stepSkillAdapter{s: skills}, a))
-	reg.MustRegister(std.NewSkillOpen(&mdSkillAdapter{workspace: func() string { return a.Cfg.Workspace }}))
+	reg.MustRegister(std.NewSkillOpen(&mdSkillAdapter{workspace: func() string { return a.Config().Workspace }}))
 	reg.MustRegister(std.NewAgentDelegate(a))
 	reg.MustRegister(std.NewSessionSearch(convoStore))
 	reg.MustRegister(cua.NewComputerUse())
 	imageTool := imagetools.NewGenerate(
 		func(ctx context.Context) (string, string, string, error) {
-			// Resolve the key by host (same store as the main model); fetch it
-			// fresh each call so a new key takes effect immediately.
-			baseURL := a.Cfg.LLM.BaseURL
-			// An env/flag injected key (GLEAM_API_KEY) carries no host scope yet;
-			// mark it to this base_url first or the scope check below drops it.
-			agent.MarkInjectedLLMKey(a.Cfg, baseURL)
-			key, _ := agent.BindLLMKey(a.Cfg, credStore, baseURL, "", false)
-			return baseURL, key, a.Cfg.LLM.ImageModel, nil
+			return a.ImageLLMTarget()
 		},
-		func(ctx context.Context) []string { return fileTools.Roots },
+		func(ctx context.Context) []string { return fileTools.Roots() },
 	)
 	imageTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("image.generate", host, nbytes) }
 	reg.MustRegister(imageTool)

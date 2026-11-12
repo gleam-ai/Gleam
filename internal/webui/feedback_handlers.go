@@ -229,7 +229,7 @@ func (s *Server) feedbackSink() feedback.Sink {
 }
 
 func (s *Server) feedbackSecrets() []string {
-	cfg := s.Agent.Cfg
+	cfg := s.Agent.Config()
 	out := []string{cfg.Workspace, cfg.DataDir}
 	if key, _ := agent.LLMKeyFor(cfg, s.Agent.Creds, cfg.LLM.BaseURL, ""); key != "" {
 		out = append(out, key)
@@ -241,7 +241,7 @@ func (s *Server) feedbackSecrets() []string {
 }
 
 func (s *Server) feedbackContext(taskID string) types.FeedbackContext {
-	cfg := s.Agent.Cfg
+	cfg := s.Agent.Config()
 	ctx := types.FeedbackContext{
 		AppVersion: buildinfo.Version,
 		GoVersion:  runtime.Version(),
@@ -279,7 +279,7 @@ func (s *Server) recentTaskResult(taskID string) *types.GoalResult {
 	if res := s.newestMemoryTask(); res != nil {
 		return res
 	}
-	archived, _, err := agent.ListTaskResults(s.Agent.Cfg.DataDir, 1)
+	archived, _, err := agent.ListTaskResults(s.Agent.Config().DataDir, 1)
 	if err != nil || len(archived) == 0 {
 		return nil
 	}

@@ -21,10 +21,14 @@ const (
 )
 
 func (a *Agent) shouldChatCheck(goal, answer string) bool {
-	if a == nil || a.Cfg == nil || !a.Cfg.Agent.ChatAcceptance {
+	if a == nil {
 		return false
 	}
-	if a.FastLLM == nil {
+	c := a.Config()
+	if c == nil || !c.Agent.ChatAcceptance {
+		return false
+	}
+	if a.FastClient() == nil {
 		return false
 	}
 	if strings.TrimSpace(answer) == "" {
@@ -37,10 +41,14 @@ func (a *Agent) chatSelfCheck(ctx context.Context, goal, answer, taskID string) 
 	if !a.shouldChatCheck(goal, answer) {
 		return nil, nil, chatCheckSkipped
 	}
+	fast := a.FastClient()
+	if fast == nil {
+		return nil, nil, chatCheckSkipped
+	}
 	cctx, cancel := context.WithTimeout(ctx, chatCheckTimeout)
 	defer cancel()
 
-	text, err := a.FastLLM.Chat(cctx, llm.ChatRequest{
+	text, err := fast.Chat(cctx, llm.ChatRequest{
 		System:      chatCheckPrompt(goal, answer),
 		Messages:    []llm.Message{{Role: llm.RoleUser, Content: "请核对。"}},
 		Temperature: 0.1,
