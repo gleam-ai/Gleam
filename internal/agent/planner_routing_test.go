@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -81,6 +82,42 @@ func TestRelevantToolsIsNotTheMenu(t *testing.T) {
 	}
 	if got := p.RelevantTools("随便聊聊"); len(got) != 0 {
 		t.Fatalf("打分相关集里不该有 reply（它不参与打分），实际 %v", got)
+	}
+}
+
+func TestURLGoalKeepsFetchAndCUA(t *testing.T) {
+	tools := []*fakeTool{
+		{name: "reply", desc: "直接向用户回复文字"},
+		{name: "web.fetch", desc: "抓取网页内容并提取正文文本（只读）"},
+		{name: "computer_use", desc: "控制桌面应用：截屏、点击屏幕坐标、输入文本、启动应用或打开网址。"},
+	}
+	for i := 0; i < 15; i++ {
+		tools = append(tools, &fakeTool{name: fmt.Sprintf("filler.%02d", i), desc: "与目标无关的工具"})
+	}
+	p := &Planner{Reg: routingRegistry(tools...), MaxToolSchemas: 12}
+
+	goal := "看看 https://example.com/article 这篇文章讲了什么"
+	got := p.SelectTools(goal)
+	has := func(name string) bool {
+		for _, n := range got {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("web.fetch") {
+		t.Fatalf("目标含 URL 时必须附 web.fetch 的 schema（辅助筛选超时也不能丢），实际 %v", got)
+	}
+	if !has("computer_use") {
+		t.Fatalf("web.fetch 撞反爬墙时的兜底是 computer_use，两者必须同时附上，实际 %v", got)
+	}
+
+	plain := p.SelectTools("写一首关于春天的诗")
+	for _, n := range plain {
+		if n == "web.fetch" {
+			t.Fatalf("无 URL 的目标不该强塞 web.fetch，实际 %v", plain)
+		}
 	}
 }
 
