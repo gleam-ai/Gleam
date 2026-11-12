@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.34](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.35](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -24,6 +24,14 @@ Gleam is not a chatbot. It's an agent that **plans tasks, executes them with too
 Built from scratch in Go with **zero third-party dependencies**, the core is a single **~10 MB** binary. The desktop shell (Electron) wraps it into a double-click installer with bundled Node and uv runtimes.
 
 <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
+
+## What's new in v0.0.35
+
+- **Links actually fetch**: when a goal contains a URL, the planner now sees the `web.fetch` and `computer_use` schemas — fixing "send a link, nothing gets fetched, Computer Use never fires"
+- **MCP retry leaves no dead tools**: a retry unregisters the old tools first, so a failed reconnect or a renamed server tool can't keep pointing at a closed client
+- **OAuth that tells the truth**: rapid re-login no longer leaks the previous callback listener, and the callback page only reports success after the token is actually saved
+- **Key clearing is scoped**: "clear key" with no host no longer wipes every vendor's vault; `host:443` and `host` resolve to one key slot with legacy migration
+- **Questions survive a reload**: a new `GET /api/questions` recovers still-pending prompts after a view switch or reconnect, instead of losing them to a 5-minute timeout
 
 ## What's new in v0.0.34
 
