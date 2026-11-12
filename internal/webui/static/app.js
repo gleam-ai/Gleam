@@ -566,7 +566,7 @@ let currentTask = 'work';
 let currentRole = 'general';
 
 const PERM_FRIENDLY = {
-  auto: '完全访问',
+  auto: '自动审批',
   plan_first: '请我批准',
   interactive: '请我批准',
   full_access: '完全访问',
@@ -800,7 +800,7 @@ async function submitGoal() {
     goal: displayGoal,
     mode: currentMode,
     task: currentTask,
-    role: currentRole,
+    role: currentTask === 'code' ? 'coder' : currentRole,
     site: siteMode,
     refs: refs.map((r) => ({
       kind: r.kind,
@@ -1572,11 +1572,6 @@ function refreshWorkbench() {
   });
 
   const attention = counts.attention;
-  // 徽标数的是"还能决定的审批"，和上面 attention 用同一个判据（任务已定格的残留卡片不算）；
-  // 工具页直调的审批没有任务归属，单独并入，否则这条计数会把它们漏掉。
-  pendingApprovals =
-    all.filter((task) => approvalCardOf(task)).length +
-    document.querySelectorAll('.approval-card.standalone-approval').length;
 
   const feed = $('#goal-feed');
   // Conversation view owns the feed: task cards live in `tasks` and must not be
@@ -2331,6 +2326,10 @@ function renderApproval(t, ap) {
 }
 
 async function resolveApproval(id, approved, box, task) {
+  // A second click would hit the 404 of an already-decided request: lock while
+  // in flight, release on failure.
+  if (box.dataset.busy) return;
+  box.dataset.busy = '1';
   try {
     await api('POST', `/api/approvals/${id}`, {
       approved,
@@ -2357,6 +2356,7 @@ async function resolveApproval(id, approved, box, task) {
     // 看到同一个待办的不同状态（面板说还有，竖签说没了，或反过来）。
     LiveRail.refresh();
   } catch (err) {
+    delete box.dataset.busy;
     toast(err.message, 'error');
   }
 }
@@ -2488,9 +2488,30 @@ function retireQuestion(id, note) {
   });
 }
 
+// View switches and feed clears wipe the question card while the server still
+// waits for an answer. Same source of truth as approvals: GET /api/questions --
+// retire the dead ones, redraw the live ones (renderQuestion is idempotent).
+async function refreshQuestions() {
+  try {
+    const { questions } = await api('GET', '/api/questions');
+    const list = questions || [];
+    const alive = new Set(list.map((q) => q.id));
+    document.querySelectorAll('[data-question-id]').forEach((box) => {
+      if (alive.has(box.dataset.questionId)) return;
+      box.classList.remove('approval-card');
+      box.removeAttribute('data-question-id');
+      box.replaceChildren(el('div', 'approval-resolved', '该问题已结束'));
+    });
+    for (const q of list) renderQuestion(q);
+  } catch {}
+}
+
 const todoCards = new Map();
 function renderTodos(d) {
   if (!d || !d.task_id) return;
+  // Once settled the list is archived in the task record; a late snapshot must
+  // not sprout a fresh card.
+  if (isTaskFinished(d.task_id)) return;
   const feed = $('#goal-feed');
   if (!feed) return;
   let box = todoCards.get(d.task_id);
@@ -2515,25 +2536,25 @@ function renderTodos(d) {
   box.appendChild(list);
 }
 
-let pendingApprovals = 0;
-function updateApprovalBadge(delta) {
-  pendingApprovals = Math.max(0, pendingApprovals + delta);
-}
-
-// 从后端重新拉取审批列表并刷新计数
+// Refetch the approval list to refresh the rail's pending section and badges.
 async function refreshApprovals() {
   try {
     const { approvals } = await api('GET', '/api/approvals');
-    pendingApprovals = (approvals || []).length;
-    updateApprovalBadge(0);
     LiveRail.approvals(approvals);
   } catch {
-    // 忽略错误，UI 已显示当前计数
+    // On failure keep the rail's last known state; no error toast.
   }
 }
 
 function applyResult(taskID, result) {
   markTaskFinished(taskID, result && result.status);
+  // The list is a running-progress artifact: drop it once the task settles, or
+  // every run piles another card onto the top of the feed.
+  const todoBox = todoCards.get(taskID);
+  if (todoBox) {
+    todoBox.remove();
+    todoCards.delete(taskID);
+  }
   const t = tasks.get(taskID);
   if (!t) return;
   t.info.status = result.status;
@@ -2919,12 +2940,41 @@ function inlineMd(text) {
     (_, txt, url, title) =>
       `<a href="${safeHref(url)}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${txt}</a>`,
   );
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
-  s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
-  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  s = s.replace(/==([^=]+)==/g, '<mark>$1</mark>');
+  // Bare links: http(s) addresses pasted directly by the user/model must be
+  // clickable too. The alternation keeps generated <a> whole (no nested
+  // anchors) and other tags intact (never touch href/src), picking up only
+  // bare addresses outside tags; trailing ASCII punctuation is not part of
+  // the address.
+  s = s.replace(
+    /(<a\b[^>]*>[\s\S]*?<\/a>)|(<[^>]+>)|(https?:\/\/[A-Za-z0-9\-._~:/?#@!$&'*+,;=%[\]]+)/g,
+    (m, anchor, tag, url) => {
+      if (anchor || tag) return m;
+      const href = url.replace(/[.,;:!?]+$/, '');
+      return `<a href="${safeHref(href)}" target="_blank" rel="noopener noreferrer">${href}</a>${url.slice(href.length)}`;
+    },
+  );
+  // Emphasis passes must swallow whole tags first: otherwise the underscores
+  // in two <a target="_blank"> pair up across tags via _..._ and cut the
+  // attribute in half with <em> (the more links, the easier it blows up).
+  s = s.replace(/(<[^>]+>)|\*\*([^*]+)\*\*/g, (m, tag, body) =>
+    tag ? m : `<strong>${body}</strong>`,
+  );
+  s = s.replace(/(<[^>]+>)|__([^_]+)__/g, (m, tag, body) =>
+    tag ? m : `<strong>${body}</strong>`,
+  );
+  s = s.replace(
+    /(<[^>]+>)|(^|[^*])\*([^*\n]+)\*(?!\*)/g,
+    (m, tag, pre, body) => (tag ? m : `${pre}<em>${body}</em>`),
+  );
+  s = s.replace(/(<[^>]+>)|(^|[^_])_([^_\n]+)_(?!_)/g, (m, tag, pre, body) =>
+    tag ? m : `${pre}<em>${body}</em>`,
+  );
+  s = s.replace(/(<[^>]+>)|~~([^~]+)~~/g, (m, tag, body) =>
+    tag ? m : `<del>${body}</del>`,
+  );
+  s = s.replace(/(<[^>]+>)|==([^=]+)==/g, (m, tag, body) =>
+    tag ? m : `<mark>${body}</mark>`,
+  );
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => code[Number(i)] || '');
 }
 
@@ -2971,6 +3021,9 @@ async function loadGoals() {
   // sidebar, so the feed is reset to the hero before cards are loaded.
   $('#goal-feed').innerHTML = '';
   resetFeedToEmpty('', '', { home: true });
+  // The clear also wipes the question card while the server still waits:
+  // redraw it once.
+  refreshQuestions();
   try {
     const { goals } = await api('GET', '/api/goals');
     if (seq !== convoLoadSeq || viewingConvo) return;
@@ -3016,7 +3069,16 @@ function connectSSE() {
     if (sseOpened) resyncAfterReconnect().catch(() => {});
     sseOpened = true;
   };
-  es.onerror = () => setConn('down');
+  es.onerror = () => {
+    setConn('down');
+    // Native EventSource only auto-reconnects while CONNECTING; once CLOSED
+    // (e.g. sidecar restart) it stays silent forever -- revive it ourselves.
+    if (es.readyState === EventSource.CLOSED) {
+      setTimeout(() => {
+        if (sseConnection === es) connectSSE();
+      }, 3000);
+    }
+  };
   es.addEventListener('progress', async (e) => {
     const d = sseData(e);
     if (!d || !d.task_id) return;
@@ -3053,8 +3115,6 @@ function connectSSE() {
     if (viewingConvo) {
       if (!convoLive.has(ap.task_id)) {
         if (!currentConvo || t.info.conversation_id !== currentConvo.id) {
-          pendingApprovals++;
-          updateApprovalBadge(0);
           toast('有新的审批请求，请在左侧任务记录中打开对应对话', 'info');
           return;
         }
@@ -3080,7 +3140,11 @@ function connectSSE() {
   });
   es.addEventListener('todos', (e) => {
     const d = sseData(e);
-    if (d && d.task_id) renderTodos(d);
+    if (!d || !d.task_id) return;
+    // The conversation feed belongs to the current thread: another task's
+    // list must not be injected into it.
+    if (viewingConvo && !tasks.has(d.task_id)) return;
+    renderTodos(d);
   });
   es.addEventListener('tool', async (e) => {
     const d = sseData(e);
@@ -3166,6 +3230,9 @@ async function resyncAfterReconnect() {
   loadCues().catch(() => {});
   loadSchedules().catch(() => {});
   loadContext();
+  // Question cards are global, not invalidated by view switches: run this
+  // before the viewSeq early-returns.
+  refreshQuestions();
   let goals = [];
   let goalsLoaded = false;
   try {
@@ -3237,8 +3304,6 @@ async function resyncAfterReconnect() {
     const { approvals } = await api('GET', '/api/approvals');
     if (viewSeq !== convoLoadSeq) return;
     const list = (approvals || []).filter((ap) => !isTaskFinished(ap.task_id));
-    pendingApprovals = list.length;
-    updateApprovalBadge(0);
     LiveRail.approvals(list);
     // Approvals decided or timed out during the outage send no event back, so
     // stale cards still on the page must be invalidated in place; otherwise
@@ -5767,6 +5832,9 @@ function renderConvoMessages(c) {
   }
   scrollToBottom(false);
   refreshWorkbench();
+  // Rebuilding the thread wipes the global question card: redraw from the
+  // server so the task doesn't wait out the timeout.
+  refreshQuestions();
 }
 
 function appendMsgActs(bodyEl, m) {
@@ -9012,9 +9080,11 @@ const ShellLayout = (() => {
   return { closeHistory, syncHome };
 })();
 
-/* ---------- 输入框工具条：执行方式下拉 + 侧栏模式切换 + 附件 ----------
- * 下拉和侧栏开关都不存状态：真实状态仍在 #perm-seg / #task-seg 的 aria-pressed 上，
- * 这里只读它们来画按钮，改动也一律转成对那两组按钮的点击（同一条保存路径）。 */
+/* ---------- Composer toolbar: execution dropdown + sidebar mode switch + attach ----------
+ * Neither the dropdown nor the sidebar toggle holds state: the real state lives
+ * in #perm-list's aria-checked / #task-seg's aria-pressed. This only reads them
+ * to paint the button, and turns every change into a click on those two button
+ * groups (the same save path). */
 const ComposerControls = (() => {
   const permBtn = $('#cp-perm');
   const permPop = $('#cp-perm-pop');
@@ -9591,4 +9661,5 @@ const VoiceInput = (() => {
     syncRuntimeState(s);
   } catch {}
   await refreshApprovals();
+  await refreshQuestions();
 })();

@@ -2631,14 +2631,28 @@ function i18nNode(n) {
 }
 
 function i18nAttrs(el) {
-  if (i18nSkipped(el)) return;
+  // What we skip is "content": the text inside a container must not be
+  // rewritten. An element's own placeholder/title/aria-label are UI copy --
+  // a textarea's value is content, but we never touch value here, so skipping
+  // the whole textarea would leave its hint stuck in Chinese forever.
+  const parent = el.parentElement;
+  if (parent && parent.closest(I18N_SKIP)) return;
   for (const a of I18N_ATTRS) {
     const cur = el.getAttribute(a);
     if (cur == null) continue;
     const store = 'i18n' + a.replace(/-./g, (m) => m[1].toUpperCase());
-    const orig = el.dataset[store] != null ? el.dataset[store] : cur;
+    let orig = el.dataset[store];
+    // A JS-rewritten attribute is new source text: reusing the cached old
+    // original would overwrite the new value with the old translation (e.g.
+    // the key input's state-dependent "already set..." hint).
+    if (orig != null && cur !== orig && cur !== i18nText(orig, true))
+      orig = null;
+    if (orig == null) orig = cur;
     const en = i18nText(orig, true);
-    if (en == null) continue;
+    if (en == null) {
+      delete el.dataset[store];
+      continue;
+    }
     el.dataset[store] = orig;
     if (cur !== en) el.setAttribute(a, en);
   }
@@ -2663,7 +2677,9 @@ function i18nOneNode(n, restore) {
 
 function i18nWalk(root, restore) {
   if (!root) return;
-  if (!restore && i18nSkipped(root)) return;
+  // Content protection is decided per node (text via i18nOneNode, attrs via
+  // i18nAttrs): skipping the whole subtree would also miss a content
+  // container's own UI attributes (e.g. a textarea's placeholder).
   if (root.nodeType === Node.TEXT_NODE) {
     i18nOneNode(root, restore);
     return;
