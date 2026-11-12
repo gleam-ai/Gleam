@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -34,6 +35,8 @@ type pendingOAuth struct {
 	verifier      string
 	codeCh        chan string
 	errCh         chan error
+	resultCh      chan error
+	cancelCh      chan struct{}
 	redirect      string
 	expectedState string
 }
@@ -306,6 +309,8 @@ func (m *Manager) StartOAuth(provider string) (string, error) {
 	redirect := fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Port())
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
+	resultCh := make(chan error, 1)
+	cancelCh := make(chan struct{})
 	reject := func(w http.ResponseWriter, reason string) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, callbackPage(false, "登录失败："+reason))
@@ -331,13 +336,31 @@ func (m *Manager) StartOAuth(provider string) (string, error) {
 		}
 		codeCh <- code
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, callbackPage(true, "登录成功，可以回到 Gleam 了"))
+		// The token exchange decides success, not the arrival of the code:
+		// declaring victory here told users "logged in" while the session was
+		// never saved.
+		select {
+		case err := <-resultCh:
+			if err != nil {
+				_, _ = io.WriteString(w, callbackPage(false, "登录失败："+err.Error()))
+				return
+			}
+			_, _ = io.WriteString(w, callbackPage(true, "登录成功，可以回到 Gleam 了"))
+		case <-time.After(35 * time.Second):
+			_, _ = io.WriteString(w, callbackPage(true, "正在完成登录，请回到 Gleam 查看结果"))
+		}
 	})
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 
-	pending := &pendingOAuth{provider: provider, verifier: verifier, codeCh: codeCh, errCh: errCh, redirect: redirect, expectedState: state}
+	pending := &pendingOAuth{provider: provider, verifier: verifier, codeCh: codeCh, errCh: errCh, resultCh: resultCh, cancelCh: cancelCh, redirect: redirect, expectedState: state}
 	m.mu.Lock()
+	// A second login click must retire the first flow: its loopback listener
+	// and 5-minute goroutine otherwise linger, and its late callback could
+	// overwrite the newer session.
+	if m.pending != nil {
+		close(m.pending.cancelCh)
+	}
 	m.pending = pending
 	m.listener = srv
 	m.mu.Unlock()
@@ -360,37 +383,58 @@ func (m *Manager) StartOAuth(provider string) (string, error) {
 
 func (m *Manager) finishOAuth(ln io.Closer, srv *http.Server, p *pendingOAuth) {
 	defer func() {
-		_ = srv.Close()
+		m.mu.Lock()
+		if m.pending == p {
+			m.pending = nil
+			m.listener = nil
+		}
+		m.mu.Unlock()
+		// Shutdown drains the callback handler still writing its response;
+		// Close would cut the connection mid-page.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
 		_ = ln.Close()
 	}()
 	var code string
 	select {
 	case code = <-p.codeCh:
-	case err := <-p.errCh:
-		_ = err
+	case <-p.errCh:
+		return
+	case <-p.cancelCh:
 		return
 	case <-time.After(5 * time.Minute):
 		return
 	}
+	p.resultCh <- m.exchangeCode(p, code)
+}
+
+func (m *Manager) exchangeCode(p *pendingOAuth, code string) error {
 	body := url.Values{}
 	body.Set("grant_type", "pkce")
 	body.Set("code", code)
 	body.Set("code_verifier", p.verifier)
 	c, err := m.cfg()
 	if err != nil {
-		return
+		return err
 	}
 	req, err := http.NewRequest(http.MethodPost, c.SupabaseURL+"/auth/v1/token", strings.NewReader(body.Encode()))
 	if err != nil {
-		return
+		return err
 	}
 	req.Header.Set("apikey", c.SupabaseAnonKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	t, err := m.doToken(req)
 	if err != nil {
-		return
+		return err
 	}
-	_ = m.saveSession(t, p.provider)
+	m.mu.Lock()
+	active := m.pending == p
+	m.mu.Unlock()
+	if !active {
+		return errors.New("登录流程已被新的请求取代")
+	}
+	return m.saveSession(t, p.provider)
 }
 
 func (m *Manager) EnsureFreshToken() error {

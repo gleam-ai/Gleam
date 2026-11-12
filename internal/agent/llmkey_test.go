@@ -124,3 +124,27 @@ func TestLLMKeyFor_ExplicitWins(t *testing.T) {
 		t.Errorf("显式 key = %q / %q", k, host)
 	}
 }
+
+// Clearing the key with no endpoint in scope must not wipe every vendor's
+// key: the store reads an empty host as "clear all".
+func TestBindLLMKey_ClearWithoutScopeKeepsVault(t *testing.T) {
+	cfg, creds := newKeyEnv(t)
+	if _, err := BindLLMKey(cfg, creds, glmURL, "sk-glm", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BindLLMKey(cfg, creds, dsURL, "sk-ds", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BindLLMKey(cfg, creds, "", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LLM.APIKey != "" {
+		t.Errorf("运行时密钥应被清除: %q", cfg.LLM.APIKey)
+	}
+	if k, _ := creds.ResolveLLMAPIKey(llm.KeyScope(glmURL)); k != "sk-glm" {
+		t.Errorf("智谱密钥不应被顺走: %q", k)
+	}
+	if k, _ := creds.ResolveLLMAPIKey(llm.KeyScope(dsURL)); k != "sk-ds" {
+		t.Errorf("DeepSeek 密钥不应被顺走: %q", k)
+	}
+}

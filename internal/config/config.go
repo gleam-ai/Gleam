@@ -436,7 +436,8 @@ func (c *Config) SaveOverlay(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return atomicfile.Write(path, data, 0o644)
+	// MCP env/headers may carry secrets: keep the overlay owner-only.
+	return atomicfile.Write(path, data, 0o600)
 }
 
 func LoadOverlay(cfg *Config, path string) error {

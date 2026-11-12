@@ -450,7 +450,15 @@ func KeyScope(baseURL string) string {
 	if err != nil || u.Host == "" {
 		return strings.ToLower(s)
 	}
-	return strings.ToLower(u.Host)
+	host := strings.ToLower(u.Host)
+	// Explicit default ports are cosmetic: with and without them must resolve
+	// to the same key slot.
+	if u.Scheme == "https" {
+		host = strings.TrimSuffix(host, ":443")
+	} else if u.Scheme == "http" {
+		host = strings.TrimSuffix(host, ":80")
+	}
+	return host
 }
 
 func FindProvider(id string) *ProviderPreset {

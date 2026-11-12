@@ -137,6 +137,17 @@ func (s *Store) ResolveLLMAPIKey(host string) (key, storedHost string) {
 			}
 			return k, host
 		}
+		// Older scopes kept explicit default ports (host:443 / host:80);
+		// rebind them to the normalized host instead of losing the key.
+		for _, legacy := range []string{host + ":443", host + ":80"} {
+			if k := f.LLMAPIKeys[legacy]; k != "" {
+				delete(f.LLMAPIKeys, legacy)
+				f.LLMAPIKeys[host] = k
+				f.LLMAPIKeyHost = host
+				_ = s.write(f)
+				return k, host
+			}
+		}
 	}
 	return "", f.lastHost()
 }
