@@ -101,6 +101,38 @@ func TestSubscribeReplaysQuestionsAndTodos(t *testing.T) {
 	}
 }
 
+func TestQuestionList_BackfillsReloadedPage(t *testing.T) {
+	f := newFixture(t, nil)
+	s := f.srv
+	s.mu.Lock()
+	s.questions["q-list"] = &questionWaiter{
+		ID:       "q-list",
+		TaskID:   "task-list",
+		Question: "继续吗？",
+		Choices:  []string{"继续"},
+		ch:       make(chan questionAnswer, 1),
+	}
+	s.mu.Unlock()
+
+	body := f.call("GET", "/api/questions", nil)
+	list, _ := body["questions"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("待回答问题应可回源，实际 %v", body)
+	}
+	q, _ := list[0].(map[string]any)
+	if q["id"] != "q-list" || q["question"] != "继续吗？" {
+		t.Errorf("问题视图字段缺失: %v", q)
+	}
+
+	if code, _ := f.raw("POST", "/api/questions/q-list", map[string]any{"choice": "继续"}); code != 200 {
+		t.Fatalf("回答应成功，实际 %d", code)
+	}
+	body = f.call("GET", "/api/questions", nil)
+	if list, _ := body["questions"].([]any); len(list) != 0 {
+		t.Errorf("已回答的问题不应再出现: %v", body)
+	}
+}
+
 func sprintErr(body map[string]any) string {
 	if s, ok := body["error"].(string); ok {
 		return s

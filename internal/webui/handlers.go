@@ -77,6 +77,7 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/approvals", s.handleApprovalList)
 	mux.HandleFunc("POST /api/approvals/{id}", s.handleApprovalResolve)
+	mux.HandleFunc("GET /api/questions", s.handleQuestionList)
 	mux.HandleFunc("POST /api/questions/{id}", s.handleQuestionAnswer)
 	mux.HandleFunc("GET /api/todos/{task_id}", s.handleTodosGet)
 
@@ -573,6 +574,14 @@ func (s *Server) handleApprovalResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"id": id, "resolved": true})
+}
+
+// handleQuestionList lets a reloaded page recover questions still waiting for
+// an answer; SSE only pushes live events, so without this the card is lost and
+// the task always hits the 5-minute timeout.
+func (s *Server) handleQuestionList(w http.ResponseWriter, _ *http.Request) {
+	list := s.PendingQuestions()
+	writeJSON(w, 200, map[string]any{"count": len(list), "questions": list})
 }
 
 func (s *Server) handleQuestionAnswer(w http.ResponseWriter, r *http.Request) {

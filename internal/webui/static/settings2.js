@@ -694,11 +694,14 @@ const S2 = (() => {
       UIPrefs.set({ accent: bind.accent });
     if (bind.perm) {
       const cur = document.querySelector(
-        '#perm-seg button[aria-pressed="true"]',
+        '#perm-list button[aria-checked="true"]',
       );
-      if (!cur || cur.dataset.perm !== bind.perm) {
+      // bind.perm's values (auto / plan_first) match permLabel; omitting the
+      // label argument would leave the radio on the old tier, so the chip
+      // would show a permission that differs from the actual one.
+      if (!cur || cur.dataset.permLabel !== bind.perm) {
         try {
-          setPerm(bind.perm);
+          setPerm(bind.perm, bind.perm);
         } catch {}
       }
     }

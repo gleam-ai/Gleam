@@ -830,7 +830,7 @@ html[data-theme="light"] .sidebar .nav-item[aria-current="page"] {
    （通用助手 / 研究员 / 运维专家 / 开发工程师），而"这条消息该用谁的
    口吻回"是目标模式才有的犹豫——编程模式下要的是一件事按流程做完。
    占着输入框上方一整行、还把输入框往下挤，纯属噪声。
-   角色本身不会失效：编程模式固定用开发工程师（见 settleModeState）。 */
+   角色本身不会失效：编程模式提交时固定用开发工程师（role=coder）。 */
 #view-goals[data-mode="code"] .expert-bar {
   display: none !important;
 }
