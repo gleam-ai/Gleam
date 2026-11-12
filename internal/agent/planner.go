@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -22,6 +23,8 @@ import (
 const planningTimeout = 90 * time.Second
 
 const screenTimeout = 15 * time.Second
+
+var goalURLPattern = regexp.MustCompile(`https?://[^\s]+`)
 
 type Planner struct {
 	LLM            llm.Client
@@ -190,6 +193,17 @@ func (p *Planner) selectTools(goal string, tools []types.Tool, n int) []types.To
 	}
 	if p.TaskMode == "code" {
 		for _, name := range []string{"file.write", "file.read", "file.list", "file.search", "shell.exec"} {
+			if t, ok := p.Reg.Get(name); ok {
+				keep(t)
+			}
+		}
+	}
+	// A URL in the goal is a deterministic fetch signal: URL tokens never match
+	// tool routing text, and helper screening can time out on slow providers.
+	// computer_use rides along because web.fetch's challenge-page error tells
+	// the model to fall back to it, which is impossible without its schema.
+	if goalURLPattern.MatchString(goal) {
+		for _, name := range []string{"web.fetch", "computer_use"} {
 			if t, ok := p.Reg.Get(name); ok {
 				keep(t)
 			}

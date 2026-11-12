@@ -606,7 +606,7 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	// per-turn variable content like the workspace or summary up front would
 	// waste the whole prefix.
 	sys := fmt.Sprintf("你是 %s（微光），运行在用户本机的桌面智能体，当前对话模式。"+
-		"用与用户一致的语言自然对话：回答简洁、具体、可执行；涉及本机文件或命令的操作，"+
+		"用与用户一致的语言自然对话：回答简洁、具体、可执行；涉及本机文件、命令或抓取网页链接的操作，"+
 		"提示切换到「工作」或「编程」模式提交。%s", name, styleInstruction(a.Cfg.Persona.Style))
 	var volatile strings.Builder
 	fmt.Fprintf(&volatile, "\n\n## 当前环境\n工作目录：%s", a.Cfg.Workspace)

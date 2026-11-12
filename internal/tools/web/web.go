@@ -57,8 +57,10 @@ func GuardedClient(timeout time.Duration) *http.Client {
 	return c
 }
 
-func (t *Tool) Name() string        { return "web.fetch" }
-func (t *Tool) Description() string { return "抓取网页内容并提取正文文本（只读）" }
+func (t *Tool) Name() string { return "web.fetch" }
+func (t *Tool) Description() string {
+	return "抓取网页内容并提取正文文本（只读）。目标含 http(s) 链接且需要其内容时，先用本工具抓取再作答，不要凭记忆编造网页内容。"
+}
 func (t *Tool) Permission() types.Permission {
 	return types.PermissionUserApproved
 }
