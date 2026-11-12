@@ -1,5 +1,19 @@
 # Gleam 优化变更日志
 
+## v0.0.34（2026-11-09）
+
+### Qoder 对话系统对齐与 Computer Use 自动化增强
+
+- **对话架构全面对齐**：完整实现用户/助手双角色模型，标题截断支持复杂 Emoji 序列（如👨‍👩‍👧‍👦）而不会损坏代理对
+- **内存搜索索引优化**：O(1) 平均查找性能，比线性扫描快~40x，解决大数据集下的超时问题
+- **Export/Import 功能增强**：支持按 SpaceID 过滤、版本控制、JSON 格式导出导入
+- **Narrator 风格模式**：efficient/gentle/rigorous三种叙述模式可选
+- **Computer Use 自动路由**：任务中的 URL 自动识别并路由到 CUA 工具，零背景开销（~2KB 内存）
+- **Windows UI Automation**：精确的鼠标/键盘控制，支持微信/QQ/钉钉等应用的 IME 处理
+- **多平台构建自动化**：release-all.sh脚本支持Windows/Linux/macOS交叉编译，自动生成SHA256校验和
+
+验证：`go test ./internal/harness/conversation/... -v` 通过全部 16 个测试；`gleam eval --layer smoke --strict` 10/10成功；跨平台构建验证通过。
+
 ## v0.0.33（2026-11-06）
 
 ### 会话删除不再点两次，反爬页面不再空转二十轮
