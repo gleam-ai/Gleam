@@ -38,6 +38,52 @@ func (t *ReplyTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	return map[string]any{"text": text}, nil
 }
 
+// NormalizeArgs flattens the shapes a model actually emits for a reply body: a
+// list of paragraphs, or an object whose string field holds the text. Without
+// this the type check rejects the call and the user loses the final answer.
+func (t *ReplyTool) NormalizeArgs(args map[string]any) {
+	v, ok := args["text"]
+	if !ok || v == nil {
+		return
+	}
+	if _, isStr := v.(string); isStr {
+		return
+	}
+	if s, ok := flattenReplyText(v); ok {
+		args["text"] = s
+	}
+}
+
+func flattenReplyText(v any) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, strings.TrimSpace(t) != ""
+	case []any:
+		parts := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := flattenReplyText(item); ok && strings.TrimSpace(s) != "" {
+				parts = append(parts, s)
+			}
+		}
+		if len(parts) == 0 {
+			return "", false
+		}
+		return strings.Join(parts, "\n"), true
+	case map[string]any:
+		for _, key := range []string{"text", "content", "answer", "reply", "message"} {
+			if s, ok := t[key].(string); ok && strings.TrimSpace(s) != "" {
+				return s, true
+			}
+		}
+		if len(t) == 1 {
+			for _, inner := range t {
+				return flattenReplyText(inner)
+			}
+		}
+	}
+	return "", false
+}
+
 type SearchHit struct {
 	ID      string   `json:"id"`
 	Content string   `json:"content"`

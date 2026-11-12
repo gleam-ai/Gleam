@@ -125,6 +125,41 @@ test('concurrent restart requests share one sidecar shutdown', async () => {
   });
 });
 
+test('update errors keep the status and engine reason, not the raw request', async () => {
+  const harness = createHarness();
+  const err = Object.assign(
+    new Error('502 "Bad Gateway"\nHeaders: {"x-gleam-token":"secret"}'),
+    {
+      statusCode: 502,
+      statusText: 'Bad Gateway',
+      description: JSON.stringify({
+        error: '连不上 GitHub 更新源：dial tcp 1.2.3.4:443: connectex failed',
+      }),
+    },
+  );
+  harness.autoUpdater.emit('error', err);
+  const status = await harness.invoke('desktop:update:status');
+  assert.equal(status.kind, 'error');
+  assert.equal(
+    status.message,
+    '502 Bad Gateway · 连不上 GitHub 更新源：dial tcp 1.2.3.4:443: connectex failed',
+  );
+  assert.equal(/x-gleam-token|Headers/.test(status.message), false);
+});
+
+test('an HTML error body never reaches the dialog', async () => {
+  const harness = createHarness();
+  harness.autoUpdater.emit(
+    'error',
+    Object.assign(new Error('404 Not Found'), {
+      statusCode: 404,
+      description: '<html><body>Not Found</body></html>',
+    }),
+  );
+  const status = await harness.invoke('desktop:update:status');
+  assert.equal(status.message, '404');
+});
+
 test('a failed download returns to available and can be retried', async () => {
   const harness = createHarness();
   harness.autoUpdater.emit('update-available', { version: '1.2.3' });

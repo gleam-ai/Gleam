@@ -575,7 +575,9 @@ let currentPermLabel = 'auto';
 const TASK_LABEL = { chat: '对话', work: '工作', code: '编程' };
 
 function setPerm(mode, label) {
-  if (mode !== 'auto') {
+  // Both the auto-approve and full-access entries persist mode=auto; only the
+  // latter is the dangerous switch, so the confirmation keys off the label.
+  if (label !== 'full_access') {
     _doSetPerm(mode, label);
     return;
   }
@@ -585,7 +587,11 @@ function setPerm(mode, label) {
       return;
     }
     _doSetPerm(mode, label);
-    toast('已切换到“完全访问”，高风险操作仍会请你批准', 'warning', 5000);
+    toast(
+      '已切换到“完全访问”：路径不设限，敏感工具仍会确认一次',
+      'warning',
+      5000,
+    );
   });
 }
 
@@ -2464,7 +2470,11 @@ function renderQuestion(q) {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') send.click();
   });
-  feed.prepend(box);
+  // The feed grows downwards, so prepending put the prompt above the message
+  // that triggered it, often off-screen. Append where the conversation actually
+  // is, then scroll just enough to make it visible.
+  feed.appendChild(box);
+  box.scrollIntoView({ block: 'nearest' });
   toast('Gleam 有一个问题需要你回答', 'info');
 }
 
@@ -6163,7 +6173,10 @@ async function deleteConvo(id, title) {
   try {
     await api('DELETE', `/api/conversations/${encodeURIComponent(id)}`);
     if (currentConvo && currentConvo.id === id) await exitConvoToWorkbench();
-    else await loadConvoList(currentConvo && currentConvo.id);
+    // exitConvoToWorkbench() only clears local state; without this refresh the
+    // deleted row stays in the sidebar and needs a second click (the second
+    // DELETE is idempotent, so it looked like "delete twice to succeed").
+    await loadConvoList(currentConvo && currentConvo.id);
     toast('对话已删除', 'success');
   } catch (err) {
     toast(`删除失败：${err.message}`, 'error');
@@ -9162,7 +9175,7 @@ const ComposerControls = (() => {
       key === 'plan_first'
         ? '执行前始终询问（点击切换）'
         : key === 'full_access'
-          ? '完全访问：高风险操作仍会询问（点击切换）'
+          ? '完全访问：路径不设限，敏感工具仍会询问（点击切换）'
           : '自动审批：仅高风险操作才征求批准（点击切换）';
     // Set data-mode on #view-goals for CSS layout rules
     const viewGoals = document.getElementById('view-goals');
@@ -9532,10 +9545,20 @@ const Updater = (() => {
                 : '已是最新版本。';
               primary.hidden = true;
               break;
-            case 'error':
-              line.textContent = `检查更新失败：${s.message || '未知错误'}。可以稍后再试，或去发布页手动下载。`;
+            case 'error': {
+              // The shell already trims technical noise; strip a trailing period
+              // so "…失败：X。。" cannot happen, and skip the advice when the
+              // message itself carries it (the modal already has 去发布页).
+              const why = String(s.message || '未知错误')
+                .trim()
+                .replace(/[。.]+$/, '');
+              const advised = /稍后再试|稍后重试|手动下载|去发布页/.test(why);
+              line.textContent = advised
+                ? `检查更新失败：${why}。`
+                : `检查更新失败：${why}。可以稍后再试，或去发布页手动下载。`;
               primary.hidden = true;
               break;
+            }
           }
         };
         api('GET', '/api/info')

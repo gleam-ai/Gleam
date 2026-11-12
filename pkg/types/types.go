@@ -54,6 +54,14 @@ type PathAware interface {
 	Paths(ctx context.Context, args map[string]any) []string
 }
 
+// ArgNormalizer lets a tool repair loosely typed arguments before validation.
+// Models occasionally hand a free-text field a list of paragraphs or a wrapper
+// object instead of a string; a tool that knows what the value means can
+// flatten it there instead of failing the whole step on a type check.
+type ArgNormalizer interface {
+	NormalizeArgs(args map[string]any)
+}
+
 type StepOutcome string
 
 const (
@@ -78,11 +86,19 @@ const (
 	ErrUpstream   ErrorKind = "upstream"
 	ErrUnknown    ErrorKind = "unknown"
 	ErrInternal   ErrorKind = "internal"
+	// ErrNeedsHuman means the blocker is outside the agent: a risk-control
+	// page, a login wall, a CAPTCHA. Replanning with another tool cannot clear
+	// it, so the loop must stop and ask the user instead of burning attempts.
+	ErrNeedsHuman ErrorKind = "needs_human"
 )
 
 func ClassifyError(msg string) ErrorKind {
 	s := strings.ToLower(msg)
 	switch {
+	// Checked first: the challenge-page error also mentions browsers and
+	// retries, and must not fall through to the generic buckets below.
+	case containsAny(s, "风控", "验证页", "人机验证", "请用户完成验证", "请用户直接粘贴正文", "needs_human"):
+		return ErrNeedsHuman
 	case containsAny(s, "timeout", "deadline", "超时", "限流", "rate limit", "too many requests", "429"):
 		return ErrTimeout
 	case containsAny(s, "5xx", "502", "503", "504", "bad gateway", "service unavailable", "internal server error", "上游"):

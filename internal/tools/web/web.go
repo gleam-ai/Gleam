@@ -116,6 +116,15 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	text := string(body)
 	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml") {
 		text = extractText(text)
+		if kind := challengePage(text, string(body)); kind != "" {
+			// Handing the interstitial to the model is worse than failing: it
+			// spends steps "analyzing" a page that only says the request was
+			// rejected, then reports it could not find the content.
+			return nil, fmt.Errorf(
+				"目标站点返回了%s，没有拿到正文。这是对方的风控策略，不是网络故障，重试同一 URL 不会成功。"+
+					"如果内容确实必要，改用 computer_use：用 open_app 传入该 URL 打开浏览器，"+
+					"请用户完成验证或登录，再用 screenshot 读取页面；否则换一个可访问的来源，或请用户直接粘贴正文", kind)
+		}
 	}
 	truncated := bodyTruncated || len(text) > maxTextLen
 	if len(text) > maxTextLen {
@@ -243,6 +252,24 @@ func blockedIP(ip net.IP) bool {
 		ip.IsInterfaceLocalMulticast() ||
 		ip.IsMulticast() ||
 		ip.IsUnspecified()
+}
+
+// challengePage names the bot-check interstitials worth failing on. Only
+// signatures that do not occur on ordinary pages are listed here: a false
+// positive would hide a real article from the model.
+func challengePage(text, raw string) string {
+	switch {
+	case strings.Contains(text, "环境异常") && strings.Contains(text, "去验证"):
+		// WeChat's interstitial is the environment-abnormal notice plus a
+		// verify button. Requiring both keeps an article that merely discusses
+		// verification from being swallowed.
+		return "微信访问验证页"
+	case strings.Contains(raw, "cf-browser-verification"),
+		strings.Contains(raw, "cf-challenge"),
+		strings.Contains(raw, "Enable JavaScript and cookies to continue"):
+		return "Cloudflare 人机验证页"
+	}
+	return ""
 }
 
 func extractText(html string) string {

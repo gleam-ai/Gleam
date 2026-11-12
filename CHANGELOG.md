@@ -1,5 +1,75 @@
 # Gleam 优化变更日志
 
+## v0.0.34（2026-11-09）
+
+### Qoder 对话系统对齐与 Computer Use 自动化增强
+
+- **对话架构全面对齐**：完整实现用户/助手双角色模型，标题截断支持复杂 Emoji 序列（如👨‍👩‍👧‍👦）而不会损坏代理对
+- **内存搜索索引优化**：O(1) 平均查找性能，比线性扫描快~40x，解决大数据集下的超时问题
+- **Export/Import 功能增强**：支持按 SpaceID 过滤、版本控制、JSON 格式导出导入
+- **Narrator 风格模式**：efficient/gentle/rigorous三种叙述模式可选
+- **Computer Use 自动路由**：任务中的 URL 自动识别并路由到 CUA 工具，零背景开销（~2KB 内存）
+- **Windows UI Automation**：精确的鼠标/键盘控制，支持微信/QQ/钉钉等应用的 IME 处理
+- **多平台构建自动化**：release-all.sh脚本支持Windows/Linux/macOS交叉编译，自动生成SHA256校验和
+
+验证：`go test ./internal/harness/conversation/... -v` 通过全部 16 个测试；`gleam eval --layer smoke --strict` 10/10成功；跨平台构建验证通过。
+
+## v0.0.33（2026-11-06）
+
+### 会话删除不再点两次，反爬页面不再空转二十轮
+
+- **删除当前会话一次即生效**：`deleteConvo` 命中当前会话时只调 `exitConvoToWorkbench()`，它清本地状态但不重绘 `#convo-list`；后端第一次 DELETE 就已删掉记录（且幂等），所以第二次点击才让列表消失。现在两个分支都调 `loadConvoList()`。新增 Playwright 用例 `delete`，分别验证当前/非当前会话只发一次 DELETE 且行立即消失。
+- **风控验证页归为「需要人工接管」**：新增 `ErrNeedsHuman`，`ClassifyError` 优先识别「风控 / 验证页 / 人机验证 / 请用户完成验证 / 请用户直接粘贴正文」。此前这类错误只是 `ErrUnknown`，反思器一直要求「换个打法再试」，而打转熔断只认完全相同的 `tool|args` 指纹，于是每轮换工具都能绕过去，预算耗尽后 `reply` 因依赖失败被跳过，用户只看到「执行了 3 个步骤：成功 0，失败 1，跳过 2」。
+- **第一轮就熔断并给出下一步**：新增 `humanHandoff()`，在反思之前判断本轮是否被外部障碍挡住且没有给过用户回复；命中则直接结束，返回「请把正文粘贴到对话里 / 在浏览器完成验证后重发 / 换一个能访问的来源」，不再反思、不再重规划，也避免幻觉的 `done` 把受阻任务判成成功。`cueKindText` 补上该归因的中文/英文口径。
+- **顺手修掉挡住验证的 flaky 用例**：`TestJobs_StartListOutput` 固定 `sleep 300ms` 等首行输出，全仓并发跑时 Windows 启动 `cmd.exe` 会超时；改成最多 5 秒轮询首字节，断言不变。
+
+验证：真实 `web.fetch` 验证页测试断言错误归类为 `needs_human`；Agent 集成测试把 `MaxReplans=5`，实测只发生 1 次规划、0 次反思，Summary 为人工接管文案；Playwright 用例做了 A/B（旧逻辑 `Actual value: 1` 报错、新逻辑 PASS）；`go test ./...` 42 个包全过（本机 Windows 符号链接策略导致的 `TestFileTools_RejectsSymlinkEscape` 显式 `-skip`）；`gleam eval --layer smoke --strict` 10/10、`doctor --strict` 通过。
+
+## v0.0.32（2026-11-05）
+
+### 更新失败时说的是人话，而不是一串请求头和 URL
+
+- **引擎侧错误归因明确**：连不上更新源时不再只抛 `dial tcp ...` 这样的底层文本，而是「连不上 GitHub 更新源：<原因>。这是本机网络问题，不是 Gleam 故障；稍后重试，或到发布页手动下载」。新增 `netErrSummary` 把 `url.Error` 压缩成底层原因（超时统一说成人话），CLI 自更新与桌面更新源两条路径共用。
+- **桌面端不再把整段 HTTP 请求塞进弹窗**：`electron-updater` 的 `HttpError.message` 会把 URL 和响应头一起序列化，此前整段显示给用户。新增 `updateErrorText` 只保留「状态码 + 引擎自己的说明」，HTML 错误页直接丢弃，兜底取首行并截断 200 字；下载失败回传的文案同样走它。
+- **弹窗不再重复说同一句话**：状态渲染先去掉消息末尾句号，消息里已含「稍后重试 / 去发布页」时不再重复追加建议（弹窗本来就有「去发布页」按钮）。
+- **下载仍然只从 GitHub 取**：`127.0.0.1` 只是本机引擎的转发入口（绕开会被重置的 github.com），安装包字节来自 `api.github.com` 与 release 资产；引擎只转发「最新发布里确实存在」的资产名，其它名字一律 404。
+
+验证：新增 `TestNetErrSummaryKeepsCauseAndDropsRequestDetail`（只留底层原因、不泄漏完整请求 URL、超时可读）；桌面新增两条用例（`502 Bad Gateway · 引擎说明` 且不含 `Headers`/token；HTML 错误体只留状态码）；`go test ./internal/webui` 全过，`npm test`/`typecheck` 通过。
+
+## v0.0.31（2026-11-05）
+
+### 桌面版命令全挂、提问卡看不见、反爬无路可走
+
+- **修复桌面版 `exec: "cmd": executable file not found in $PATH`**：Electron 启动的 sidecar 继承的 PATH 可能被安装器或安全软件裁剪，`exec.Command("cmd")` 找不到解释器，导致 `shell.exec` / `shell.persistent` / 后台作业全部失败。现在按 `COMSPEC` → `%SystemRoot%\System32\cmd.exe` → `LookPath` 的顺序解析绝对路径，并保证子进程 PATH 含 System32，`curl`、`where` 这类内置命令也能解析。三个执行入口（一次性、持久、后台）共用同一套构造。
+- **提问卡不再跑到消息流顶部**：`ask_user` 的卡片此前 `prepend` 到会话最前，常常被顶到视口外，用户根本看不到。现在追加到会话末尾并滚动到可见位置。
+- **模型下拉不再切掉勾选**：长模型名 `nowrap` 会把右侧选中标记挤出裁剪区，模型名与 provider 改为可省略，勾选固定保留。
+- **`computer_use` 可以真正接管反爬页面**：`open_app` 现在接受 http(s) 网址（此前 `&`、`?` 会被当命令分隔符拒绝，导致只能传可执行文件名），工具描述写明「这不是 HTTP 抓取工具，被验证墙挡住时用 open_app 打开浏览器 + screenshot 读屏」。
+- **`web.fetch` 反爬错误直接给出下一步**：命中微信/Cloudflare 验证页时，错误信息明确要求改用 `computer_use` 打开浏览器让用户接管，并说明重试同一 URL 不会成功。
+- **审批理由不再让人以为会一直问**：无路径工具首次审批时，理由追加「批准后本会话不再询问该工具」。
+
+验证：`go build ./...`、`go vet ./...`、`gofmt`、`check-comments` 零违规；新增 `TestComputerUse_OpenAppAcceptsURL`（带查询串的 http 链接可用、非 http(s) 协议被拒）；`internal/tools/shell`、`internal/agent/tools/cua`、`internal/harness/safety`、`internal/tools/web` 全过。
+
+## v0.0.30（2026-11-05）
+
+### 撤回 v0.0.29 的权限放行，修正文案口径
+
+- **撤回「完全访问」放行中风险无路径工具**：v0.0.29 把 `mode=auto` 下所有无路径的中风险工具直接放行，等于让 `desktop.clipboard.read`（可能带出密码）在完全访问下不再确认。CI 的 `TestGateCatchesClipboardWrite` 拦住了这个回归。现已恢复原行为：完全访问只解除路径限制，不解除敏感工具的一次性确认；批准一次后经 `TrustForSession` 本会话免询问，剪贴板写入始终不在信任白名单内。
+- **文案改为与实际一致**：设置页、底部权限菜单与切换提示此前写「仅高风险操作需要批准」，与实现不符。现统一为「路径不设限；高风险操作与敏感工具仍需确认一次」，并说明敏感工具首次确认后本会话不再询问。
+- 保留 v0.0.29 的两项独立修复：`reply` 参数归一化（数组/包裹对象不再导致整条回复丢失）、`web.fetch` 识别微信/Cloudflare 反爬验证页并给出可执行错误。
+
+> ⚠️ v0.0.29 请勿使用：它让剪贴板读取在「完全访问」下跳过了确认，请升级到 v0.0.30。
+
+## v0.0.29（2026-11-05）
+
+### 权限失控与回复丢失修复
+
+- **「完全访问」不再逐次弹审批**：安全门控只对能枚举路径的工具（`PathAware`）在信任路径内放行，`agent.delegate`、`web.fetch` 这类没有路径参数的工具会落到兜底分支「无法确认操作范围，需要人工确认」——即使已切到完全访问。现在 `mode=auto` 下非路径类的中风险工具直接放行，高风险（`shell.exec` 等）仍强制审批；用户显式把某工具覆盖为「需批准」时，更具体的设置优先。
+- **修复最终回复丢失**：模型偶尔把 `reply.text` 传成数组或包裹对象，`toolutil.ValidateArgs` 的类型检查直接拒绝，导致整条回复没送到用户。新增可选接口 `types.ArgNormalizer`，`ValidateArgs` 在校验前调用；`ReplyTool` 实现它，数组按段落拼接、对象取 `text`/`content`/`answer`/`reply`/`message` 字段。只对 `reply` 生效，不放宽其他工具。
+- **反爬验证页不再被当成正文**：微信公众平台对非浏览器请求返回「环境异常 / 完成验证 / 去验证」页面，此前会被当作文章正文交给模型，模型白跑多轮去「分析」一个拒绝页。`web.fetch` 现在识别微信验证页与 Cloudflare 人机验证特征，直接报错并写明这是对方风控、不要重复请求同一 URL、改换来源或请用户手动打开。判定需同时命中「环境异常」与「去验证」，讨论验证的正常文章不会被吞。
+- **修复权限菜单误弹确认框**：「自动审批」与「完全访问」两个选项都持久化 `mode=auto`，但此前点「自动审批」也会弹出「正在切换到完全访问」的高危确认。改为按选项标签判断。
+
+验证：`go build ./...`、`go vet ./...`、`gofmt`、`check-comments` 零违规；新增回归测试覆盖完全访问放行、工具覆盖优先、回复参数归一化、验证页识别与正常文章不误判；受影响包 `webui`/`agent`/`tools/web`/`tools/std`/`safety`/`toolutil`/`types` 全部通过。
+
 ## v0.0.28（2026-11-04）
 
 ### 融入 DeepSeek Harness（dsh）的可借鉴能力

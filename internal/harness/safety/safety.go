@@ -209,7 +209,16 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 		}
 		return Decision{NeedApproval: false, Risk: risk, Reason: "操作路径均在信任路径内"}
 	}
-	return Decision{NeedApproval: true, Risk: risk, Reason: "无法确认操作范围，需要人工确认"}
+	// No paths to inspect means the prompt cannot be narrowed, so it stays.
+	// "Full access" lifts the path restriction, it does not lift the one-time
+	// confirmation for tools that read private data (clipboard) or reach the
+	// network. Those become quiet after the first approval via TrustForSession,
+	// so say so: otherwise the prompt reads like it will repeat forever.
+	reason := "无法确认操作范围，需要人工确认"
+	if g.CanTrustForSession(t.Name()) {
+		reason += "（批准后本会话不再询问该工具）"
+	}
+	return Decision{NeedApproval: true, Risk: risk, Reason: reason}
 }
 
 func (g *Gate) pathsOf(ctx context.Context, t types.Tool, args map[string]any) []string {

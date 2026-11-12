@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,9 +82,11 @@ func detectMode() string {
 func (cu *ComputerUse) Name() string { return "computer_use" }
 
 func (cu *ComputerUse) Description() string {
-	return "控制桌面应用：截屏、点击屏幕坐标、输入文本、启动应用。" +
+	return "控制桌面应用：截屏、点击屏幕坐标、输入文本、启动应用或打开网址。" +
 		"当前执行方式：" + cu.mode + "。会真实操作这台机器，调用前确认目标必要。" +
-		"典型顺序：先 screenshot 观察画面，再 click/type_text，完成后再 screenshot 验证结果。"
+		"典型顺序：先 screenshot 观察画面，再 click/type_text，完成后再 screenshot 验证结果。" +
+		"这不是 HTTP 抓取工具：网页被反爬验证或登录墙挡住时，用 open_app 传入该 URL 打开浏览器，" +
+		"请用户在窗口里完成验证或登录，再用 screenshot 读取页面内容。"
 }
 
 func (cu *ComputerUse) Permission() types.Permission { return types.PermissionUserApproved }
@@ -98,7 +101,7 @@ func (cu *ComputerUse) Schema() map[string]any {
 		"x":        toolutil.SchemaProp("click：屏幕 X 坐标（像素，来自 screenshot 画面）", "integer"),
 		"y":        toolutil.SchemaProp("click：屏幕 Y 坐标（像素）", "integer"),
 		"text":     toolutil.SchemaProp("type_text：要输入的文本（先 Set-Clipboard 再 Ctrl+V，中文可靠）", "string"),
-		"app_name": toolutil.SchemaProp("open_app：应用名或可执行文件路径（如 notepad）", "string"),
+		"app_name": toolutil.SchemaProp("open_app：应用名、可执行文件路径，或要交给浏览器打开的 http(s) 网址", "string"),
 	})
 }
 
@@ -126,13 +129,33 @@ func (cu *ComputerUse) Execute(ctx context.Context, args map[string]any) (any, e
 		return cu.typeText(ctx, text)
 	case "open_app":
 		app := toolutil.Str(args, "app_name")
-		if err := validateSingleToken(app, "app_name"); err != nil {
+		if err := validateAppTarget(app, "app_name"); err != nil {
 			return nil, err
 		}
 		return cu.openApp(ctx, app)
 	default:
 		return nil, fmt.Errorf("未知动作 %q（可选 screenshot|click|type_text|open_app）", action)
 	}
+}
+
+// validateAppTarget accepts either a bare executable token or an http(s) URL.
+// A URL goes through its own check because normal query strings contain "&"
+// and "?", which validateSingleToken rejects as command separators.
+func validateAppTarget(s, field string) error {
+	trimmed := strings.TrimSpace(s)
+	if strings.ContainsAny(trimmed, "\n\r") {
+		return fmt.Errorf("%s 不能包含换行", field)
+	}
+	if u, err := url.Parse(trimmed); err == nil && u.Scheme != "" {
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("%s 只允许 http/https 链接", field)
+		}
+		if strings.TrimSpace(u.Host) == "" {
+			return fmt.Errorf("%s 的链接缺少主机名", field)
+		}
+		return nil
+	}
+	return validateSingleToken(trimmed, field)
 }
 
 // validateSingleToken rejects characters that could escalate an argument into

@@ -1,7 +1,7 @@
 {
   "name": "gleam-desktop",
   "productName": "Gleam",
-  "version": "0.0.28",
+  "version": "0.0.34",
   "description": "Gleam — a local-first desktop AI agent with Computer Use Automation. Configuration, data, and desktop control stay local.",
   "author": "Gleam",
   "license": "UNLICENSED",
@@ -37,6 +37,10 @@
     "sprintf-js": {
       "version": "1.1.3",
       "reason": "Transitive dep: roarr → global-agent → @electron/get → electron-builder. No patched version exists. Vulnerability requires attacker-controlled format strings, not possible in this logging chain. Low risk for desktop app."
-    }
+    },
+    "@electron/get": {
+      "undici": "7.30.1"
+    },
+    "minimatch@>=7.0.0 <11.0.1": "11.0.1"
   }
 }

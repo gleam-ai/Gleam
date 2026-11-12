@@ -1528,6 +1528,55 @@ def run_frontend_interaction_checks(base, output):
         )
 
 
+def run_conversation_delete_checks(base, output):
+    # Regression: deleting the conversation currently open left its row in the
+    # sidebar, so a second click was needed before it disappeared. The backend
+    # DELETE is idempotent, which made the UI bug look like "delete twice".
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = new_test_page(browser, base)
+        deletes = []
+
+        def count_delete(request):
+            if (
+                request.method == "DELETE"
+                and "/api/conversations/" in request.url
+            ):
+                deletes.append(request.url)
+
+        page.on("request", count_delete)
+        current = create_test_conversation(page, "删除一次-当前会话")
+        other = create_test_conversation(page, "删除一次-非当前会话")
+        select_test_conversation(page, current)
+
+        page.locator("#sidebar-toggle").click()
+        row = page.locator(f'.convo-item[data-convo-id="{current["id"]}"]')
+        expect(row).to_have_count(1)
+        row.hover()
+        row.locator(".convo-op--del").click()
+        page.locator("#modal .modal-actions button.btn-danger").click()
+        expect(row).to_have_count(0)
+        assert len(deletes) == 1, (
+            f"当前会话应只 DELETE 一次，实际 {len(deletes)} 次"
+        )
+        remaining = page.evaluate(
+            "() => api('GET', '/api/conversations').then(r => r.conversations.map(c => c.id))"
+        )
+        assert current["id"] not in remaining, "一次 DELETE 后后端仍返回该会话"
+
+        other_row = page.locator(f'.convo-item[data-convo-id="{other["id"]}"]')
+        expect(other_row).to_have_count(1)
+        other_row.hover()
+        other_row.locator(".convo-op--del").click()
+        page.locator("#modal .modal-actions button.btn-danger").click()
+        expect(other_row).to_have_count(0)
+        assert len(deletes) == 2, (
+            f"非当前会话应只 DELETE 一次，实际 {len(deletes) - 1} 次"
+        )
+        browser.close()
+        print("PASS: 会话删除一次即生效（当前会话 / 非当前会话）", flush=True)
+
+
 @contextmanager
 def isolated_mock_server(binary, output, scripts=None):
     with tempfile.TemporaryDirectory(prefix="gleam-shell-") as directory:
@@ -1597,6 +1646,7 @@ def main():
             "submit",
             "stream",
             "interaction",
+            "delete",
         ],
         default="all",
     )
@@ -1616,6 +1666,8 @@ def main():
                 run_submit_checks(base, output)
             if args.suite in ("all", "interaction"):
                 run_frontend_interaction_checks(base, output)
+            if args.suite in ("all", "delete"):
+                run_conversation_delete_checks(base, output)
     if args.suite in ("all", "stream"):
         # Plain public outputs, emitted by the real mock engine before replay.
         scripts = [

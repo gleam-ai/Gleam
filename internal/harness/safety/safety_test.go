@@ -27,6 +27,53 @@ func (f *fakeTool) Paths(_ context.Context, args map[string]any) []string {
 	return nil
 }
 
+// plainTool has no Paths method, so it exercises the branch the real
+// agent.delegate / web.fetch tools take: nothing to enumerate, nothing to
+// pin. fakeTool always satisfies PathAware, which is why this used to be
+// invisible to the suite.
+type plainTool struct {
+	name string
+	perm types.Permission
+}
+
+func (p *plainTool) Name() string                                         { return p.name }
+func (p *plainTool) Description() string                                  { return "plain" }
+func (p *plainTool) Schema() map[string]any                               { return map[string]any{"type": "object"} }
+func (p *plainTool) Permission() types.Permission                         { return p.perm }
+func (p *plainTool) Execute(context.Context, map[string]any) (any, error) { return "ok", nil }
+
+func TestGate_FullAccessStillConfirmsToolsWithoutPathsOnce(t *testing.T) {
+	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
+	delegate := &plainTool{name: "agent.delegate", perm: types.PermissionUserApproved}
+
+	// Full access lifts the path restriction, not the one-time confirmation:
+	// with nothing to narrow, a human has to look once.
+	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); !d.NeedApproval {
+		t.Fatalf("完全访问仍应确认一次: %+v", d)
+	} else if d.Risk != "medium" {
+		t.Errorf("risk = %s", d.Risk)
+	}
+
+	if !g.TrustForSession("agent.delegate") {
+		t.Fatal("agent.delegate 应在会话信任白名单内")
+	}
+	if d := g.Evaluate(delegate, map[string]any{"goal": "x"}); d.NeedApproval {
+		t.Errorf("本会话批准后不该重复弹窗: %+v", d)
+	}
+
+	if d := g.Evaluate(&plainTool{name: "shell.exec", perm: types.PermissionFullAccess}, nil); !d.NeedApproval {
+		t.Error("高风险在任何模式下都必须审批")
+	}
+	// Clipboard reads can leak passwords and are deliberately left off the
+	// quiet list for writes; only reads may be trusted for the session.
+	if d := g.Evaluate(&plainTool{name: "desktop.clipboard.write", perm: types.PermissionUserApproved}, nil); !d.NeedApproval {
+		t.Error("剪贴板写入在完全访问下仍必须审批")
+	}
+	if g.CanTrustForSession("desktop.clipboard.write") {
+		t.Error("剪贴板写入不该进入会话信任白名单")
+	}
+}
+
 func TestGate_ReadOnlyAlwaysAllowed(t *testing.T) {
 	g := New("auto", nil, nil, []string{`D:\ws`}, time.Minute)
 	d := g.Evaluate(&fakeTool{name: "file.read", perm: types.PermissionReadOnly}, nil)

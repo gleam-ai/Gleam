@@ -228,8 +228,10 @@ const I18N_EN = {
     "Enter an API key for the selected provider; we'll test connectivity.",
   事件流水: 'Event stream',
   云端已登录: 'Signed in to cloud',
-  仅在检测到潜在风险时询问: 'Ask only when a potential risk is detected',
-  仅高风险操作需要批准: 'Only high-risk actions need approval',
+  '路径不设限；敏感工具首次确认后，本会话不再询问':
+    'Unrestricted paths; sensitive tools confirm once, then stay quiet this session',
+  '路径不设限；高风险操作与敏感工具仍需确认一次':
+    'Unrestricted paths; high-risk actions and sensitive tools still confirm once',
   从工作区选择: 'Choose from workspace',
   '从当前工作区选择文件，引用到输入框。':
     'Pick files from the current workspace and reference them in the input.',
@@ -1275,8 +1277,8 @@ const I18N_EN = {
   鼠标与键盘操控: 'Mouse and keyboard control',
   '自动审批：仅高风险操作才征求批准（点击切换）':
     'Auto-approve: only high-risk actions ask for approval (click to switch)',
-  '完全访问：高风险操作仍会询问（点击切换）':
-    'Full access: high-risk actions still ask (click to switch)',
+  '完全访问：路径不设限，敏感工具仍会询问（点击切换）':
+    'Full access: paths unrestricted, sensitive tools still ask (click to switch)',
   'Gleam 不预先给代码建索引：需要时用 file.search / file.list 在当前工作区里现查，所以没有索引要等、也没有索引要清。':
     "Gleam doesn't pre-index code: file.search / file.list query the current workspace on demand, so there's no index to wait for and none to clear.",
   'Gleam 在本机运行，没有订阅计划；模型费用由你配置的厂商直接结算。':
@@ -1749,8 +1751,8 @@ const I18N_EN = {
   '连不上本机的 Gleam 服务，请确认它仍在运行':
     "Can't reach the local Gleam service — make sure it's still running",
   没能加载: "Couldn't load",
-  '已切换到“完全访问”，高风险操作仍会请你批准':
-    'Switched to “Full access”; high-risk actions will still ask for your approval',
+  '已切换到“完全访问”：路径不设限，敏感工具仍会确认一次':
+    'Switched to “Full access”: paths are unrestricted, sensitive tools still confirm once',
   '还没有填写模型 API Key，现在不填的话 AI 无法回复。要现在去填写吗？（密钥只保存在本机，下次免填）':
     'No model API key yet — without one the AI cannot reply. Fill it in now? (The key stays on this machine and is remembered next time.)',
   '（站点：产出放在当前工作区 sites/ 下的一个新文件夹里，用简短的英文文件夹名，入口是 index.html；HTML 和 CSS 写在同一个文件里，不依赖外部资源，用浏览器直接打开就能看。）':

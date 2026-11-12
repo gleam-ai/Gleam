@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"gleam/internal/tools/toolutil"
 )
 
 type fakeMem struct{ items []SearchHit }
@@ -27,6 +29,32 @@ func TestReplyTool(t *testing.T) {
 	}
 	if _, err := tool.Execute(context.Background(), map[string]any{}); err == nil {
 		t.Error("缺 text 应报错")
+	}
+}
+
+func TestReplyTool_NormalizesLooseText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"paragraph list", []any{"第一段", "第二段"}, "第一段\n第二段"},
+		{"wrapper object", map[string]any{"text": "正文"}, "正文"},
+		{"nested value", map[string]any{"content": []any{"a", "b"}}, "a\nb"},
+	}
+	for _, c := range cases {
+		args := map[string]any{"text": c.in}
+		tool := NewReply()
+		if err := toolutil.ValidateArgs(tool, args); err != nil {
+			t.Fatalf("%s: 校验应通过: %v", c.name, err)
+		}
+		out, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := out.(map[string]any)["text"]; got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
 	}
 }
 

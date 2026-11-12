@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -82,17 +83,12 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
-	} else {
-		cmd = exec.Command("sh", "-c", command)
-	}
+	cmd := shellCommand(command)
 	setProcessGroup(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = ensureWindowsSystemPath(sanitizedEnv(os.Environ()))
 	var stdout, stderr limitedBuffer
 	stdout.limit = maxOutput
 	stderr.limit = maxOutput
@@ -152,17 +148,12 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 // runShellOnce runs the command in a one-shot subprocess and returns a result shaped like Tool.Execute.
 // Shared by the persistent shell and background jobs, so the timeout/process-tree cleanup logic is written once.
 func runShellOnce(ctx context.Context, command, cwd string, roots []string) (map[string]any, error) {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
-	} else {
-		cmd = exec.Command("sh", "-c", command)
-	}
+	cmd := shellCommand(command)
 	setProcessGroup(cmd)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = ensureWindowsSystemPath(sanitizedEnv(os.Environ()))
 	var stdout, stderr limitedBuffer
 	stdout.limit = maxOutput
 	stderr.limit = maxOutput
@@ -214,6 +205,73 @@ func (t *Tool) resolveCWD(ctx context.Context, cwd string) (string, error) {
 var credentialMarkers = []string{
 	"_API_KEY", "_APIKEY", "API_KEY", "_TOKEN", "ACCESS_TOKEN", "_SECRET",
 	"PASSWORD", "PASSWD", "CREDENTIAL", "_PRIVATE_KEY",
+}
+
+// windowsCmd returns an absolute path to the command interpreter. Desktop
+// builds inherit a PATH that installers and security software can trim, and
+// exec.Command("cmd") then fails with "executable file not found" even though
+// the shell is installed in the usual place.
+func windowsCmd() string {
+	if v := strings.TrimSpace(os.Getenv("COMSPEC")); v != "" {
+		if st, err := os.Stat(v); err == nil && !st.IsDir() {
+			return v
+		}
+	}
+	if root := strings.TrimSpace(os.Getenv("SystemRoot")); root != "" {
+		p := filepath.Join(root, "System32", "cmd.exe")
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("cmd.exe"); err == nil {
+		return p
+	}
+	return "cmd.exe"
+}
+
+// shellCommand builds the interpreter invocation shared by every shell tool.
+func shellCommand(command string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command(windowsCmd(), "/C", command)
+	}
+	return exec.Command("sh", "-c", command)
+}
+
+// ensureWindowsSystemPath keeps System32 on the child PATH so built-ins such as
+// curl, where and powershell resolve even when the parent PATH was trimmed.
+func ensureWindowsSystemPath(env []string) []string {
+	if runtime.GOOS != "windows" {
+		return env
+	}
+	root := strings.TrimSpace(os.Getenv("SystemRoot"))
+	if root == "" {
+		return env
+	}
+	want := []string{filepath.Join(root, "System32"), root}
+	for i, kv := range env {
+		name, val, ok := strings.Cut(kv, "=")
+		if !ok || !strings.EqualFold(name, "PATH") {
+			continue
+		}
+		parts := strings.Split(val, ";")
+		for _, w := range want {
+			if !hasFold(parts, w) {
+				parts = append([]string{w}, parts...)
+			}
+		}
+		env[i] = "PATH=" + strings.Join(parts, ";")
+		return env
+	}
+	return append(env, "PATH="+strings.Join(want, ";"))
+}
+
+func hasFold(list []string, want string) bool {
+	for _, v := range list {
+		if strings.EqualFold(strings.TrimSpace(v), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizedEnv(env []string) []string {

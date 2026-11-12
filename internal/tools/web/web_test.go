@@ -7,12 +7,59 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"gleam/pkg/types"
 )
 
 func localTool() *Tool {
 	t := New()
 	t.AllowPrivate = true
 	return t
+}
+
+func TestWeb_RejectsChallengePage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><head><title>环境异常</title></head><body>` +
+			`<p>当前环境异常，完成验证后即可继续访问。</p><a>去验证</a></body></html>`))
+	}))
+	defer srv.Close()
+
+	_, err := localTool().Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err == nil {
+		t.Fatal("反爬验证页应当报错，而不是当成正文交给模型")
+	}
+	if !strings.Contains(err.Error(), "微信访问验证页") {
+		t.Fatalf("错误信息应点名验证页类型，实际: %v", err)
+	}
+	if !strings.Contains(err.Error(), "重试同一 URL 不会成功") {
+		t.Errorf("错误信息应提示重试无效，实际: %v", err)
+	}
+	if !strings.Contains(err.Error(), "computer_use") {
+		t.Errorf("错误信息应给出 CUA 接管路径，实际: %v", err)
+	}
+	// The agent loop only stops and hands off on this kind. If the wording
+	// drifts, classification must be updated in the same change.
+	if got := types.ClassifyError(err.Error()); got != types.ErrNeedsHuman {
+		t.Errorf("风控错误被归类为 %q，应为 %q", got, types.ErrNeedsHuman)
+	}
+}
+
+func TestWeb_ArticleAboutVerificationIsNotAChallengePage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><article><p>环境异常排查手册：先完成验证再重试。</p>` +
+			`<p>这是一篇讲排障的文章，不是拦截页。</p></article></body></html>`))
+	}))
+	defer srv.Close()
+
+	out, err := localTool().Execute(context.Background(), map[string]any{"url": srv.URL})
+	if err != nil {
+		t.Fatalf("讨论验证的正文不该被判成验证页: %v", err)
+	}
+	if text, _ := out.(map[string]any)["text"].(string); !strings.Contains(text, "排障") {
+		t.Errorf("正文应保留，实际: %v", out)
+	}
 }
 
 func TestWeb_BlocksPrivateByDefault(t *testing.T) {

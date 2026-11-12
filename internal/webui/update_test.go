@@ -1,12 +1,15 @@
 package webui
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -435,5 +438,49 @@ func TestDesktopUpdateAssetRejectsUntrustedSource(t *testing.T) {
 	}
 	if assetHits != 0 {
 		t.Fatal("untrusted asset was fetched")
+	}
+}
+
+// timeoutErr stands in for a net.Error that timed out, which is what a slow
+// proxy produces; url.Error.Timeout() only checks for that interface.
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
+func TestNetErrSummaryKeepsCauseAndDropsRequestDetail(t *testing.T) {
+	cause := errors.New("dial tcp 20.205.243.168:443: connectex: A connection attempt failed")
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "url error collapses to its cause",
+			err:  &url.Error{Op: "Get", URL: updateLatestAPI, Err: cause},
+			want: cause.Error(),
+		},
+		{
+			name: "deadline is explained",
+			err:  context.DeadlineExceeded,
+			want: "请求 GitHub 超时",
+		},
+		{
+			name: "timeout keeps the timeout wording",
+			err:  &url.Error{Op: "Get", URL: updateLatestAPI, Err: timeoutErr{}},
+			want: "请求 GitHub 超时",
+		},
+		{name: "nil stays empty", err: nil, want: ""},
+	}
+	for _, tc := range cases {
+		got := netErrSummary(tc.err)
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%s: netErrSummary = %q, want it to contain %q", tc.name, got, tc.want)
+		}
+		// Naming the host is fine; echoing the request URL is not.
+		if strings.Contains(got, updateLatestAPI) || strings.Contains(got, "https://") {
+			t.Errorf("%s: netErrSummary leaked the request URL: %q", tc.name, got)
+		}
 	}
 }

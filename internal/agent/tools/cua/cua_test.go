@@ -96,6 +96,28 @@ func TestComputerUse_PowerShellMode(t *testing.T) {
 	}
 }
 
+func TestComputerUse_OpenAppAcceptsURL(t *testing.T) {
+	cu := newTestCUA("powershell", func(ctx context.Context, name string, args []string) ([]byte, error) {
+		return []byte("ok"), nil
+	})
+	out, err := cu.Execute(context.Background(), map[string]any{
+		"action":   "open_app",
+		"app_name": "https://mp.weixin.qq.com/s/abc?from=timeline&isappinstalled=0",
+	})
+	if err != nil {
+		t.Fatalf("带查询串的 http 链接应被接受: %v", err)
+	}
+	if got, _ := out.(map[string]any)["executed"].(bool); !got {
+		t.Errorf("应真实执行: %+v", out)
+	}
+	if _, err := cu.Execute(context.Background(), map[string]any{
+		"action":   "open_app",
+		"app_name": "file:///C:/Windows/System32/cmd.exe",
+	}); err == nil {
+		t.Error("非 http(s) 协议应被拒绝")
+	}
+}
+
 func TestComputerUse_ArgValidation(t *testing.T) {
 	cu := newTestCUA("powershell", nil)
 	if _, err := cu.Execute(context.Background(), map[string]any{"action": "click"}); err == nil {

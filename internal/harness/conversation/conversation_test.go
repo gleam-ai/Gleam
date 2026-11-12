@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,8 +58,55 @@ func TestTitleTruncate(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := s.Get(c.ID)
-	if r := []rune(got.Title); len(r) != maxTitleRunes+1 {
-		t.Fatalf("标题长度=%d, 期望 %d（含省略号）", len(r), maxTitleRunes+1)
+	if r := []rune(got.Title); len(r) != maxTitleRunes {
+		t.Fatalf("标题长度=%d, 期望 %d（含省略号）", len(r), maxTitleRunes)
+	}
+}
+
+func TestTruncateEmojiAndUnicode(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxRunes int
+		wantEnd  string // 结尾应该是什么
+	}{
+		{"emoji_pair", "Hello 👨‍👩‍👧‍👦 world", 10, "…"},
+		{"chinese_char", "你好世界 🌍", 4, "…"},
+		{"exact_fit", "abc 定", 3, ""},      // 正好 3 个 rune，不应加省略号
+		{"one_rune", "a", 1, ""},           // 1 个字符不超过限制
+		{"empty", "", 5, ""},               // 空字符串
+		{"only_ellipsis", "😀", 1, "…"},     // Emoji 被替换为省略号
+		{"multi_emoji", "🎉🎊🎈test", 5, "…"}, // 多个 Emoji
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncate(tt.input, tt.maxRunes)
+			title := got
+
+			// 检查是否以省略号结尾 (如果超过限制)
+			if len([]rune(tt.input)) > tt.maxRunes {
+				if !strings.HasSuffix(title, "…") {
+					t.Errorf("截断后应以省略号结尾：%q", title)
+				}
+			}
+
+			// 检查总长度不超过 maxRunes（包含省略号）
+			if len([]rune(title)) > tt.maxRunes {
+				t.Errorf("标题长度=%d, 超过上限 %d: %q", len([]rune(title)), tt.maxRunes, title)
+			}
+
+			// 检查没有损坏代理对 (简单检查：不会在代理对中间截断)
+			r := []rune(title)
+			for i := 0; i < len(r)-1; i++ {
+				if r[i] >= 0xD800 && r[i] <= 0xDBFF {
+					// 高位代理对必须有低位跟随
+					if i+1 >= len(r) || r[i+1] < 0xDC00 || r[i+1] > 0xDFFF {
+						t.Errorf("代理对被切断：%v", r)
+					}
+				}
+			}
+		})
 	}
 }
 
