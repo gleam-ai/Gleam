@@ -550,11 +550,13 @@ func (s *Server) handleGoalRevert(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleApprovalList(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	list := make([]map[string]any, 0, len(s.approvals))
 	for _, wt := range s.approvals {
 		list = append(list, wt.view())
 	}
+	s.mu.Unlock()
+	// Never hold s.mu across a network write: a stalled client would freeze
+	// every progress broadcast and goal submission.
 	writeJSON(w, 200, map[string]any{"count": len(list), "approvals": list})
 }
 
