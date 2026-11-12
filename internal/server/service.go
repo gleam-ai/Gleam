@@ -133,13 +133,14 @@ func (s *Service) handleGoalSubmit(_ context.Context, params json.RawMessage) (a
 	if err := agent.ValidateGoalRequest(req); err != nil {
 		return nil, Errf(CodeInvalidParams, "%v", err)
 	}
-	entry := &taskEntry{ID: taskID, Goal: p.Goal, Status: types.GoalRunning, Mode: p.Mode, Started: time.Now()}
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel must be set before the entry is published: handleGoalCancel reads
+	// it under s.mu, so assigning it afterwards is a data race.
+	entry := &taskEntry{ID: taskID, Goal: p.Goal, Status: types.GoalRunning, Mode: p.Mode, Started: time.Now(), Cancel: cancel}
 	s.mu.Lock()
 	s.tasks[taskID] = entry
 	s.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	entry.Cancel = cancel
 	go func() {
 		defer cancel()
 		result := s.Agent.RunGoal(ctx, req)

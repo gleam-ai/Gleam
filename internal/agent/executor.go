@@ -865,6 +865,10 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 			r.Status = types.StepSucceeded
 			r.Output = out
 			r.Outcome = types.OutcomeOK
+			// A previous timed-out attempt left its error on r; success must
+			// clear it unconditionally, not only for OutcomeReporter tools.
+			r.Error = ""
+			r.ErrorKind = ""
 			if rep, ok := tool.(types.OutcomeReporter); ok {
 				if oc, note := rep.Outcome(args, out); oc != "" {
 					r.Outcome = oc

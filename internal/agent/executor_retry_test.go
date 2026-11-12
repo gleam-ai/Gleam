@@ -29,6 +29,9 @@ func TestExecute_TimeoutRetrySucceeds(t *testing.T) {
 	if res.Steps[0].Status != types.StepSucceeded {
 		t.Fatalf("重试后应成功: %+v", res.Steps[0])
 	}
+	if res.Steps[0].Error != "" || res.Steps[0].ErrorKind != "" {
+		t.Errorf("成功重试后应清空超时错误: Error=%q ErrorKind=%q", res.Steps[0].Error, res.Steps[0].ErrorKind)
+	}
 	if got := atomic.LoadInt32(&calls); got != 2 {
 		t.Errorf("工具调用次数 = %d，应为 2", got)
 	}
