@@ -70,6 +70,54 @@ func TestExportImport(t *testing.T) {
 	}
 }
 
+// TestImportAssignsUsableIDs guards against imported conversations landing with
+// an empty ID: they cannot be opened from the list, and ReassignSpace writes
+// them all to the same ".json" file, overwriting each other.
+func TestImportAssignsUsableIDs(t *testing.T) {
+	src, _ := Open(t.TempDir())
+	c1, _ := src.Create()
+	src.Append(c1.ID, Message{Role: "user", Content: "第一条", CreatedAt: time.Now()})
+	c2, _ := src.Create()
+	src.Append(c2.ID, Message{Role: "user", Content: "第二条", CreatedAt: time.Now()})
+
+	exportPath := filepath.Join(t.TempDir(), "export.json")
+	if err := src.Export(exportPath, ExportOptions{}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst, _ := Open(t.TempDir())
+	if _, err := dst.Import(exportPath); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	list, err := dst.List()
+	if err != nil || len(list) != 2 {
+		t.Fatalf("List = %d 条, err=%v，应为 2", len(list), err)
+	}
+	for _, sum := range list {
+		if sum.ID == "" {
+			t.Fatal("导入的会话 ID 为空：列表打不开、移动空间会互相覆盖")
+		}
+		c, err := dst.Get(sum.ID)
+		if err != nil || len(c.Messages) != 1 {
+			t.Fatalf("Get(%q) err=%v，导入的会话必须能按 ID 打开且消息完整", sum.ID, err)
+		}
+	}
+
+	if _, err := dst.ReassignSpace(DefaultSpaceID, "space-x"); err != nil {
+		t.Fatalf("ReassignSpace: %v", err)
+	}
+	after, _ := dst.List()
+	if len(after) != 2 {
+		t.Fatalf("移动空间后剩 %d 条，导入会话不得塌缩成一个文件", len(after))
+	}
+	for _, sum := range after {
+		if _, err := dst.Get(sum.ID); err != nil {
+			t.Fatalf("移动空间后 Get(%q) 失败: %v", sum.ID, err)
+		}
+	}
+}
+
 // TestExportWithFilters tests export filtering by SpaceID and Limit.
 func TestExportWithFilters(t *testing.T) {
 	storeDir := t.TempDir()

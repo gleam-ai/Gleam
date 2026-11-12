@@ -99,8 +99,12 @@ func (s *Store) Import(path string) (int, error) {
 			continue
 		}
 
-		// Generate new ID for each conversation
+		// Generate new ID for each conversation. It must live inside the JSON,
+		// not just in the file name: List/Get read the embedded ID, and
+		// ReassignSpace rewrites by it — an empty ID collapses every imported
+		// conversation into the same ".json" file.
 		newID := NewImportID(c.Title)
+		c.ID = newID
 
 		s.mu.Lock()
 		err = s.writeConversationLocked(newID, c)
