@@ -385,8 +385,11 @@ const Keymap = (() => {
 
 function toggleWorkMode() {
   const btns = [...document.querySelectorAll('#task-seg button[data-task]')];
-  const off = btns.find((b) => b.getAttribute('aria-pressed') !== 'true');
-  if (off) off.click();
+  const cur = btns.find((b) => b.getAttribute('aria-pressed') === 'true');
+  // 只在 work↔code 之间切换；点第一个未选中按钮会落进无工具的对话模式。
+  const target = cur?.dataset.task === 'code' ? 'work' : 'code';
+  const next = btns.find((b) => b.dataset.task === target);
+  if (next) next.click();
 }
 
 function newWindow() {
