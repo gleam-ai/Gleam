@@ -21,6 +21,9 @@ func TestValidateReferences(t *testing.T) {
 	if err := ValidateReferences([]Reference{{Kind: "file", Label: "方案.md", Value: "@D:/方案.md"}}); err != nil {
 		t.Fatalf("合法引用被拒绝: %v", err)
 	}
+	if err := ValidateReferences([]Reference{{Kind: "folder", Label: "src", Value: "@folder:D:/proj/src"}}); err != nil {
+		t.Fatalf("文件夹引用被拒绝: %v", err)
+	}
 	cases := [][]Reference{
 		{{Kind: "unknown", Label: "x", Value: "x"}},
 		{{Kind: "file", Label: "", Value: "x"}},

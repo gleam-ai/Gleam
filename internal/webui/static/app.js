@@ -4995,26 +4995,6 @@ const WS_ICON = {
   none: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 8.5 7 7M15.5 8.5l-7 7"/></svg>',
 };
 
-async function pickSystemFolder() {
-  const d = window.gleamDesktop;
-  if (d && typeof d.showOpenDialog === 'function') {
-    let paths = [];
-    try {
-      paths = await d.showOpenDialog({
-        properties: ['openDirectory', 'createDirectory'],
-        title: '选择工作区文件夹',
-      });
-    } catch (err) {
-      toast('打开系统选择器失败：' + err.message, 'error');
-      return;
-    }
-    const picked = Array.isArray(paths) ? paths[0] : paths;
-    if (picked) chooseWorkspace(picked);
-    return;
-  }
-  openWorkspaceBrowse();
-}
-
 const WS_ICON_MARKUP = [
   '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
   '<path d="M4 8h13v8a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/>',
@@ -6189,109 +6169,6 @@ async function deleteConvo(id, title) {
 $('#convo-new').addEventListener('click', () => startNewConvo());
 // 顶部“新对话”同样回到首页初始界面，发送时再按需创建会话
 $('#new-chat-btn').addEventListener('click', () => startNewConvo());
-
-// 内置目录浏览：普通浏览器里没有系统文件夹选择器时的退路（桌面壳走 pickSystemFolder）。
-function openWorkspaceBrowse() {
-  Modal.open('选择任务工作区', (box) => {
-    const wrap = el('div');
-    wrap.innerHTML = `
-      <p class="field-hint" style="margin: 0 0 var(--space-3);">目标中的文件操作将限定在工作区内。切换立即生效，写入不重启。</p>
-      <div class="field">
-        <label class="field-label">最近使用</label>
-        <div id="ws-recents"></div>
-      </div>
-      <div class="field">
-        <label class="field-label">浏览文件夹</label>
-        <div class="ws-crumb" id="ws-crumb"></div>
-        <div id="ws-dirs" style="max-height: 260px; overflow: auto;"></div>
-      </div>`;
-    box.appendChild(wrap);
-
-    let current = '';
-
-    async function refreshView() {
-      const rec = $('#ws-recents');
-      let ws;
-      // 这些浏览函数由点击直接调用：不接住 rejection 就只剩一个永远转不完的骨架屏
-      try {
-        ws = await api('GET', '/api/workspace');
-      } catch (err) {
-        rec.innerHTML = `<p class="field-hint" style="margin:0;color:var(--color-destructive);">${esc(err.message)}</p>`;
-        return;
-      }
-      rec.innerHTML = '';
-      (ws.recents || []).forEach((r) => {
-        const row = el('div', 'ws-row');
-        row.innerHTML = `<div class="row-main"><div class="row-title">${esc(wsShort(r))}</div><div class="row-sub">${esc(r)}</div></div>`;
-        row.addEventListener('click', () => pick(r));
-        rec.appendChild(row);
-      });
-      if (!(ws.recents || []).length)
-        rec.innerHTML = '<p class="field-hint" style="margin:0;">暂无记录</p>';
-    }
-
-    async function browse(path) {
-      const dirs = $('#ws-dirs');
-      let res;
-      try {
-        res = await api(
-          'GET',
-          '/api/fs?path=' + encodeURIComponent(path || ''),
-        );
-      } catch (err) {
-        dirs.innerHTML = `<p class="field-hint" style="margin:0;color:var(--color-destructive);">${esc(err.message)}</p>`;
-        return;
-      }
-      current = res.current || path || '';
-      const crumb = $('#ws-crumb');
-      crumb.innerHTML = '';
-      if (
-        res.parent !== undefined &&
-        res.parent !== null &&
-        res.parent !== ''
-      ) {
-        const up = el('button', 'btn btn-secondary btn-sm', '上一级');
-        up.addEventListener('click', () => browse(res.parent));
-        crumb.appendChild(up);
-      }
-      crumb.appendChild(
-        el('span', null, res.current || (path ? path : '根目录')),
-      );
-      dirs.innerHTML = '';
-      (res.dirs || []).forEach((d) => {
-        const row = el('div', 'ws-row');
-        row.innerHTML = `<div class="row-main"><div class="row-title">${esc(d.name)}</div><div class="row-sub">${esc(d.path)}</div></div>`;
-        row.addEventListener('click', () => browse(d.path));
-        dirs.appendChild(row);
-      });
-      if (!(res.dirs || []).length)
-        dirs.innerHTML =
-          '<p class="field-hint" style="margin:0;">此目录下没有子文件夹</p>';
-    }
-
-    async function pick(path) {
-      Modal.close();
-      await chooseWorkspace(path);
-    }
-
-    const actions = el('div', 'modal-actions');
-    const chooseBtn = el('button', 'btn btn-primary', '选择当前文件夹');
-    chooseBtn.type = 'button';
-    chooseBtn.addEventListener('click', () => {
-      if (current) pick(current);
-      else toast('请先进入一个文件夹', 'info');
-    });
-    const closeBtn = el('button', 'btn btn-secondary', '取消');
-    closeBtn.type = 'button';
-    closeBtn.addEventListener('click', Modal.close);
-    actions.appendChild(closeBtn);
-    actions.appendChild(chooseBtn);
-    box.appendChild(actions);
-
-    refreshView();
-    browse('');
-  });
-}
 
 /* ---------- 权限模式切换警告 ---------- */
 const PermWarning = (() => {

@@ -319,7 +319,7 @@ func ValidateReferences(refs []Reference) error {
 	if len(refs) > MaxReferences {
 		return fmt.Errorf("引用数量不能超过 %d", MaxReferences)
 	}
-	allowed := map[string]bool{"file": true, "goal": true, "skill": true, "plugin": true, "memory": true}
+	allowed := map[string]bool{"file": true, "folder": true, "goal": true, "skill": true, "plugin": true, "memory": true}
 	for i, ref := range refs {
 		if !allowed[ref.Kind] {
 			return fmt.Errorf("第 %d 个引用类型 %q 不受支持", i+1, ref.Kind)
