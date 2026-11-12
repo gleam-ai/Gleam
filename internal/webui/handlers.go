@@ -354,12 +354,6 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "%v", err)
 		return
 	}
-	if req.ConversationID != "" && s.Agent.Convos != nil {
-		if _, err := s.Agent.Convos.Get(req.ConversationID); err != nil {
-			writeErr(w, 400, "对话不存在或已被删除，请新建对话后重试")
-			return
-		}
-	}
 	taskID := types.NewID()
 	req.TaskID = taskID
 
@@ -368,6 +362,16 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 	// Agent owns admission across all entry points. Keep the UI record lock
 	// only until registration, so early progress cannot overtake this record.
 	s.mu.Lock()
+	// The existence check shares the delete handler's lock: checking before
+	// the lock lets a concurrent delete slip in between check and register.
+	if req.ConversationID != "" && s.Agent.Convos != nil {
+		if _, err := s.Agent.Convos.Get(req.ConversationID); err != nil {
+			s.mu.Unlock()
+			cancel()
+			writeErr(w, 400, "对话不存在或已被删除，请新建对话后重试")
+			return
+		}
+	}
 	done, err := s.Agent.StartGoal(ctx, req)
 	if err != nil {
 		s.mu.Unlock()
@@ -427,6 +431,7 @@ func (s *Server) pruneTasksLocked(keep string) {
 	sort.Slice(done, func(i, j int) bool { return done[i].started.Before(done[j].started) })
 	for i := 0; i < len(done) && len(s.tasks) > maxRetainedTasks; i++ {
 		delete(s.tasks, done[i].id)
+		delete(s.todos, done[i].id)
 	}
 }
 
@@ -976,11 +981,15 @@ func (s *Server) handleContextClear(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleConversationReset(w http.ResponseWriter, _ *http.Request) {
-	s.Agent.ResetConversation()
+	if err := s.Agent.ResetConversation(); err != nil {
+		writeErr(w, http.StatusConflict, "%v", err)
+		return
+	}
 	s.mu.Lock()
 	for id, t := range s.tasks {
 		if t.Status != types.GoalRunning {
 			delete(s.tasks, id)
+			delete(s.todos, id)
 		}
 	}
 	s.mu.Unlock()

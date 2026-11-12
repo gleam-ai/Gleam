@@ -110,7 +110,9 @@ func TestGoalAdmissionAndCancellationKeepConversationsSeparate(t *testing.T) {
 	if _, err := a.NewConversation(); err != nil {
 		t.Fatal(err)
 	}
-	a.ResetConversation()
+	if err := a.ResetConversation(); !errors.Is(err, ErrAgentBusy) {
+		t.Fatalf("busy reset should report ErrAgentBusy, got %v", err)
+	}
 	if turns := a.Mem.Short.Recent(0); len(turns) != 1 || turns[0].Content != "PRIVATE_A" {
 		t.Fatalf("busy activation changed memory: %v", turns)
 	}

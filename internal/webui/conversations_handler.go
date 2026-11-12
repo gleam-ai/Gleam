@@ -148,8 +148,11 @@ func (s *Server) handleConversationDelete(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	// Keep the lock through the delete: a submit that passed its existence
+	// check must not register a task on a conversation we are removing.
+	err := s.Agent.Convos.Delete(id)
 	s.mu.Unlock()
-	if err := s.Agent.Convos.Delete(id); err != nil {
+	if err != nil {
 		writeConvoErr(w, err)
 		return
 	}

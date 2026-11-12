@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 )
@@ -24,6 +25,9 @@ type Conn struct {
 	wmu    sync.Mutex
 	reader *bufio.Scanner
 
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	methods map[string]HandlerMethod
 
 	pendingMu sync.Mutex
@@ -39,9 +43,12 @@ type Conn struct {
 func NewConn(r io.Reader, w io.Writer) *Conn {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 256*1024), 16*1024*1024)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Conn{
 		w:       w,
 		reader:  sc,
+		ctx:     ctx,
+		cancel:  cancel,
 		methods: map[string]HandlerMethod{},
 		pending: map[int64]chan Response{},
 		closed:  make(chan struct{}),
@@ -101,7 +108,20 @@ func (c *Conn) dispatch(req Request) {
 		}
 		return
 	}
-	result, rpcErr := h(context.Background(), req.Params)
+	var result any
+	var rpcErr *RPCError
+	// A panicking handler must not take the whole sidecar down with it.
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				rpcErr = Errf(CodeInternal, "处理 %q 时内部错误: %v", req.Method, p)
+				if c.OnError != nil {
+					c.OnError(fmt.Errorf("rpc %s panic: %v", req.Method, p))
+				}
+			}
+		}()
+		result, rpcErr = h(c.ctx, req.Params)
+	}()
 	if len(req.ID) > 0 {
 		c.writeResponse(req.ID, result, rpcErr)
 	}
@@ -211,6 +231,7 @@ func (c *Conn) Closed() <-chan struct{} { return c.closed }
 
 func (c *Conn) closeOnce() {
 	c.once.Do(func() {
+		c.cancel()
 		c.pendingMu.Lock()
 		defer c.pendingMu.Unlock()
 		for id, ch := range c.pending {

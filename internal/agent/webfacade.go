@@ -1278,12 +1278,18 @@ func (a *Agent) ContextView() map[string]any {
 	}
 }
 
-func (a *Agent) ResetConversation() {
+// ResetConversation reports busy as an error: silently skipping the reset
+// while telling the UI "reset done" loses the user's intent.
+func (a *Agent) ResetConversation() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.Mem != nil && a.idleLocked() == nil {
+	if err := a.idleLocked(); err != nil {
+		return err
+	}
+	if a.Mem != nil {
 		a.Mem.ResetConversation()
 	}
+	return nil
 }
 
 func (a *Agent) AuthSession() map[string]any {
