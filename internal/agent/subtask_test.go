@@ -143,3 +143,26 @@ func TestSubtaskStepCap(t *testing.T) {
 		t.Errorf("subtaskMaxSteps=%d 不应超过全局上限 %d", subtaskMaxSteps, config.DefaultMaxSteps)
 	}
 }
+
+// A multi-file trace whose middle and final layers sit beyond the old
+// 600/800-rune summary caps: the delegated answer must still carry every
+// layer and its line number, not just the first one.
+func TestDelegateSubtask_MultiLayerTraceSurvivesSummary(t *testing.T) {
+	trace := "config.go:4=30\n" + strings.Repeat("padding ", 100) +
+		"\nserver.go:5=60\n" + strings.Repeat("padding ", 100) + "\nagent.go:5=90\n"
+	client := llm.NewMock()
+	client.Enqueue("plan", `{"steps":[{"id":"s1","description":"追踪","tool":"trace","args":{}}]}`)
+	a := newSubtaskTestAgent(t, client)
+	a.Reg.MustRegister(&funcTool{name: "trace", perm: types.PermissionReadOnly,
+		fn: func(ctx context.Context, args map[string]any) (any, error) { return trace, nil }})
+
+	out, err := a.DelegateSubtask(context.Background(), "追踪 timeout 链路", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"config.go:4=30", "server.go:5=60", "agent.go:5=90"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("子任务答案丢了链路层 %q（产出被截断）：\n%s", want, out)
+		}
+	}
+}
