@@ -303,7 +303,7 @@ Download \`Gleam_${VERSION}_macos_amd64.tar.gz\` (Intel) or \`.arm64.tar.gz\` (A
 ## 🧪 Verification
 Run \`scripts/verify-release.sh\` before production deployment.
 
-For detailed documentation, see RELEASE-CHECKLIST.md in the repository.
+For detailed documentation, see docs/releases/RELEASE-CHECKLIST.md in the repository.
 
 ---
 *Release date: $(date '+%Y-%m-%d')*

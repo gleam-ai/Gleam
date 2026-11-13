@@ -218,12 +218,12 @@ gh release view v0.0.25-cua-integration --json name,url,tagName,publishedAt
 
 ## 📝 Related Documentation
 
-Located in project root:
-- [`COMPUTER_USE_INTEGRATION.md`](../COMPUTER_USE_INTEGRATION.md) - Full integration report
-- [`ONE-CLICK-RELEASE.md`](../ONE-CLICK-RELEASE.md) - Multi-platform build guide
-- [`RELEASE-notes.md`](../RELEASE-notes.md) - Detailed changelog
-- [`DEPLOY-SUMMARY.md`](../DEPLOY-SUMMARY.md) - Quick deployment checklist
-- [`ONE-CLICK-DEPLOYMENT-COMPLETE.md`](../ONE-CLICK-DEPLOYMENT-COMPLETE.md) - Deployment verification
+Located in `docs/reports/` and `docs/releases/`:
+- [`COMPUTER_USE_INTEGRATION.md`](COMPUTER_USE_INTEGRATION.md) - Full integration report
+- [`ONE-CLICK-RELEASE.md`](ONE-CLICK-RELEASE.md) - Multi-platform build guide
+- [`RELEASE-notes.md`](../releases/RELEASE-notes.md) - Detailed changelog
+- [`DEPLOY-SUMMARY.md`](DEPLOY-SUMMARY.md) - Quick deployment checklist
+- [`ONE-CLICK-DEPLOYMENT-COMPLETE.md`](ONE-CLICK-DEPLOYMENT-COMPLETE.md) - Deployment verification
 
 ---
 
