@@ -197,6 +197,12 @@ type Reflection struct {
 	Reason     string        `json:"reason"`
 	Suggestion string        `json:"suggestion,omitempty"`
 	Checks     []CheckResult `json:"checks,omitempty"`
+	// Confidence is the judge's self-reported certainty (0-100). 0 means the
+	// model did not report it -- unknown, not "zero confidence".
+	Confidence int `json:"confidence,omitempty"`
+	// Escalated marks a verdict re-judged by the cascade model after the
+	// first pass reported low confidence.
+	Escalated bool `json:"escalated,omitempty"`
 	// Unverified marks the local fallback where every step succeeded but the
 	// acceptance criteria could not be checked (reflector down/unparseable).
 	// Replanning cannot fix a dead reflector, so the goal loop stops instead of

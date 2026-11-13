@@ -15,6 +15,12 @@ type Reflector struct {
 	DoneThreshold int
 	TaskID        string
 	Acceptance    []string
+	// Escalate is the cascade model: a low-confidence first verdict is
+	// re-judged once by this client when it differs from LLM. Nil means no
+	// stronger model is available and low confidence is flagged for human
+	// review instead.
+	Escalate      llm.Client
+	EscalateBelow int
 }
 
 func (r *Reflector) Evaluate(ctx context.Context, goal string, exec *Result, attempt int) types.Reflection {
@@ -30,18 +36,55 @@ func (r *Reflector) Evaluate(ctx context.Context, goal string, exec *Result, att
 	digest := buildDigest(goal, exec, attempt, r.Acceptance, facts)
 	sys := reflectorSystemPrompt(hasChecks, digest)
 
+	refl, note := r.judge(ctx, r.LLM, sys, hasChecks)
+	if note != "" {
+		return heuristicReflection(exec, note, hasChecks)
+	}
+	if r.lowConfidence(refl) {
+		if r.Escalate != nil && r.Escalate != r.LLM {
+			if second, note2 := r.judge(ctx, r.Escalate, sys, hasChecks); note2 == "" {
+				second.Escalated = true
+				second.Reason = fmt.Sprintf("初判置信度 %d%%，已级联复核。%s", refl.Confidence, second.Reason)
+				refl = second
+			}
+		}
+		if !refl.Escalated {
+			refl.Reason = fmt.Sprintf("置信度 %d%%，建议人工复核。%s", refl.Confidence, refl.Reason)
+			if strings.TrimSpace(refl.Suggestion) == "" {
+				refl.Suggestion = "判断置信度较低，建议人工核对结果后再采用。"
+			}
+		}
+	}
+
+	if bad := failedArtifacts(facts); len(bad) > 0 {
+		if refl.Verdict != "failed" {
+			refl.Verdict = "replan"
+		}
+		note := artifactFailureNote(bad)
+		if strings.TrimSpace(refl.Reason) == "" {
+			refl.Reason = note
+		} else {
+			refl.Reason = note + "。" + refl.Reason
+		}
+	}
+	return refl
+}
+
+// judge runs one evaluation pass and normalizes the result. A non-empty note
+// means the pass failed and the caller should fall back to local heuristics.
+func (r *Reflector) judge(ctx context.Context, client llm.Client, sys string, hasChecks bool) (types.Reflection, string) {
 	req := llm.ChatRequest{System: sys, Messages: []llm.Message{{Role: llm.RoleUser, Content: "请评估。"}}, Temperature: 0.1, TaskID: r.TaskID}
-	text, err := r.LLM.Chat(ctx, req)
+	text, err := client.Chat(ctx, req)
 	if err != nil {
-		return heuristicReflection(exec, fmt.Sprintf("（反思器调用失败，使用本地评估: %v）", err), hasChecks)
+		return types.Reflection{}, fmt.Sprintf("（反思器调用失败，使用本地评估: %v）", err)
 	}
 	raw, err := extractJSON(text)
 	if err != nil {
-		return heuristicReflection(exec, "（反思器输出无法解析，使用本地评估）", hasChecks)
+		return types.Reflection{}, "（反思器输出无法解析，使用本地评估）"
 	}
 	var refl types.Reflection
 	if err := json.Unmarshal(raw, &refl); err != nil {
-		return heuristicReflection(exec, "（反思器输出无法解析，使用本地评估）", hasChecks)
+		return types.Reflection{}, "（反思器输出无法解析，使用本地评估）"
 	}
 	if hasChecks {
 		refl.Checks = alignChecks(refl.Checks, r.Acceptance)
@@ -61,6 +104,12 @@ func (r *Reflector) Evaluate(ctx context.Context, goal string, exec *Result, att
 	if refl.Score > 100 {
 		refl.Score = 100
 	}
+	if refl.Confidence < 0 {
+		refl.Confidence = 0
+	}
+	if refl.Confidence > 100 {
+		refl.Confidence = 100
+	}
 	switch refl.Verdict {
 	case "done", "replan", "failed":
 	default:
@@ -70,19 +119,18 @@ func (r *Reflector) Evaluate(ctx context.Context, goal string, exec *Result, att
 			refl.Verdict = "replan"
 		}
 	}
+	return refl, ""
+}
 
-	if bad := failedArtifacts(facts); len(bad) > 0 {
-		if refl.Verdict != "failed" {
-			refl.Verdict = "replan"
-		}
-		note := artifactFailureNote(bad)
-		if strings.TrimSpace(refl.Reason) == "" {
-			refl.Reason = note
-		} else {
-			refl.Reason = note + "。" + refl.Reason
-		}
+func (r *Reflector) lowConfidence(refl types.Reflection) bool {
+	return refl.Confidence > 0 && refl.Confidence < r.escalateBelow()
+}
+
+func (r *Reflector) escalateBelow() int {
+	if r == nil || r.EscalateBelow <= 0 {
+		return 60
 	}
-	return refl
+	return r.EscalateBelow
 }
 
 func reflectorSystemPrompt(hasChecks bool, digest string) string {
@@ -111,23 +159,25 @@ func evalInstruction(hasChecks bool) string {
 	if !hasChecks {
 		return `
 ## 输出（只输出严格 JSON）
-{"score":0到100的整数,"verdict":"done或replan或failed","reason":"一两句中文说明","suggestion":"给用户的后续建议，可为空字符串"}
+{"score":0到100的整数,"verdict":"done或replan或failed","confidence":0到100的整数,"reason":"一两句中文说明","suggestion":"给用户的后续建议，可为空字符串"}
 
 ## 评分标准
 - 90-100：目标完全达成，结果可用。
 - 60-89：基本达成但有瑕疵（verdict=done 时需说明瑕疵）。
 - 30-59：部分完成，值得重规划补救（verdict=replan）。
 - 0-29：失败或方向错误（连续无望用 verdict=failed）。
+- confidence：你对这次判定的把握。证据充分、输出可核对才给高分；证据缺失或互相矛盾时如实给低分，不要为了显得确定而虚高。
 - suggestion：主动提议（例如"是否需要我把这个流程固化为技能？"），无则留空。`
 	}
 	return `
 ## 输出（只输出严格 JSON）
-{"checks":[{"criterion":"验收标准原文","passed":true或false,"note":"没通过时说明差在哪"}],"verdict":"done或replan或failed","reason":"一两句中文说明","suggestion":"给用户的后续建议，可为空字符串"}
+{"checks":[{"criterion":"验收标准原文","passed":true或false,"note":"没通过时说明差在哪"}],"verdict":"done或replan或failed","confidence":0到100的整数,"reason":"一两句中文说明","suggestion":"给用户的后续建议，可为空字符串"}
 
 ## 判定要求
 - 逐条判定上面的验收标准，一条都不要漏，criterion 用原文。
 - passed 只能是 true/false：只看执行结果**是否真的满足**，不看"看起来差不多"。
 - note 要具体到能照着改（"回复里只有 1 条建议，标准要求不少于 3 条"），不要写"完成度不够"。
+- confidence：你对这次判定的把握。逐条都有可核对的证据才给高分；证据缺失或互相矛盾时如实给低分，不要为了显得确定而虚高。
 - 分数由系统按通过比例计算，你不需要给分；verdict 仍由你判断：
   全部通过且结果可用 → done；有未通过但值得再试 → replan；方向错误或连续无望 → failed。`
 }
