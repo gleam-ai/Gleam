@@ -41,7 +41,7 @@ func (d dataBlob) copyOut() []byte {
 	return out
 }
 
-func protectBytes(plain []byte) ([]byte, error) {
+func (*protector) protectBytes(plain []byte) ([]byte, error) {
 	in := newBlob(plain)
 	ent := newBlob(appEntropy)
 	var out dataBlob
@@ -63,7 +63,7 @@ func protectBytes(plain []byte) ([]byte, error) {
 	return blob, nil
 }
 
-func unprotectBytes(blob []byte) ([]byte, error) {
+func (*protector) unprotectBytes(blob []byte) ([]byte, error) {
 	in := newBlob(blob)
 	ent := newBlob(appEntropy)
 	var out dataBlob

@@ -2,10 +2,22 @@
 
 package credentials
 
-import "errors"
+func (p *protector) protectBytes(plain []byte) ([]byte, error) {
+	key, src, err := p.masterKeyForWrite()
+	if err != nil {
+		return nil, err
+	}
+	return sealBlob(plain, key, src)
+}
 
-func protectBytes(plain []byte) ([]byte, error) { return nil, nil }
-
-func unprotectBytes(blob []byte) ([]byte, error) {
-	return nil, errors.New("credentials: 文件已加密，但本平台没有 DPAPI 可解密")
+func (p *protector) unprotectBytes(blob []byte) ([]byte, error) {
+	src, err := blobSource(blob)
+	if err != nil {
+		return nil, err
+	}
+	key, err := p.masterKeyForRead(src)
+	if err != nil {
+		return nil, err
+	}
+	return openBlob(blob, key)
 }

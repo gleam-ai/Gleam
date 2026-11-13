@@ -44,6 +44,7 @@ type CloudConfig struct {
 type Store struct {
 	path     string
 	lockPath string
+	prot     *protector
 	mu       sync.Mutex
 }
 
@@ -88,6 +89,7 @@ func Open(dataDir string) (*Store, error) {
 	return &Store{
 		path:     filepath.Join(dataDir, File),
 		lockPath: filepath.Join(dataDir, lockFile),
+		prot:     newProtector(dataDir),
 	}, nil
 }
 
@@ -111,7 +113,7 @@ func (s *Store) read() (*file, error) {
 		}
 		return nil, err
 	}
-	data, err = decrypt(data)
+	data, err = s.prot.decrypt(data)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +129,7 @@ func (s *Store) write(f *file) error {
 	if err != nil {
 		return err
 	}
-	data, err = encrypt(data)
+	data, err = s.prot.encrypt(data)
 	if err != nil {
 		return err
 	}
