@@ -374,3 +374,62 @@ func TestAcceptance_NotDoneTriggersReplan(t *testing.T) {
 		t.Errorf("验收始终未通过却报告成功：%+v", res)
 	}
 }
+
+func TestAcceptance_ParaphrasedCriterionRecovered(t *testing.T) {
+	acc := []string{"回复里给出不少于 3 条建议"}
+	got := alignChecks([]types.CheckResult{
+		{Criterion: "回复里给出不少于3条建议", Passed: true},
+	}, acc)
+	if !got[0].Passed {
+		t.Fatalf("措辞微调不应把已判定的标准打成未判定：%+v", got)
+	}
+	if scoreFromChecks(got) != 100 {
+		t.Errorf("恢复判定后应为 100 分，实际 %d", scoreFromChecks(got))
+	}
+	got = alignChecks([]types.CheckResult{
+		{Criterion: "验收标准：回复里给出不少于 3 条建议（语气简洁）", Passed: true},
+	}, acc)
+	if !got[0].Passed {
+		t.Fatalf("包含原标准的改写也应恢复：%+v", got)
+	}
+}
+
+func TestAcceptance_UnverifiedStopsReplan(t *testing.T) {
+	f := newFixture(t, []llm.Scripted{
+		planScript(`{"steps":[{"id":"s1","description":"回复","tool":"reply","args":{"text":"建议一二三"}}],
+			"acceptance":["回复里给出不少于 3 条建议"]}`),
+		reflectChecksScript("我觉得挺好的！"),
+	})
+	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "给我三条建议", Mode: "auto"})
+
+	plans := 0
+	for _, c := range f.llm.Calls {
+		if llm.KindOf(c.System) == "plan" {
+			plans++
+		}
+	}
+	if plans != 1 {
+		t.Fatalf("反思器不可用时重规划修不好它，不应继续烧尝试次数，实际规划 %d 次", plans)
+	}
+	if res.Status != types.GoalPartial {
+		t.Fatalf("步骤全成功但验收没核对，应落部分完成而不是 %s", res.Status)
+	}
+	if !strings.Contains(res.Error, "未能核对") {
+		t.Errorf("结果里要说明验收没能核对，实际 %q", res.Error)
+	}
+}
+
+func TestAcceptance_UnverifiedOnlyWhenAllSucceeded(t *testing.T) {
+	refl := heuristicReflection(mkExec(2, 0, 0), "（反思器调用失败）", true)
+	if !refl.Unverified {
+		t.Error("全成功+有验收标准+反思器不可用 应标记 Unverified")
+	}
+	refl = heuristicReflection(mkExec(1, 1, 0), "（反思器调用失败）", true)
+	if refl.Unverified {
+		t.Error("有步骤失败时重规划仍有意义，不应标记 Unverified")
+	}
+	refl = heuristicReflection(mkExec(2, 0, 0), "", false)
+	if refl.Unverified {
+		t.Error("没有验收标准时走原兜底，不应标记 Unverified")
+	}
+}

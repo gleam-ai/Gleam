@@ -520,6 +520,18 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			a.finalize(ctx, taskID, result, &plan, req.Role)
 			return result
 		}
+		// A dead reflector cannot be fixed by replanning: every next attempt
+		// hits the same local fallback. Stop spending attempts and report the
+		// truth (steps ran, acceptance never verified) instead of looping.
+		if reflection.Unverified {
+			result.Status = types.GoalPartial
+			if result.Error == "" {
+				result.Error = reflection.Reason
+			}
+			markCancelled(result)
+			a.finalize(ctx, taskID, result, &plan, req.Role)
+			return result
+		}
 		// ---------- Anti-spin: the same action repeating means running in
 		// place; stop spending replan attempts ----------
 		// Placed before the "last replan" check, otherwise it never fires
