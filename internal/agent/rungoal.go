@@ -570,14 +570,22 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			reflection.Score, reflection.Reason, buildStepDigest(exec))
 		notify("reflect", tell.Replan(reflection.Score), 90, "warn")
 	}
-	// Planning never produced a valid plan (typically a pure chat goal straying
-	// into work mode) -> fall back to direct chat instead of hard-failing.
+	// Planning never produced a valid plan. Fall back to a direct answer so the
+	// user still gets something, but this is a work/code goal that executed zero
+	// steps: the chat pipeline's own success verdict only means "a coherent reply
+	// was written", not "the work was done". Inheriting it reported genuine work
+	// failures (e.g. a code goal that never wrote a file) as success/score 70.
+	// Record it as partial -- answer delivered, work goal not achieved -- which
+	// matches the delivery metric below that already counts this as a failed
+	// first pass.
 	if !planned && (last == nil || last.Status == types.GoalFailed) {
 		notify("plan", "多次规划未成功，切换直接回答…", 20, "warn")
 		res := a.runChatPath(ctx, goal, taskID, req.Role)
 		if res.Status == types.GoalSuccess {
-			res.Score = 70
-			res.Suggestion = "这个问题更适合「对话」模式，切换后响应更快"
+			res.Status = types.GoalPartial
+			res.Score = 40
+			res.Error = "规划多次失败，未执行任何工作步骤；以上为直接回答，仅供参考，工作目标并未完成。"
+			res.Suggestion = "纯问答类目标更适合「对话」模式，切换后响应更快；需要改动文件/执行命令的目标请补充具体信息后重试。"
 		}
 		// The deliverable came from direct chat, not the work loop -> prog
 		// stays "never reached the completion check", so this delivery lands
