@@ -789,9 +789,11 @@ func getStrMap(m map[string]any, key string, dst *map[string]string) {
 	for k, val := range raw {
 		k = strings.TrimSpace(k)
 		s, ok := val.(string)
-		if k == "" || !ok || strings.TrimSpace(s) == "" {
+		if k == "" || !ok {
 			continue
 		}
+		// Empty values are kept: MCP env/header keys with blank values are
+		// placeholders whose secrets live in the encrypted credential store.
 		out[k] = s
 	}
 	if len(out) > 0 {

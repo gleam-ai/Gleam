@@ -397,10 +397,13 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(imageTool)
 
 	startMCP := func() {}
+	if err := agent.MigrateMCPSecrets(cfg, credStore); err != nil {
+		fmt.Fprintf(os.Stderr, "[mcp] 密钥迁移失败（沿用现有配置）: %v\n", err)
+	}
 	connectMCP := func() {
 		if len(cfg.MCP) > 0 {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			mcpClients := mcp.RegisterAll(ctx, reg, toMCPCfgs(cfg.MCP), func(f string, xs ...any) {
+			mcpClients := mcp.RegisterAll(ctx, reg, toMCPCfgs(cfg.MCP, credStore), func(f string, xs ...any) {
 				fmt.Fprintf(os.Stderr, "[mcp] "+f+"\n", xs...)
 			})
 			cancel()
@@ -1024,9 +1027,10 @@ func permFromStr(s string) types.Permission {
 	}
 }
 
-func toMCPCfgs(in []config.MCPServerConfig) []mcp.ServerConfig {
+func toMCPCfgs(in []config.MCPServerConfig, creds *credentials.Store) []mcp.ServerConfig {
 	out := make([]mcp.ServerConfig, 0, len(in))
 	for _, s := range in {
+		s = agent.ResolveMCPSecrets(creds, s)
 		out = append(out, mcp.ServerConfig{
 			Name:    s.Name,
 			Command: s.Command,
