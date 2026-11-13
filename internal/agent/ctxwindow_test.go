@@ -308,7 +308,7 @@ func TestAutoCompressionReproIdentity(t *testing.T) {
 			}
 			return "answer", nil
 		}}
-		a.runChatPath(context.Background(), "question", "chat-owner", "")
+		a.runChatPath(context.Background(), "question", "chat-owner", "", nil)
 		for i := 0; i < 2; i++ {
 			r := awaitCompressionProbe(t, requests)
 			ev := awaitCompressionProbe(t, n.actions)

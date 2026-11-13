@@ -398,3 +398,61 @@ html[data-theme="light"] {
 .timeline-item--active::before {
   border-color: var(--state-run);
 }
+
+/* ---------- Image attachments (chat) ---------- */
+.composer-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.composer-images[hidden] {
+  display: none;
+}
+.img-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 6px 4px 4px;
+  border-radius: var(--radius-full);
+  background: rgba(var(--info-rgb) / 0.09);
+  border: 1px solid rgba(var(--info-rgb) / 0.24);
+  font-size: var(--fs-xs);
+  color: var(--color-fg);
+  animation: chip-in var(--dur-base) var(--ease-spring);
+}
+.img-chip-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.img-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.msg-image {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  object-fit: cover;
+}
+.step-image {
+  display: block;
+  max-width: 320px;
+  max-height: 320px;
+  margin-top: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}

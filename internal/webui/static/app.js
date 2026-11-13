@@ -605,6 +605,10 @@ $('#task-seg').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-task]');
   if (!btn) return;
   currentTask = btn.dataset.task;
+  if (currentTask !== 'chat' && attachedImages.length) {
+    clearImages();
+    toast('图片附件仅支持对话模式，已移除', 'warning');
+  }
   document
     .querySelectorAll('#task-seg button')
     .forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
@@ -807,6 +811,7 @@ async function submitGoal() {
       label: r.label,
       value: r.refText,
     })),
+    images: attachedImages.slice(),
   };
   chatStickBottom = true;
   const btn = $('#goal-submit');
@@ -835,14 +840,21 @@ async function submitGoal() {
       submitted.site && !/index\.html/i.test(submitted.goal)
         ? submitted.goal + SITE_SUFFIX
         : submitted.goal;
-    const result = await api('POST', '/api/goals', {
+    const payload = {
       goal: goalText,
       mode: submitted.mode,
       task_mode: submitted.task,
       role: submitted.role,
       conversation_id: convoId,
       references: submitted.refs,
-    });
+    };
+    if (submitted.images.length) {
+      payload.images = submitted.images.map((im) => ({
+        mime: im.mime,
+        data: im.data,
+      }));
+    }
+    const result = await api('POST', '/api/goals', payload);
     if (result.warning) {
       toast(result.warning, 'error', 8000);
     }
@@ -852,12 +864,19 @@ async function submitGoal() {
       autoResize();
     }
     if (refsMatch(submitted.refs)) clearRefs();
+    if (
+      attachedImages.length === submitted.images.length &&
+      attachedImages.every((im, i) => im === submitted.images[i])
+    )
+      clearImages();
     // The completion event can beat this response. Recreating a running
     // bubble/card now would leave a stop button that no later event retires.
     if (finishedTasks.has(task_id)) {
       if (!viewingConvo) await ensureTask(task_id);
     } else if (viewingConvo && currentConvo && currentConvo.id === convoId) {
-      appendLiveConvoTurn(displayGoal, task_id, submitted.task);
+      appendLiveConvoTurn(displayGoal, task_id, submitted.task, {
+        images: submitted.images,
+      });
     } else if (!viewingConvo) {
       const info = {
         task_id,
@@ -919,6 +938,7 @@ plusMenu.addEventListener('click', (e) => {
   togglePlus(false);
   const act = item.dataset.plus;
   if (act === 'file') openFilePicker();
+  else if (act === 'image') pickImages();
   else if (act === 'folder') openWorkspaceDialog();
   else if (act === 'goal') openGoalPicker();
   else if (act === 'plan')
@@ -988,6 +1008,89 @@ function clearRefs() {
   paintSiteSub();
   renderRefs();
 }
+
+const attachedImages = [];
+const imagesBox = $('#composer-images');
+const imageInput = $('#image-input');
+const IMAGE_MIME_OK = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+
+function pickImages() {
+  if (currentTask !== 'chat') {
+    toast(
+      '图片附件目前仅支持对话模式；工作/编程模式可用 image.understand 工具读图',
+      'error',
+      6000,
+    );
+    return;
+  }
+  imageInput.click();
+}
+
+function renderImageChips() {
+  imagesBox.hidden = attachedImages.length === 0;
+  imagesBox.innerHTML = '';
+  attachedImages.forEach((im, i) => {
+    const chip = el('span', 'img-chip');
+    const thumb = el('img', 'img-chip-thumb');
+    thumb.src = `data:${im.mime};base64,${im.data}`;
+    thumb.alt = im.name;
+    chip.appendChild(thumb);
+    const label = el('span', 'img-chip-name', im.name);
+    label.title = im.name;
+    chip.appendChild(label);
+    const x = el('button', 'ref-x');
+    x.type = 'button';
+    x.setAttribute('aria-label', '移除图片');
+    x.innerHTML =
+      '<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+    x.addEventListener('click', () => {
+      attachedImages.splice(i, 1);
+      renderImageChips();
+    });
+    chip.appendChild(x);
+    imagesBox.appendChild(chip);
+  });
+}
+
+function clearImages() {
+  attachedImages.length = 0;
+  renderImageChips();
+}
+
+imageInput.addEventListener('change', () => {
+  const files = [...imageInput.files];
+  imageInput.value = '';
+  for (const f of files) {
+    if (attachedImages.length >= 4) {
+      toast('最多附 4 张图片', 'error');
+      break;
+    }
+    if (!IMAGE_MIME_OK.has(f.type)) {
+      toast(`不支持的图片格式：${f.name}（仅 PNG/JPEG/WebP/GIF）`, 'error');
+      continue;
+    }
+    if (f.size > 4 * 1024 * 1024) {
+      toast(`图片超过 4MB：${f.name}`, 'error');
+      continue;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = String(reader.result);
+      attachedImages.push({
+        mime: f.type,
+        data: s.slice(s.indexOf(',') + 1),
+        name: f.name,
+      });
+      renderImageChips();
+    };
+    reader.readAsDataURL(f);
+  }
+});
 
 let siteMode = false;
 const SITE_SUFFIX =
@@ -5858,6 +5961,17 @@ function convoBubble(m) {
   const content = el('div', 'msg-content');
   content.innerHTML = renderMarkdown(m.content || '');
   body.appendChild(content);
+  if (m.images && m.images.length) {
+    const strip = el('div', 'msg-images');
+    m.images.forEach((im) => {
+      const img = el('img', 'msg-image');
+      img.src = im.url || `data:${im.mime};base64,${im.data}`;
+      img.alt = im.name || '附图';
+      img.loading = 'lazy';
+      strip.appendChild(img);
+    });
+    body.appendChild(strip);
+  }
   if (m.role === 'assistant' && m.task_id) appendMsgActs(body, m);
   if (m.role === 'assistant' && m.status && m.status !== 'success') {
     const tag = el(
@@ -5913,6 +6027,16 @@ async function openTaskDetail(taskID) {
             readable = st.output.text;
           it.innerHTML = `<span class="tl-kind">${esc(st.tool || '步骤')}</span>${esc(readable || st.error || st.status || '')}`;
           if (st.output != null && typeof st.output === 'object') {
+            if (
+              typeof st.output.url === 'string' &&
+              st.output.url.startsWith('/api/images/')
+            ) {
+              const img = el('img', 'step-image');
+              img.src = st.output.url;
+              img.alt = '生成的图片';
+              img.loading = 'lazy';
+              it.appendChild(img);
+            }
             const d = document.createElement('details');
             d.className = 'tl-raw';
             d.innerHTML = `<summary>查看原始输出</summary><pre>${esc(JSON.stringify(st.output, null, 2))}</pre>`;
@@ -6060,7 +6184,9 @@ function appendLiveConvoTurn(goal, taskID, taskMode, opts = {}) {
   const empty = $('#goals-empty');
   if (empty) empty.remove();
   if (!opts.skipUser)
-    feed.appendChild(convoBubble({ role: 'user', content: goal }));
+    feed.appendChild(
+      convoBubble({ role: 'user', content: goal, images: opts.images }),
+    );
   const aWrap = el('div', 'msg msg--assistant');
   const aBody = el('div', 'msg-body');
   const aContent = el('div', 'msg-content streaming');

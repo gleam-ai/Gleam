@@ -759,6 +759,14 @@
               title="按住上下拖动，调整输入框高度（双击恢复自动高度）"
             ></div>
             <div class="composer-refs" id="composer-refs" hidden></div>
+            <div class="composer-images" id="composer-images" hidden></div>
+            <input
+              type="file"
+              id="image-input"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              hidden
+            />
             <details class="role-picker" id="role-picker">
               <summary>
                 工作角色 <span id="role-current">通用助手</span>
@@ -825,6 +833,24 @@
                       </svg>
                       <span>添加文件</span
                       ><span class="plus-sub">从工作区选择</span>
+                    </button>
+                    <button class="plus-item" data-plus="image" role="menuitem">
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <path d="M21 15l-5-5L5 21" />
+                      </svg>
+                      <span>附图片</span
+                      ><span class="plus-sub">对话模式 · 最多 4 张</span>
                     </button>
                     <button
                       class="plus-item"

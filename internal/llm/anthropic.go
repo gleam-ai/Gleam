@@ -126,6 +126,9 @@ type anthropicResponse struct {
 }
 
 func (c *AnthropicClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
+	if HasImages(req.Messages) {
+		return "", ErrImagesUnsupported
+	}
 	ctx, cancel := withRequestTimeout(ctx, c.timeout)
 	defer cancel()
 	body, err := json.Marshal(c.payload(req, false))
@@ -165,6 +168,9 @@ func (c *AnthropicClient) Chat(ctx context.Context, req ChatRequest) (string, er
 }
 
 func (c *AnthropicClient) ChatStream(ctx context.Context, req ChatRequest, onDelta func(string)) (string, error) {
+	if HasImages(req.Messages) {
+		return "", ErrImagesUnsupported
+	}
 	body, err := json.Marshal(c.payload(req, true))
 	if err != nil {
 		return "", err

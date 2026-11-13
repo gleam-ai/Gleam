@@ -228,7 +228,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	}
 	// Chat mode: straight to the LLM, no plan/execute/reflect
 	if taskMode == types.TaskChat {
-		return a.runChatPath(ctx, goal, taskID, req.Role)
+		return a.runChatPath(ctx, goal, taskID, req.Role, req.Images)
 	}
 	if a.Mem != nil {
 		a.Mem.AddTurn("user", goal)
@@ -580,7 +580,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	// first pass.
 	if !planned && (last == nil || last.Status == types.GoalFailed) {
 		notify("plan", "多次规划未成功，切换直接回答…", 20, "warn")
-		res := a.runChatPath(ctx, goal, taskID, req.Role)
+		res := a.runChatPath(ctx, goal, taskID, req.Role, nil)
 		if res.Status == types.GoalSuccess {
 			res.Status = types.GoalPartial
 			res.Score = 40
@@ -600,7 +600,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 // runChatPath is the chat-mode pipeline: memory + rolling summary injection,
 // straight to a streaming LLM answer. No plan/execute/reflect; work mode also
 // falls back here after repeated planning failures.
-func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *types.GoalResult {
+func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string, images []types.ImageAttachment) *types.GoalResult {
 	notify := func(phase, msg string, pct int, kind string) {
 		a.Notifier.OnProgress(types.ProgressEvent{TaskID: taskID, Phase: phase, Message: msg, Progress: pct, Kind: kind})
 	}
@@ -647,7 +647,7 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	if n := len(msgs); n > 0 && strings.TrimSpace(msgs[n-1].Content) == strings.TrimSpace(goal) {
 		msgs = msgs[:n-1]
 	}
-	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: goal})
+	msgs = append(msgs, llm.Message{Role: llm.RoleUser, Content: goal, Images: imagePartsOf(images)})
 
 	notify("chat", "思考中…", 30, "info")
 	onDelta, flush := DeltaThrottle(40, func(text string) {
@@ -864,4 +864,15 @@ func skillSlug(goal string, store *skill.Store) string {
 		name = fmt.Sprintf("%s-%d", base, i)
 	}
 	return name
+}
+
+func imagePartsOf(imgs []types.ImageAttachment) []llm.ImagePart {
+	if len(imgs) == 0 {
+		return nil
+	}
+	out := make([]llm.ImagePart, 0, len(imgs))
+	for _, im := range imgs {
+		out = append(out, llm.ImagePart{MIME: im.MIME, Data: im.Data, URL: im.URL})
+	}
+	return out
 }

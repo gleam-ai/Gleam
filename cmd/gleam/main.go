@@ -395,6 +395,10 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	)
 	imageTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("image.generate", host, nbytes) }
 	reg.MustRegister(imageTool)
+	reg.MustRegister(imagetools.NewUnderstand(
+		func(ctx context.Context) llm.Client { return a.TaskLLM(ctx) },
+		func(ctx context.Context) []string { return fileTools.Roots() },
+	))
 
 	startMCP := func() {}
 	connectMCP := func() {

@@ -18,7 +18,7 @@ func TestRunChatPathUsesTaskModelSnapshot(t *testing.T) {
 
 	// A settings save swaps the live client while the goal is running.
 	a.LLM = replacement
-	res := a.runChatPath(ctx, "你好", "task-models", "")
+	res := a.runChatPath(ctx, "你好", "task-models", "", nil)
 	if res.Status != types.GoalSuccess {
 		t.Fatalf("chat failed: %+v", res)
 	}
