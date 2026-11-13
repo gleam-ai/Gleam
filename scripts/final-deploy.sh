@@ -38,7 +38,7 @@ fi
 
 # Step 4: Generate deployment summary
 echo "[4/4] Generating deployment report..."
-cat >DEPLOY-SUMMARY.md <<'EOF'
+cat >docs/reports/DEPLOY-SUMMARY.md <<'EOF'
 # ✅ Gleam v0.0.25 Deployment Summary
 
 ## 🟢 Completed Updates
@@ -97,7 +97,7 @@ EOF
 
 echo ""
 echo "=========================================="
-cat DEPLOY-SUMMARY.md
+cat docs/reports/DEPLOY-SUMMARY.md
 echo "=========================================="
 echo ""
 echo "🎉 Deployment Complete!"

@@ -374,9 +374,9 @@ jobs:
 ## 📚 相关资源
 
 - [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) - 详细发布步骤
-- [config/taskrouter.md](config/taskrouter.md) - 用户配置指南  
-- [COMPUTER_USE_INTEGRATION.md](COMPUTER_USE_INTEGRATION.md) - 功能文档
-- [scripts/verify-release.sh](scripts/verify-release.sh) - 验证脚本
+- [config/taskrouter.md](../../config/taskrouter.md) - 用户配置指南  
+- [COMPUTER_USE_INTEGRATION.md](../reports/COMPUTER_USE_INTEGRATION.md) - 功能文档
+- [scripts/verify-release.sh](../../scripts/verify-release.sh) - 验证脚本
 
 ---
 

@@ -74,7 +74,7 @@ fi
 # Step 8: Documentation check
 echo ""
 echo "📄 Checking documentation..."
-if [ -f "RELEASE-CHECKLIST.md" ] && [ -f "config/taskrouter.md" ]; then
+if [ -f "docs/releases/RELEASE-CHECKLIST.md" ] && [ -f "config/taskrouter.md" ]; then
   echo "✅ All docs present"
 else
   echo "⚠️  Some documentation missing"
@@ -96,7 +96,7 @@ echo ""
 echo "Ready for release to any environment!"
 echo ""
 echo "Next steps:"
-echo "  1. Review RELEASE-CHECKLIST.md for detailed instructions"
+echo "  1. Review docs/releases/RELEASE-CHECKLIST.md for detailed instructions"
 echo "  2. Update version number in go.mod if needed"
 echo "  3. Create release tag: git tag v0.0.25-beta.1"
 echo "  4. Build installer: bash scripts/package.sh"

@@ -114,7 +114,7 @@ See individual download links below.
 Run \`scripts/verify-release.sh\` before deployment.
 
 Documentation:
-- RELEASE-CHECKLIST.md
+- docs/releases/RELEASE-CHECKLIST.md
 - config/taskrouter.md
 
 ---

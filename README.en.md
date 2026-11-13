@@ -62,7 +62,7 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 | **What it is not** | A hosted SaaS chat product, a cloud RAG platform, or a fully offline LLM |
 | **Core** | Single file ~10 MB, pure Go (no cgo), cross-compiled for multiple platforms |
 | **Desktop shell** | Electron over the local core; Windows gets an assisted installer with Node and uv bundled — **install and use, no environment setup** |
-| **Extensibility** | 34 built-in tools + MCP servers for hot-plugged external tools |
+| **Extensibility** | 45 built-in tools + MCP servers for hot-plugged external tools |
 | **Interfaces** | Desktop app, CLI (`goal` / `doctor` / …), Web UI, JSON-RPC over stdio (editor plugins) |
 
 ---
@@ -210,7 +210,7 @@ Multi-platform cross builds of the core live in `scripts/build-desktop.sh`; the 
 
 ## Tools and MCP
 
-**34 built-in tools**, including:
+**45 built-in tools**, including:
 
 | Group | Tools |
 | :--- | :--- |
