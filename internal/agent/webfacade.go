@@ -30,10 +30,11 @@ import (
 var mcpNameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,32}$`)
 
 func (a *Agent) LLMName() string {
-	if a.LLM == nil {
+	client := a.PrimaryLLM()
+	if client == nil {
 		return "unavailable"
 	}
-	return a.LLM.Name()
+	return client.Name()
 }
 
 func (a *Agent) ToolNames() []string { return a.Reg.Names() }
@@ -66,13 +67,20 @@ func (a *Agent) ToolPermissionSet(name, perm string) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("非法权限 %q（readonly | user_approved | full_access | default）", perm)
 	}
-	a.Cfg.Safety.ToolPermissions = map[string]string{}
-	for _, t := range a.Reg.List() {
-		if p, ok := a.Gate.OverrideOf(t.Name()); ok {
-			a.Cfg.Safety.ToolPermissions[t.Name()] = p.String()
+	err := a.updateConfig(func(cfg *config.Config) error {
+		cfg.Safety.ToolPermissions = map[string]string{}
+		for _, t := range a.Reg.List() {
+			if p, ok := a.Gate.OverrideOf(t.Name()); ok {
+				cfg.Safety.ToolPermissions[t.Name()] = p.String()
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
+	cfg := a.Config()
+	if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
 		return map[string]any{
 			"name":       name,
 			"permission": a.PermissionOf(name).String(),
@@ -160,14 +168,16 @@ func (a *Agent) MemorySave(content string, tags []string) (string, error) {
 }
 
 func (a *Agent) MemoryScope() string {
-	if a.Cfg == nil {
+	cfg := a.Config()
+	if cfg == nil {
 		return ""
 	}
-	return a.memoryScopeFor(a.Cfg.Workspace)
+	return a.memoryScopeFor(cfg.Workspace)
 }
 
 func (a *Agent) memoryScopeFor(workspace string) string {
-	if a.Cfg == nil || !a.Cfg.Memory.ProjectScope {
+	cfg := a.Config()
+	if cfg == nil || !cfg.Memory.ProjectScope {
 		return ""
 	}
 	return strings.TrimSpace(workspace)
@@ -293,20 +303,20 @@ var settingsStyles = map[string]bool{"rigorous": true, "gentle": true, "efficien
 var settingsModes = map[string]bool{"auto": true, "plan_first": true, "interactive": true}
 
 func (a *Agent) SettingsView() map[string]any {
-	cfg := a.Cfg
+	cfg := a.Config()
 	var apiKeySet bool
 	var keyHost string
-	if def := a.defaultModelEntry(); def != nil {
-		key, kh := a.llmKeyFor(def.BaseURL, def.APIKey)
+	if def := defaultModelEntry(cfg); def != nil {
+		key, kh := LLMKeyFor(cfg, a.Creds, def.BaseURL, def.APIKey)
 		apiKeySet = key != ""
 		keyHost = kh
 	} else {
-		activeKey, kh := a.llmKeyFor(cfg.LLM.BaseURL, "")
+		activeKey, kh := LLMKeyFor(cfg, a.Creds, cfg.LLM.BaseURL, "")
 		apiKeySet = activeKey != ""
 		keyHost = kh
 	}
 	fastModel := cfg.LLM.FastModel
-	if fast := a.fastModelEntry(); fast != nil {
+	if fast := fastModelEntry(cfg); fast != nil {
 		fastModel = fast.Model
 	}
 	return map[string]any{
@@ -455,8 +465,8 @@ func modelEntryFromMap(m map[string]any) (config.ModelEntry, error) {
 	return e, nil
 }
 
-func (a *Agent) modelIndex(id string) int {
-	for i, m := range a.Cfg.LLM.Models {
+func modelIndex(cfg *config.Config, id string) int {
+	for i, m := range cfg.LLM.Models {
 		if m.ID == id {
 			return i
 		}
@@ -464,37 +474,38 @@ func (a *Agent) modelIndex(id string) int {
 	return -1
 }
 
-func (a *Agent) defaultModelEntry() *config.ModelEntry {
-	for i := range a.Cfg.LLM.Models {
-		if a.Cfg.LLM.Models[i].IsDefault {
-			return &a.Cfg.LLM.Models[i]
+func defaultModelEntry(cfg *config.Config) *config.ModelEntry {
+	for i := range cfg.LLM.Models {
+		if cfg.LLM.Models[i].IsDefault {
+			return &cfg.LLM.Models[i]
 		}
 	}
-	if len(a.Cfg.LLM.Models) > 0 {
-		return &a.Cfg.LLM.Models[0]
+	if len(cfg.LLM.Models) > 0 {
+		return &cfg.LLM.Models[0]
 	}
 	return nil
 }
 
-func (a *Agent) fastModelEntry() *config.ModelEntry {
-	for i := range a.Cfg.LLM.Models {
-		if a.Cfg.LLM.Models[i].IsFast {
-			return &a.Cfg.LLM.Models[i]
+func fastModelEntry(cfg *config.Config) *config.ModelEntry {
+	for i := range cfg.LLM.Models {
+		if cfg.LLM.Models[i].IsFast {
+			return &cfg.LLM.Models[i]
 		}
 	}
 	return nil
 }
 
-func (a *Agent) clearFastFlag() {
-	for i := range a.Cfg.LLM.Models {
-		a.Cfg.LLM.Models[i].IsFast = false
+func clearFastFlag(cfg *config.Config) {
+	for i := range cfg.LLM.Models {
+		cfg.LLM.Models[i].IsFast = false
 	}
 }
 
 // bindModelKey writes the model's own API key into the encrypted credential
 // file; when credentials are unavailable it stays in memory (tests or read-only
-// setups), so the key never lands in a read-only config.
-func (a *Agent) bindModelKey(m *config.ModelEntry) error {
+// setups), so the key never lands in a read-only config. cfg must be the
+// caller's private clone (updateConfig) or a snapshot from Config().
+func (a *Agent) bindModelKey(cfg *config.Config, m *config.ModelEntry) error {
 	key := strings.TrimSpace(m.APIKey)
 	if key == "" || a.Creds == nil {
 		return nil
@@ -507,7 +518,7 @@ func (a *Agent) bindModelKey(m *config.ModelEntry) error {
 	if strings.TrimSpace(base) == "" {
 		base, _, _ = llm.ResolveTarget(m.ProviderID, m.Plan, "", "", "")
 	}
-	if _, err := BindLLMKey(a.Cfg, a.Creds, base, key, false); err != nil {
+	if _, err := BindLLMKey(cfg, a.Creds, base, key, false); err != nil {
 		return err
 	}
 	m.APIKey = ""
@@ -529,24 +540,27 @@ func (a *Agent) migrateModelKeys() {
 		return
 	}
 	changed := false
-	for i := range a.Cfg.LLM.Models {
-		m := &a.Cfg.LLM.Models[i]
-		if strings.TrimSpace(m.APIKey) == "" {
-			continue
+	err := a.updateConfig(func(cfg *config.Config) error {
+		for i := range cfg.LLM.Models {
+			m := &cfg.LLM.Models[i]
+			if strings.TrimSpace(m.APIKey) == "" {
+				continue
+			}
+			if _, err := BindLLMKey(cfg, a.Creds, m.BaseURL, m.APIKey, false); err != nil {
+				continue
+			}
+			m.APIKey = ""
+			changed = true
 		}
-		if _, err := BindLLMKey(a.Cfg, a.Creds, m.BaseURL, m.APIKey, false); err != nil {
-			continue
-		}
-		m.APIKey = ""
-		changed = true
-	}
-	if changed {
+		return nil
+	})
+	if err == nil && changed {
 		_ = a.saveModelsOverlay()
 	}
 }
 
 func (a *Agent) ModelsList() []map[string]any {
-	return a.modelsView(a.Cfg.LLM.Models)
+	return a.modelsView(a.Config().LLM.Models)
 }
 
 func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
@@ -557,22 +571,28 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	if entry.ID == "" {
 		entry.ID = fmt.Sprintf("model-%d", time.Now().UnixNano()%100000)
 	}
-	if a.modelIndex(entry.ID) >= 0 {
-		return nil, fmt.Errorf("模型 ID %q 已存在", entry.ID)
-	}
-	if err := a.bindModelKey(&entry); err != nil {
+	err = a.updateConfig(func(cfg *config.Config) error {
+		if modelIndex(cfg, entry.ID) >= 0 {
+			return fmt.Errorf("模型 ID %q 已存在", entry.ID)
+		}
+		if err := a.bindModelKey(cfg, &entry); err != nil {
+			return err
+		}
+		if entry.IsDefault || !hasDefaultModel(cfg) {
+			dropStaleTiersFor(cfg, entry)
+			setDefaultFlag(cfg, entry.ID)
+			entry.IsDefault = true
+		}
+		if entry.IsFast {
+			clearFastFlag(cfg)
+			cfg.LLM.FastModel = ""
+		}
+		cfg.LLM.Models = append(cfg.LLM.Models, entry)
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	if entry.IsDefault || !a.hasDefaultModel() {
-		a.dropStaleTiersFor(entry)
-		a.setDefaultFlag(entry.ID)
-		entry.IsDefault = true
-	}
-	if entry.IsFast {
-		a.clearFastFlag()
-		a.Cfg.LLM.FastModel = ""
-	}
-	a.Cfg.LLM.Models = append(a.Cfg.LLM.Models, entry)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
@@ -580,46 +600,52 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	return map[string]any{"model": a.modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
-func (a *Agent) hasDefaultModel() bool {
-	for i := range a.Cfg.LLM.Models {
-		if a.Cfg.LLM.Models[i].IsDefault {
+func hasDefaultModel(cfg *config.Config) bool {
+	for i := range cfg.LLM.Models {
+		if cfg.LLM.Models[i].IsDefault {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *Agent) setDefaultFlag(id string) {
-	for i := range a.Cfg.LLM.Models {
-		a.Cfg.LLM.Models[i].IsDefault = a.Cfg.LLM.Models[i].ID == id
+func setDefaultFlag(cfg *config.Config, id string) {
+	for i := range cfg.LLM.Models {
+		cfg.LLM.Models[i].IsDefault = cfg.LLM.Models[i].ID == id
 	}
 }
 
 func (a *Agent) ModelUpdate(id string, raw map[string]any) (map[string]any, error) {
-	idx := a.modelIndex(id)
-	if idx < 0 {
-		return nil, fmt.Errorf("模型 %q 不存在", id)
-	}
 	entry, err := modelEntryFromMap(raw)
 	if err != nil {
 		return nil, err
 	}
 	entry.ID = id
-	if _, hasKey := raw["api_key"]; !hasKey {
-		entry.APIKey = a.Cfg.LLM.Models[idx].APIKey
-	}
-	if err := a.bindModelKey(&entry); err != nil {
+	err = a.updateConfig(func(cfg *config.Config) error {
+		idx := modelIndex(cfg, id)
+		if idx < 0 {
+			return fmt.Errorf("模型 %q 不存在", id)
+		}
+		if _, hasKey := raw["api_key"]; !hasKey {
+			entry.APIKey = cfg.LLM.Models[idx].APIKey
+		}
+		if err := a.bindModelKey(cfg, &entry); err != nil {
+			return err
+		}
+		if entry.IsDefault {
+			dropStaleTiersFor(cfg, entry)
+			setDefaultFlag(cfg, id)
+		}
+		if entry.IsFast {
+			clearFastFlag(cfg)
+			cfg.LLM.FastModel = ""
+		}
+		cfg.LLM.Models[idx] = entry
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	if entry.IsDefault {
-		a.dropStaleTiersFor(entry)
-		a.setDefaultFlag(id)
-	}
-	if entry.IsFast {
-		a.clearFastFlag()
-		a.Cfg.LLM.FastModel = ""
-	}
-	a.Cfg.LLM.Models[idx] = entry
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
@@ -628,16 +654,22 @@ func (a *Agent) ModelUpdate(id string, raw map[string]any) (map[string]any, erro
 }
 
 func (a *Agent) ModelDelete(id string) (map[string]any, error) {
-	idx := a.modelIndex(id)
-	if idx < 0 {
-		return nil, fmt.Errorf("模型 %q 不存在", id)
-	}
-	wasDefault := a.Cfg.LLM.Models[idx].IsDefault
-	a.Cfg.LLM.Models = append(a.Cfg.LLM.Models[:idx], a.Cfg.LLM.Models[idx+1:]...)
-	if wasDefault {
-		if entry := a.defaultModelEntry(); entry != nil {
-			a.dropStaleTiersFor(*entry)
+	err := a.updateConfig(func(cfg *config.Config) error {
+		idx := modelIndex(cfg, id)
+		if idx < 0 {
+			return fmt.Errorf("模型 %q 不存在", id)
 		}
+		wasDefault := cfg.LLM.Models[idx].IsDefault
+		cfg.LLM.Models = append(cfg.LLM.Models[:idx], cfg.LLM.Models[idx+1:]...)
+		if wasDefault {
+			if entry := defaultModelEntry(cfg); entry != nil {
+				dropStaleTiersFor(cfg, *entry)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
@@ -647,35 +679,51 @@ func (a *Agent) ModelDelete(id string) (map[string]any, error) {
 }
 
 func (a *Agent) ModelSetDefault(id string) (map[string]any, error) {
-	idx := a.modelIndex(id)
-	if idx < 0 {
-		return nil, fmt.Errorf("模型 %q 不存在", id)
+	var entry config.ModelEntry
+	err := a.updateConfig(func(cfg *config.Config) error {
+		idx := modelIndex(cfg, id)
+		if idx < 0 {
+			return fmt.Errorf("模型 %q 不存在", id)
+		}
+		dropStaleTiersFor(cfg, cfg.LLM.Models[idx])
+		setDefaultFlag(cfg, id)
+		entry = cfg.LLM.Models[idx]
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	a.dropStaleTiersFor(a.Cfg.LLM.Models[idx])
-	a.setDefaultFlag(id)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
 	a.syncModelRuntime()
-	return map[string]any{"model": a.modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
+	return map[string]any{"model": a.modelEntryView(entry), "models": a.ModelsList(), "active": a.ActiveModel()}, nil
 }
 
 func (a *Agent) SetActiveModel(id string) (map[string]any, error) {
-	idx := a.modelIndex(id)
-	if idx < 0 {
-		return nil, fmt.Errorf("模型 %q 不存在", id)
+	var entry config.ModelEntry
+	err := a.updateConfig(func(cfg *config.Config) error {
+		idx := modelIndex(cfg, id)
+		if idx < 0 {
+			return fmt.Errorf("模型 %q 不存在", id)
+		}
+		dropStaleTiersFor(cfg, cfg.LLM.Models[idx])
+		setDefaultFlag(cfg, id)
+		entry = cfg.LLM.Models[idx]
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	a.dropStaleTiersFor(a.Cfg.LLM.Models[idx])
-	a.setDefaultFlag(id)
 	if err := a.saveModelsOverlay(); err != nil {
 		return nil, err
 	}
 	a.syncModelRuntime()
-	return map[string]any{"active": a.modelEntryView(a.Cfg.LLM.Models[idx]), "models": a.ModelsList()}, nil
+	return map[string]any{"active": a.modelEntryView(entry), "models": a.ModelsList()}, nil
 }
 
 func (a *Agent) ActiveModel() map[string]any {
-	entry := a.defaultModelEntry()
+	entry := defaultModelEntry(a.Config())
 	if entry == nil {
 		return nil
 	}
@@ -684,61 +732,69 @@ func (a *Agent) ActiveModel() map[string]any {
 
 // dropStaleTiersFor forgets tier and legacy auxiliary model names when the
 // connection host changes. Those names belong to the previous vendor and would
-// otherwise be requested from the new endpoint.
-func (a *Agent) dropStaleTiersFor(entry config.ModelEntry) {
-	if a == nil || a.Cfg == nil {
+// otherwise be requested from the new endpoint. cfg must be the caller's
+// private clone (updateConfig).
+func dropStaleTiersFor(cfg *config.Config, entry config.ModelEntry) {
+	if cfg == nil {
 		return
 	}
 	baseURL, _, _ := llm.ResolveTarget(entry.ProviderID, entry.Plan, entry.BaseURL, entry.Model, entry.Protocol)
-	oldScope, nextScope := llm.KeyScope(a.Cfg.LLM.BaseURL), llm.KeyScope(baseURL)
+	oldScope, nextScope := llm.KeyScope(cfg.LLM.BaseURL), llm.KeyScope(baseURL)
 	if oldScope == "" || nextScope == "" || oldScope == nextScope {
 		return
 	}
-	a.Cfg.LLM.FastModel = ""
-	a.Cfg.LLM.Tiers = nil
-	a.clearFastFlag()
+	cfg.LLM.FastModel = ""
+	cfg.LLM.Tiers = nil
+	clearFastFlag(cfg)
 }
 
-func (a *Agent) applyModelEntry(entry config.ModelEntry) error {
-	if a.Cfg.LLM.Provider == "mock" {
+// applyModelEntry binds the runtime connection fields and swaps the primary
+// client. The caller must hold the cfgMu write lock (updateConfig) and pass its
+// private clone.
+func (a *Agent) applyModelEntry(cfg *config.Config, entry config.ModelEntry) error {
+	if cfg.LLM.Provider == "mock" {
 		return nil
 	}
 	baseURL, model, protocol := llm.ResolveTarget(entry.ProviderID, entry.Plan, entry.BaseURL, entry.Model, entry.Protocol)
 	key := strings.TrimSpace(entry.APIKey)
 	if key == "" {
-		key, _ = a.llmKeyFor(baseURL, "")
+		key, _ = LLMKeyFor(cfg, a.Creds, baseURL, "")
 	}
 	a.LLM = llm.New(protocol, baseURL, key, model,
-		a.Cfg.LLM.Temperature, a.Cfg.LLM.MaxTokens, a.Cfg.LLM.TimeoutSecs)
-	a.Cfg.LLM.BaseURL = baseURL
-	a.Cfg.LLM.Model = model
-	a.Cfg.LLM.Protocol = protocol
-	a.Cfg.LLM.APIKey = key
-	a.Cfg.LLM.APIKeyScope = llm.KeyScope(baseURL)
+		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+	cfg.LLM.BaseURL = baseURL
+	cfg.LLM.Model = model
+	cfg.LLM.Protocol = protocol
+	cfg.LLM.APIKey = key
+	cfg.LLM.APIKeyScope = llm.KeyScope(baseURL)
 	if entry.ProviderID != "" {
-		a.Cfg.LLM.ProviderID = entry.ProviderID
+		cfg.LLM.ProviderID = entry.ProviderID
 	}
 	if entry.Plan != "" {
-		a.Cfg.LLM.Plan = entry.Plan
+		cfg.LLM.Plan = entry.Plan
 	}
 	return nil
 }
 
 func (a *Agent) syncModelRuntime() {
-	if a == nil || a.Cfg == nil {
+	if a == nil || a.Config() == nil {
 		return
 	}
-	if entry := a.defaultModelEntry(); entry != nil {
-		if err := a.applyModelEntry(*entry); err != nil {
-			return
+	_ = a.updateConfig(func(cfg *config.Config) error {
+		if entry := defaultModelEntry(cfg); entry != nil {
+			if err := a.applyModelEntry(cfg, *entry); err != nil {
+				return err
+			}
 		}
-	}
-	a.RebuildFastClient()
+		a.rebuildFastClientLocked(cfg)
+		return nil
+	})
 	a.RebuildTierClients()
 }
 
 func (a *Agent) saveModelsOverlay() error {
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
+	cfg := a.Config()
+	if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
 		return fmt.Errorf("已生效但保存失败: %w", err)
 	}
 	return nil
@@ -1020,85 +1076,95 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 
 	var targetBase, targetModel, targetProtocol string
 	if lm, ok := sanitized["llm"].(map[string]any); ok {
-		targetBase, targetModel, targetProtocol, _ = a.llmFormTarget(lm)
-		if a.Cfg.LLM.Provider != "mock" && strings.TrimSpace(targetModel) == "" {
+		targetBase, targetModel, targetProtocol, _ = a.llmFormTarget(a.Config(), lm)
+		if a.Config().LLM.Provider != "mock" && strings.TrimSpace(targetModel) == "" {
 			return a.SettingsView(), fmt.Errorf("模型 ID 不能为空：选择厂商后请填写要使用的模型")
 		}
 	}
 
-	prevProviderID := a.Cfg.LLM.ProviderID
-	prevPlan := a.Cfg.LLM.Plan
-	prevBaseScope := llm.KeyScope(a.Cfg.LLM.BaseURL)
-	a.Cfg.Apply(sanitized)
-	if _, changed := sanitized["scheduler"]; changed && a.Sched != nil {
-		a.Sched.SetPaused(!a.Cfg.Scheduler.Enabled)
-	}
+	llmChanged := false
+	err := a.updateConfig(func(cfg *config.Config) error {
+		prevProviderID := cfg.LLM.ProviderID
+		prevPlan := cfg.LLM.Plan
+		prevBaseScope := llm.KeyScope(cfg.LLM.BaseURL)
+		cfg.Apply(sanitized)
 
-	if lm, ok := sanitized["llm"].(map[string]any); ok {
-		pid, _ := lm["provider_id"].(string)
-		plan, _ := lm["plan"].(string)
-		pidChanged := pid != "" && pid != prevProviderID
-		planChanged := plan != "" && plan != prevPlan
-		if _, hasProto := lm["protocol"]; !hasProto && (pidChanged || planChanged) {
-			// Without an explicit protocol, do not carry the old vendor/plan
-			// protocol over to the new endpoint.
-			a.Cfg.LLM.Protocol = ""
-		}
-		if pidChanged {
-			// Auxiliary and tier model names belong to the old vendor and do
-			// not exist after switching.
-			a.Cfg.LLM.FastModel = ""
-			a.Cfg.LLM.Tiers = nil
-			a.clearFastFlag()
-		} else if nextScope := llm.KeyScope(targetBase); prevBaseScope != "" && nextScope != "" && nextScope != prevBaseScope {
-			// The provider preset stayed the same but the endpoint moved: tier
-			// names are just as vendor-specific.
-			a.Cfg.LLM.FastModel = ""
-			a.Cfg.LLM.Tiers = nil
-			a.clearFastFlag()
-		} else if v, has := lm["fast_model"].(string); has {
-			// The advanced settings field is the legacy entry: when it is
-			// explicitly cleared or changed, a checkbox in the model list must
-			// not keep overriding it.
-			if strings.TrimSpace(v) == "" {
-				a.clearFastFlag()
-			} else if fast := a.fastModelEntry(); fast != nil && fast.Model != strings.TrimSpace(v) {
-				a.clearFastFlag()
+		if lm, ok := sanitized["llm"].(map[string]any); ok {
+			pid, _ := lm["provider_id"].(string)
+			plan, _ := lm["plan"].(string)
+			pidChanged := pid != "" && pid != prevProviderID
+			planChanged := plan != "" && plan != prevPlan
+			if _, hasProto := lm["protocol"]; !hasProto && (pidChanged || planChanged) {
+				// Without an explicit protocol, do not carry the old vendor/plan
+				// protocol over to the new endpoint.
+				cfg.LLM.Protocol = ""
 			}
-		}
-	}
-	if lm, ok := sanitized["llm"].(map[string]any); ok {
-		formKey, _ := lm["api_key"].(string)
-		clearKey, _ := lm["clear_api_key"].(bool)
-		if _, err := BindLLMKey(a.Cfg, a.Creds, targetBase, formKey, clearKey); err != nil {
-			return a.SettingsView(), err
-		}
-	}
-
-	if a.Cfg.LLM.Provider != "mock" {
-		if _, hasLLM := sanitized["llm"]; hasLLM {
-			a.Cfg.LLM.BaseURL, a.Cfg.LLM.Model, a.Cfg.LLM.Protocol = targetBase, targetModel, targetProtocol
-			a.LLM = llm.New(targetProtocol, targetBase, a.Cfg.LLM.APIKey, targetModel,
-				a.Cfg.LLM.Temperature, a.Cfg.LLM.MaxTokens, a.Cfg.LLM.TimeoutSecs)
-			a.RebuildFastClient()
-			a.RebuildTierClients()
-			// The default entry drives the runtime at startup; leaving its old
-			// connection here made the next launch restore the previous model.
-			if entry := a.defaultModelEntry(); entry != nil {
-				entry.ProviderID = a.Cfg.LLM.ProviderID
-				entry.Plan = a.Cfg.LLM.Plan
-				entry.BaseURL = targetBase
-				entry.Model = targetModel
-				entry.Protocol = targetProtocol
-				if lm, ok := sanitized["llm"].(map[string]any); ok {
-					formKey, _ := lm["api_key"].(string)
-					clearKey, _ := lm["clear_api_key"].(bool)
-					if strings.TrimSpace(formKey) != "" || clearKey {
-						entry.APIKey = ""
-					}
+			if pidChanged {
+				// Auxiliary and tier model names belong to the old vendor and do
+				// not exist after switching.
+				cfg.LLM.FastModel = ""
+				cfg.LLM.Tiers = nil
+				clearFastFlag(cfg)
+			} else if nextScope := llm.KeyScope(targetBase); prevBaseScope != "" && nextScope != "" && nextScope != prevBaseScope {
+				// The provider preset stayed the same but the endpoint moved: tier
+				// names are just as vendor-specific.
+				cfg.LLM.FastModel = ""
+				cfg.LLM.Tiers = nil
+				clearFastFlag(cfg)
+			} else if v, has := lm["fast_model"].(string); has {
+				// The advanced settings field is the legacy entry: when it is
+				// explicitly cleared or changed, a checkbox in the model list must
+				// not keep overriding it.
+				if strings.TrimSpace(v) == "" {
+					clearFastFlag(cfg)
+				} else if fast := fastModelEntry(cfg); fast != nil && fast.Model != strings.TrimSpace(v) {
+					clearFastFlag(cfg)
 				}
 			}
 		}
+		if lm, ok := sanitized["llm"].(map[string]any); ok {
+			formKey, _ := lm["api_key"].(string)
+			clearKey, _ := lm["clear_api_key"].(bool)
+			if _, err := BindLLMKey(cfg, a.Creds, targetBase, formKey, clearKey); err != nil {
+				return err
+			}
+		}
+
+		if cfg.LLM.Provider != "mock" {
+			if _, hasLLM := sanitized["llm"]; hasLLM {
+				cfg.LLM.BaseURL, cfg.LLM.Model, cfg.LLM.Protocol = targetBase, targetModel, targetProtocol
+				a.LLM = llm.New(targetProtocol, targetBase, cfg.LLM.APIKey, targetModel,
+					cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+				a.rebuildFastClientLocked(cfg)
+				// The default entry drives the runtime at startup; leaving its old
+				// connection here made the next launch restore the previous model.
+				if entry := defaultModelEntry(cfg); entry != nil {
+					entry.ProviderID = cfg.LLM.ProviderID
+					entry.Plan = cfg.LLM.Plan
+					entry.BaseURL = targetBase
+					entry.Model = targetModel
+					entry.Protocol = targetProtocol
+					if lm, ok := sanitized["llm"].(map[string]any); ok {
+						formKey, _ := lm["api_key"].(string)
+						clearKey, _ := lm["clear_api_key"].(bool)
+						if strings.TrimSpace(formKey) != "" || clearKey {
+							entry.APIKey = ""
+						}
+					}
+				}
+				llmChanged = true
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return a.SettingsView(), err
+	}
+	if _, changed := sanitized["scheduler"]; changed && a.Sched != nil {
+		a.Sched.SetPaused(!a.Config().Scheduler.Enabled)
+	}
+	if llmChanged {
+		a.RebuildTierClients()
 	}
 	if a.Gate != nil {
 		if m, ok := sanitized["safety"].(map[string]any); ok {
@@ -1111,36 +1177,37 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 		}
 	}
 
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
+	cfg := a.Config()
+	if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
 		return a.SettingsView(), fmt.Errorf("设置已生效但保存失败: %w", err)
 	}
 	return a.SettingsView(), nil
 }
 
-func (a *Agent) llmFormTarget(override map[string]any) (base, model, protocol, key string) {
+func (a *Agent) llmFormTarget(cfg *config.Config, override map[string]any) (base, model, protocol, key string) {
 	str := func(k string) string {
 		if v, ok := override[k].(string); ok {
 			return strings.TrimSpace(v)
 		}
 		return ""
 	}
-	pid := firstNonEmpty(str("provider_id"), a.Cfg.LLM.ProviderID)
-	plan := firstNonEmpty(str("plan"), a.Cfg.LLM.Plan)
-	providerChanged := str("provider_id") != "" && str("provider_id") != a.Cfg.LLM.ProviderID
+	pid := firstNonEmpty(str("provider_id"), cfg.LLM.ProviderID)
+	plan := firstNonEmpty(str("plan"), cfg.LLM.Plan)
+	providerChanged := str("provider_id") != "" && str("provider_id") != cfg.LLM.ProviderID
 	base = str("base_url")
 	if _, ok := override["base_url"].(string); !ok && !providerChanged {
-		base = a.Cfg.LLM.BaseURL
+		base = cfg.LLM.BaseURL
 	}
 	model = str("model")
 	if _, ok := override["model"].(string); !ok && !providerChanged {
-		model = a.Cfg.LLM.Model
+		model = cfg.LLM.Model
 	}
 	protocol = str("protocol")
-	if _, explicit := override["protocol"]; !explicit && !providerChanged && plan == a.Cfg.LLM.Plan {
-		protocol = a.Cfg.LLM.Protocol
+	if _, explicit := override["protocol"]; !explicit && !providerChanged && plan == cfg.LLM.Plan {
+		protocol = cfg.LLM.Protocol
 	}
 	base, model, protocol = llm.ResolveTarget(pid, plan, base, model, protocol)
-	key, _ = a.llmKeyFor(base, str("api_key"))
+	key, _ = LLMKeyFor(cfg, a.Creds, base, str("api_key"))
 	return
 }
 
@@ -1150,18 +1217,19 @@ func probeHasExplicitTarget(override map[string]any) bool {
 }
 
 func (a *Agent) TestLLMConnection(override map[string]any) map[string]any {
-	if a.Cfg.LLM.Provider == "mock" && !probeHasExplicitTarget(override) {
+	cfg := a.Config()
+	if cfg.LLM.Provider == "mock" && !probeHasExplicitTarget(override) {
 		return map[string]any{"ok": true, "kind": "mock", "message": "当前为离线 Mock 模型，未发起真实网络调用"}
 	}
 	if _, hasKey := override["api_key"]; !hasKey {
 		if mid, ok := override["model_id"].(string); ok && mid != "" {
-			idx := a.modelIndex(mid)
-			if idx >= 0 && strings.TrimSpace(a.Cfg.LLM.Models[idx].APIKey) != "" {
-				override["api_key"] = a.Cfg.LLM.Models[idx].APIKey
+			idx := modelIndex(cfg, mid)
+			if idx >= 0 && strings.TrimSpace(cfg.LLM.Models[idx].APIKey) != "" {
+				override["api_key"] = cfg.LLM.Models[idx].APIKey
 			}
 		}
 	}
-	base, model, protocol, key := a.llmFormTarget(override)
+	base, model, protocol, key := a.llmFormTarget(cfg, override)
 	if strings.TrimSpace(base) == "" || strings.TrimSpace(model) == "" {
 		return map[string]any{"ok": false, "kind": "config", "message": "base_url 或模型名为空：选择厂商预设或直接填写"}
 	}
@@ -1192,18 +1260,19 @@ func (a *Agent) TestLLMConnection(override map[string]any) map[string]any {
 }
 
 func (a *Agent) ListLLMModels(override map[string]any) map[string]any {
-	if a.Cfg.LLM.Provider == "mock" && !probeHasExplicitTarget(override) {
+	cfg := a.Config()
+	if cfg.LLM.Provider == "mock" && !probeHasExplicitTarget(override) {
 		return map[string]any{"ok": true, "kind": "mock", "models": []llm.ModelInfo{}, "message": "离线 Mock 模型没有在线模型列表"}
 	}
 	if _, hasKey := override["api_key"]; !hasKey {
 		if mid, ok := override["model_id"].(string); ok && mid != "" {
-			idx := a.modelIndex(mid)
-			if idx >= 0 && strings.TrimSpace(a.Cfg.LLM.Models[idx].APIKey) != "" {
-				override["api_key"] = a.Cfg.LLM.Models[idx].APIKey
+			idx := modelIndex(cfg, mid)
+			if idx >= 0 && strings.TrimSpace(cfg.LLM.Models[idx].APIKey) != "" {
+				override["api_key"] = cfg.LLM.Models[idx].APIKey
 			}
 		}
 	}
-	base, _, protocol, key := a.llmFormTarget(override)
+	base, _, protocol, key := a.llmFormTarget(cfg, override)
 	if strings.TrimSpace(base) == "" {
 		return map[string]any{"ok": false, "kind": "config", "message": "base_url 为空：选择厂商预设或直接填写 API 地址"}
 	}
@@ -1258,7 +1327,7 @@ func (a *Agent) ContextView() map[string]any {
 	st := a.Mem.Stats()
 	rd := a.windowReading()
 	return map[string]any{
-		"enabled":          a.Cfg.Agent.ContextCompress,
+		"enabled":          a.Config().Agent.ContextCompress,
 		"short_turns":      st.ShortTurns,
 		"short_cap":        st.ShortCap,
 		"fill_pct":         st.FillPct,
@@ -1334,11 +1403,11 @@ func (a *Agent) AuthOAuth(provider string) (string, error) {
 	return a.Auth.StartOAuth(provider)
 }
 
-func (a *Agent) DataDir() string { return a.Cfg.DataDir }
+func (a *Agent) DataDir() string { return a.Config().DataDir }
 
 func (a *Agent) CredentialsFile() string {
 	if a.Creds == nil {
-		return filepath.Join(a.Cfg.DataDir, "credentials.json")
+		return filepath.Join(a.Config().DataDir, "credentials.json")
 	}
 	return a.Creds.Path()
 }
@@ -1373,8 +1442,8 @@ func jobToScheduleView(j scheduler.Job) types.ScheduleJobView {
 
 func (a *Agent) ProvidersView() []llm.ProviderPreset { return llm.Providers }
 
-func (a *Agent) mcpIndex(name string) int {
-	for i, s := range a.Cfg.MCP {
+func mcpIndex(cfg *config.Config, name string) int {
+	for i, s := range cfg.MCP {
 		if s.Name == name {
 			return i
 		}
@@ -1387,7 +1456,7 @@ func (a *Agent) MCPInstalledByArgs(ref string) bool {
 	if ref == "" {
 		return false
 	}
-	for _, s := range a.Cfg.MCP {
+	for _, s := range a.Config().MCP {
 		for _, arg := range s.Args {
 			if arg == ref || strings.Contains(arg, ref) {
 				return true
@@ -1404,7 +1473,7 @@ func (a *Agent) MarketMCP(q string) []map[string]any {
 		out = append(out, map[string]any{
 			"id": p.ID, "name": p.Name, "desc": p.Desc, "command": p.Command,
 			"params": p.Params, "trust": p.Trust, "tags": p.Tags,
-			"installed": a.mcpIndex(p.ID) >= 0,
+			"installed": mcpIndex(a.Config(), p.ID) >= 0,
 		})
 	}
 	return out
@@ -1438,9 +1507,10 @@ func (a *Agent) SkillInstallPreset(name string, force bool) (int, error) {
 }
 
 func (a *Agent) MCPList() []map[string]any {
-	out := make([]map[string]any, 0, len(a.Cfg.MCP))
+	cfg := a.Config()
+	out := make([]map[string]any, 0, len(cfg.MCP))
 	names := a.Reg.Names()
-	for _, s := range a.Cfg.MCP {
+	for _, s := range cfg.MCP {
 		_, connected := a.MCP.Get(s.Name)
 		tools := 0
 		prefix := mcpToolPrefix(s.Name)
@@ -1541,10 +1611,6 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 	if strings.TrimSpace(spec.URL) == "" && strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("启动命令不能为空")
 	}
-	idx := a.mcpIndex(name)
-	if idx >= 0 && !force {
-		return nil, fmt.Errorf("%w：重装会替换当前的命令与参数；只想临时别跑它，请改用「停用」", ErrAlreadyInstalled)
-	}
 	trust := spec.Trust
 	if trust != "readonly" && trust != "user_approved" && trust != "full_access" {
 		trust = "user_approved"
@@ -1553,22 +1619,34 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 		Name: name, Command: command, Args: args, Env: spec.Env,
 		URL: spec.URL, Headers: spec.Headers, Trust: trust, Enabled: true,
 	}
-	next := append([]config.MCPServerConfig{}, a.Cfg.MCP...)
-	if idx >= 0 {
-		next[idx] = srv
-		a.mcpDetach(name)
-	} else {
-		next = append(next, srv)
+	replaced := false
+	err := a.updateConfig(func(cfg *config.Config) error {
+		idx := mcpIndex(cfg, name)
+		if idx >= 0 && !force {
+			return fmt.Errorf("%w：重装会替换当前的命令与参数；只想临时别跑它，请改用「停用」", ErrAlreadyInstalled)
+		}
+		if idx >= 0 {
+			cfg.MCP[idx] = srv
+			replaced = true
+		} else {
+			cfg.MCP = append(cfg.MCP, srv)
+		}
+		// Persist before publishing: a failed save must leave the installed
+		// list exactly as it was.
+		if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
+			return fmt.Errorf("配置未保存（%v），已还原为安装前的状态", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	prev := a.Cfg.MCP
-	a.Cfg.MCP = next
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		a.Cfg.MCP = prev
-		return nil, fmt.Errorf("配置未保存（%v），已还原为安装前的状态", err)
+	if replaced {
+		a.mcpDetach(name)
 	}
 	tools, err := a.mcpConnect(srv)
 	res := map[string]any{
-		"name": name, "display": display, "installed": true, "replaced": idx >= 0,
+		"name": name, "display": display, "installed": true, "replaced": replaced,
 		"connected": err == nil, "tools": tools, "mcp": a.MCPList(),
 	}
 	if err != nil {
@@ -1596,24 +1674,36 @@ func (a *Agent) mcpDetach(name string) int {
 }
 
 func (a *Agent) MCPSetEnabled(name string, enabled bool) (map[string]any, error) {
-	idx := a.mcpIndex(name)
-	if idx < 0 {
-		return nil, fmt.Errorf("MCP 服务器 %q 未安装", name)
+	var srv config.MCPServerConfig
+	changed := false
+	err := a.updateConfig(func(cfg *config.Config) error {
+		idx := mcpIndex(cfg, name)
+		if idx < 0 {
+			return fmt.Errorf("MCP 服务器 %q 未安装", name)
+		}
+		if cfg.MCP[idx].Enabled == enabled {
+			return nil
+		}
+		cfg.MCP[idx].Enabled = enabled
+		// Persist before publishing: a failed save must leave the state as it was.
+		if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
+			return fmt.Errorf("状态未保存（%v），已还原", err)
+		}
+		srv = cfg.MCP[idx]
+		changed = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if a.Cfg.MCP[idx].Enabled == enabled {
+	if !changed {
 		return map[string]any{"name": name, "enabled": enabled, "unchanged": true, "mcp": a.MCPList()}, nil
-	}
-	prev := a.Cfg.MCP[idx].Enabled
-	a.Cfg.MCP[idx].Enabled = enabled
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		a.Cfg.MCP[idx].Enabled = prev
-		return nil, fmt.Errorf("状态未保存（%v），已还原", err)
 	}
 	tools := 0
 	a.mcpDetach(name)
 	warning := ""
 	if enabled {
-		n, err := a.mcpConnect(a.Cfg.MCP[idx])
+		n, err := a.mcpConnect(srv)
 		tools = n
 		if err != nil {
 			warning = fmt.Sprintf("已启用，但连接失败: %v", err)
@@ -1649,26 +1739,32 @@ func (a *Agent) mcpConnect(srv config.MCPServerConfig) (int, error) {
 }
 
 func (a *Agent) MCPRemove(name string) (map[string]any, error) {
-	idx := a.mcpIndex(name)
-	if idx < 0 {
-		return nil, fmt.Errorf("MCP 服务器 %q 未安装", name)
-	}
-	prev := append([]config.MCPServerConfig{}, a.Cfg.MCP...)
-	a.Cfg.MCP = append(a.Cfg.MCP[:idx], a.Cfg.MCP[idx+1:]...)
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		a.Cfg.MCP = prev
-		return nil, fmt.Errorf("已移除但持久化失败（重启后它会回来）: %w", err)
+	err := a.updateConfig(func(cfg *config.Config) error {
+		idx := mcpIndex(cfg, name)
+		if idx < 0 {
+			return fmt.Errorf("MCP 服务器 %q 未安装", name)
+		}
+		cfg.MCP = append(cfg.MCP[:idx], cfg.MCP[idx+1:]...)
+		// Persist before publishing: a failed save must leave the entry installed.
+		if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
+			return fmt.Errorf("移除未保存（%v），已还原为移除前的状态", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	removed := a.mcpDetach(name)
 	return map[string]any{"name": name, "removed_tools": removed, "mcp": a.MCPList()}, nil
 }
 
 func (a *Agent) MCPRetry(name string) (map[string]any, error) {
-	idx := a.mcpIndex(name)
+	cfg := a.Config()
+	idx := mcpIndex(cfg, name)
 	if idx < 0 {
 		return nil, fmt.Errorf("MCP 服务器 %q 未安装", name)
 	}
-	srv := &a.Cfg.MCP[idx]
+	srv := cfg.MCP[idx]
 	if !srv.Enabled {
 		return nil, fmt.Errorf("MCP 服务器 %q 已停用，请先启用", name)
 	}
@@ -1676,7 +1772,7 @@ func (a *Agent) MCPRetry(name string) (map[string]any, error) {
 	// leaves registry entries pointing at it, so a failed retry (or a changed
 	// tool list) keeps dead tools callable.
 	a.mcpDetach(name)
-	tools, err := a.mcpConnect(*srv)
+	tools, err := a.mcpConnect(srv)
 	res := map[string]any{
 		"name": name, "connected": err == nil, "tools": tools, "mcp": a.MCPList(),
 	}
@@ -1705,10 +1801,11 @@ func (a *Agent) PermissionOf(name string) types.Permission {
 }
 
 func (a *Agent) WorkspaceView() map[string]any {
+	cfg := a.Config()
 	return map[string]any{
-		"workspace":  a.Cfg.Workspace,
-		"recents":    a.Cfg.WorkspaceRecents,
-		"git_branch": gitBranch(a.Cfg.Workspace),
+		"workspace":  cfg.Workspace,
+		"recents":    cfg.WorkspaceRecents,
+		"git_branch": gitBranch(cfg.Workspace),
 	}
 }
 
@@ -1799,15 +1896,21 @@ func (a *Agent) WorkspaceSet(path string) (map[string]any, error) {
 }
 
 func (a *Agent) WorkspaceClear() (map[string]any, error) {
-	a.Cfg.Workspace = ""
+	err := a.updateConfig(func(cfg *config.Config) error {
+		cfg.Workspace = ""
+		if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
+			return fmt.Errorf("已取消但持久化失败: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	if a.FileTools != nil {
-		a.FileTools.Roots = nil
+		a.FileTools.SetRoots(nil)
 	}
 	if a.Gate != nil {
 		a.Gate.SetWorkspaceRoots(nil)
-	}
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		return nil, fmt.Errorf("已取消但持久化失败: %w", err)
 	}
 	return a.WorkspaceView(), nil
 }
@@ -1830,26 +1933,31 @@ func (a *Agent) applyWorkspace(path string) error {
 		return fmt.Errorf("%s 不是文件夹", abs)
 	}
 
-	a.Cfg.Workspace = abs
+	err = a.updateConfig(func(cfg *config.Config) error {
+		cfg.Workspace = abs
+		recents := []string{abs}
+		for _, r := range cfg.WorkspaceRecents {
+			if r != abs {
+				recents = append(recents, r)
+			}
+		}
+		if len(recents) > 8 {
+			recents = recents[:8]
+		}
+		cfg.WorkspaceRecents = recents
+		if err := cfg.SaveOverlay(filepath.Join(cfg.DataDir, config.OverlayFile)); err != nil {
+			return fmt.Errorf("已切换但持久化失败: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	if a.FileTools != nil {
-		a.FileTools.Roots = []string{abs}
+		a.FileTools.SetRoots([]string{abs})
 	}
 	if a.Gate != nil {
 		a.Gate.SetWorkspaceRoots([]string{abs})
-	}
-	recents := []string{abs}
-	for _, r := range a.Cfg.WorkspaceRecents {
-		if r != abs {
-			recents = append(recents, r)
-		}
-	}
-	if len(recents) > 8 {
-		recents = recents[:8]
-	}
-	a.Cfg.WorkspaceRecents = recents
-
-	if err := a.Cfg.SaveOverlay(filepath.Join(a.Cfg.DataDir, config.OverlayFile)); err != nil {
-		return fmt.Errorf("已切换但持久化失败: %w", err)
 	}
 	return nil
 }
@@ -1861,11 +1969,13 @@ type changeRef struct {
 }
 
 func (a *Agent) workspaceRoots() []string {
-	if a.FileTools != nil && len(a.FileTools.Roots) > 0 {
-		return a.FileTools.Roots
+	if a.FileTools != nil {
+		if roots := a.FileTools.Roots(); len(roots) > 0 {
+			return roots
+		}
 	}
-	if strings.TrimSpace(a.Cfg.Workspace) != "" {
-		return []string{a.Cfg.Workspace}
+	if ws := strings.TrimSpace(a.Config().Workspace); ws != "" {
+		return []string{ws}
 	}
 	return nil
 }
@@ -1874,7 +1984,8 @@ func (a *Agent) changeTarget(taskID, rawPath string) (changeRef, error) {
 	if SafeTaskName(taskID) == "" {
 		return changeRef{}, fmt.Errorf("任务标识 %q 不合法", types.Shorten(taskID, 40))
 	}
-	if strings.TrimSpace(a.Cfg.DataDir) == "" {
+	dataDir := a.Config().DataDir
+	if strings.TrimSpace(dataDir) == "" {
 		return changeRef{}, fmt.Errorf("未配置数据目录，写前快照无处可存，也就无从还原")
 	}
 	path := strings.TrimSpace(rawPath)
@@ -1904,7 +2015,7 @@ func (a *Agent) changeTarget(taskID, rawPath string) (changeRef, error) {
 	if err != nil {
 		return changeRef{}, err
 	}
-	recs, err := taskPreImages(a.Cfg.DataDir, taskID)
+	recs, err := taskPreImages(dataDir, taskID)
 	if err != nil {
 		return changeRef{}, err
 	}
@@ -1940,7 +2051,7 @@ func (a *Agent) TaskDiff(taskID, path string) (map[string]any, error) {
 
 	var before string
 	if head.Exists {
-		b, err := preImageContent(a.Cfg.DataDir, taskID, head)
+		b, err := preImageContent(a.Config().DataDir, taskID, head)
 		if err != nil {
 			return nil, fmt.Errorf("读写前内容失败: %w", err)
 		}
@@ -1991,6 +2102,7 @@ func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 	if len(group) == 0 {
 		return nil, fmt.Errorf("这个路径不在本次任务的改动清单里，不能动")
 	}
+	dataDir := a.Config().DataDir
 
 	type revertedRow struct {
 		Path string `json:"path"`
@@ -2004,7 +2116,7 @@ func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 			failed = append(failed, fmt.Sprintf("%s：%s", filepath.Base(rec.Path), diffBlame(rec)))
 			continue
 		}
-		note, err := restorePreImage(a.Cfg.DataDir, taskID, rec)
+		note, err := restorePreImage(dataDir, taskID, rec)
 		if err != nil {
 			failed = append(failed, fmt.Sprintf("%s：%s", filepath.Base(rec.Path), types.Shorten(err.Error(), 120)))
 			continue
@@ -2035,7 +2147,8 @@ func (a *Agent) TaskRevert(taskID, path string) (map[string]any, error) {
 }
 
 func (a *Agent) markChangesReverted(taskID string, paths []string) {
-	g, err := ReadTaskResult(a.Cfg.DataDir, taskID)
+	dataDir := a.Config().DataDir
+	g, err := ReadTaskResult(dataDir, taskID)
 	if err != nil || g == nil || len(g.Changes) == 0 {
 		return
 	}
@@ -2058,7 +2171,7 @@ func (a *Agent) markChangesReverted(taskID string, paths []string) {
 	if !changed {
 		return
 	}
-	if err := SaveTaskResult(a.Cfg.DataDir, g); err != nil {
+	if err := SaveTaskResult(dataDir, g); err != nil {
 		fmt.Fprintf(os.Stderr, "[gleam] 改动清单已还原但归档没更新（下次读档案会看不到这一位）：%v\n", err)
 	}
 }

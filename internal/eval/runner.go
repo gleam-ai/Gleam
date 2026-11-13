@@ -110,16 +110,20 @@ func tally(rep *Report, c Case, res *CaseResult) {
 }
 
 func (r *Runner) modelName() string {
-	if r.Agent == nil || r.Agent.Cfg == nil {
+	if r.Agent == nil {
 		return "unknown"
 	}
-	if r.Agent.Cfg.LLM.Provider == "mock" {
+	cfg := r.Agent.Config()
+	if cfg == nil {
+		return "unknown"
+	}
+	if cfg.LLM.Provider == "mock" {
 		return "mock"
 	}
-	if m := r.Agent.Cfg.LLM.Model; m != "" {
+	if m := cfg.LLM.Model; m != "" {
 		return m
 	}
-	if p := r.Agent.Cfg.LLM.Provider; p != "" {
+	if p := cfg.LLM.Provider; p != "" {
 		return p
 	}
 	return "unknown"

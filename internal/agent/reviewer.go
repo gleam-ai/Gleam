@@ -74,7 +74,11 @@ func (r *llmReviewer) Review(userGoal, tool string, args map[string]any) (bool, 
 const deepReviewTimeout = 30 * time.Second
 
 func (a *Agent) deepReviewPlan(ctx context.Context, taskID, goal string, plan *types.Plan) (bool, string) {
-	if a == nil || a.LLM == nil || plan == nil || len(plan.Steps) == 0 {
+	if a == nil || plan == nil || len(plan.Steps) == 0 {
+		return true, ""
+	}
+	client := a.PrimaryLLM()
+	if client == nil {
 		return true, ""
 	}
 	var b strings.Builder
@@ -108,7 +112,7 @@ func (a *Agent) deepReviewPlan(ctx context.Context, taskID, goal string, plan *t
 
 	cctx, cancel := context.WithTimeout(ctx, deepReviewTimeout)
 	defer cancel()
-	text, err := a.LLM.Chat(cctx, req)
+	text, err := client.Chat(cctx, req)
 	if err != nil {
 		return true, ""
 	}

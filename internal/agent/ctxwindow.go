@@ -34,12 +34,13 @@ func (a *Agent) lastPrompt() (int, bool) {
 }
 
 func (a *Agent) contextWindow() (tokens int, source, note string) {
-	if a.Cfg != nil && a.Cfg.LLM.ContextWindow > 0 {
-		return a.Cfg.LLM.ContextWindow, llm.SourceManual, "按设置里选的窗口大小算"
+	cfg := a.Config()
+	if cfg != nil && cfg.LLM.ContextWindow > 0 {
+		return cfg.LLM.ContextWindow, llm.SourceManual, "按设置里选的窗口大小算"
 	}
 	model := ""
-	if a.Cfg != nil {
-		model = a.Cfg.LLM.Model
+	if cfg != nil {
+		model = cfg.LLM.Model
 	}
 	return llm.ContextWindowFor(model)
 }
@@ -96,7 +97,8 @@ func (a *Agent) compressMidTask(ctx context.Context, taskID string) (compressed,
 }
 
 func (a *Agent) compressionOn() bool {
-	return a.Cfg != nil && a.Cfg.Agent.ContextCompress && a.Mem != nil
+	cfg := a.Config()
+	return cfg != nil && cfg.Agent.ContextCompress && a.Mem != nil
 }
 
 func (a *Agent) contextActionText(compressed, tightened, mid bool) string {

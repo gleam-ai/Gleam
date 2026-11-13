@@ -34,7 +34,7 @@ MUTATIONS = [
         "file": "internal/webui/handlers.go",
         "edits": [
             (
-                """		if err := agent.SaveTaskResult(s.Agent.Cfg.DataDir, result); err != nil {
+                """		if err := agent.SaveTaskResult(s.Agent.Config().DataDir, result); err != nil {
 			fmt.Fprintf(os.Stderr, "[gleam] 界面任务未存档：%v\\n", err)
 		}
 """,
@@ -48,8 +48,8 @@ MUTATIONS = [
         "file": "internal/webui/handlers.go",
         "edits": [
             (
-                "agent.SaveTaskResult(s.Agent.Cfg.DataDir, result)",
-                "agent.SaveTaskResult(s.Agent.Cfg.DataDir, &types.GoalResult{TaskID: result.TaskID, Status: types.GoalSuccess})",
+                "agent.SaveTaskResult(s.Agent.Config().DataDir, result)",
+                "agent.SaveTaskResult(s.Agent.Config().DataDir, &types.GoalResult{TaskID: result.TaskID, Status: types.GoalSuccess})",
             )
         ],
         "targets": [t("./internal/webui", "TestGoalSubmit_ArchivesForReplay")],
@@ -110,7 +110,7 @@ MUTATIONS = [
         "file": "internal/webui/handlers.go",
         "edits": [
             (
-                "	archived, skipped, err := agent.ListTaskResults(s.Agent.Cfg.DataDir, listArchiveLimit)",
+                "	archived, skipped, err := agent.ListTaskResults(s.Agent.Config().DataDir, listArchiveLimit)",
                 "	archived, skipped, err := []*types.GoalResult(nil), 0, error(nil)",
             )
         ],

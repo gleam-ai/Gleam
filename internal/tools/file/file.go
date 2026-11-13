@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"gleam/internal/harness/registry"
@@ -17,11 +19,27 @@ import (
 const maxReadBytes = 256 * 1024
 
 type Tools struct {
-	Roots []string
+	mu    sync.RWMutex
+	roots []string // replaced (never mutated) by SetRoots; read via Roots()
 }
 
 func New(roots ...string) *Tools {
-	return &Tools{Roots: roots}
+	return &Tools{roots: slices.Clone(roots)}
+}
+
+// Roots returns the current workspace roots. The slice is shared, not copied:
+// callers must treat it as read-only (SetRoots always installs a fresh slice).
+func (t *Tools) Roots() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.roots
+}
+
+func (t *Tools) SetRoots(roots []string) {
+	next := slices.Clone(roots)
+	t.mu.Lock()
+	t.roots = next
+	t.mu.Unlock()
 }
 
 func (t *Tools) RegisterAll(reg *registry.Registry) {
@@ -34,7 +52,7 @@ func (t *Tools) RegisterAll(reg *registry.Registry) {
 }
 
 func (t *Tools) resolve(ctx context.Context, p string) (string, error) {
-	return toolutil.ResolveInRoots(p, toolutil.RootsFrom(ctx, t.Roots))
+	return toolutil.ResolveInRoots(p, toolutil.RootsFrom(ctx, t.Roots()))
 }
 
 func (t *Tools) requireResolve(ctx context.Context, args map[string]any, key string) (string, error) {

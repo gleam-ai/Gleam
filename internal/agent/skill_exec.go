@@ -39,14 +39,15 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 	}
 	taskID := types.NewID()
 	a.Notifier.OnProgress(types.ProgressEvent{TaskID: taskID, Phase: "execute", Message: fmt.Sprintf("运行技能 %s v%d", name, sk.Version), Progress: 10, Kind: "info"})
+	cfg := a.Config()
 	executor := &Executor{
 		Reg: a.Reg, Gate: a.Gate, Notifier: a.Notifier,
-		MaxConcurrency: a.Cfg.Agent.MaxConcurrency,
-		StepTimeout:    time.Duration(a.Cfg.Agent.StepTimeoutSecs) * time.Second,
-		StepRetries:    a.Cfg.Agent.StepRetries,
-		Dedupe:         a.Cfg.Agent.DedupeCalls,
-		MaxOutputRunes: a.Cfg.Agent.MaxOutputRunes,
-		DataDir:        a.Cfg.DataDir,
+		MaxConcurrency: cfg.Agent.MaxConcurrency,
+		StepTimeout:    time.Duration(cfg.Agent.StepTimeoutSecs) * time.Second,
+		StepRetries:    cfg.Agent.StepRetries,
+		Dedupe:         cfg.Agent.DedupeCalls,
+		MaxOutputRunes: cfg.Agent.MaxOutputRunes,
+		DataDir:        cfg.DataDir,
 		OnUsage:        a.BumpUsage,
 		Hooks:          a.Hooks,
 	}
@@ -101,7 +102,9 @@ func (a *Agent) RunSkill(ctx context.Context, name string, params map[string]str
 // the steps, then save as a new version after plan validation. Skipped under
 // the mock model to keep offline self-tests deterministic.
 func (a *Agent) autoOptimizeSkill(ctx context.Context, taskID, name string, sk *skill.Skill, exec *Result) {
-	if a.LLM == nil || llm.IsMockClient(a.LLM) || !a.Cfg.Agent.SkillAutoOptimize {
+	primary := a.PrimaryLLM()
+	cfg := a.Config()
+	if primary == nil || llm.IsMockClient(primary) || !cfg.Agent.SkillAutoOptimize {
 		return
 	}
 	var b strings.Builder
@@ -137,7 +140,7 @@ func (a *Agent) autoOptimizeSkill(ctx context.Context, taskID, name string, sk *
 	if err != nil {
 		return
 	}
-	validator := &Planner{LLM: a.LLM, Reg: a.Reg, MaxSteps: a.Cfg.Agent.MaxSteps}
+	validator := &Planner{LLM: primary, Reg: a.Reg, MaxSteps: cfg.Agent.MaxSteps}
 	plan, err := validator.validate(raw, "技能 "+name)
 	if err != nil || len(plan.Steps) == 0 {
 		return

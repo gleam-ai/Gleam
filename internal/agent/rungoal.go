@@ -60,7 +60,7 @@ func (a *Agent) runPreparedGoal(p *preparedGoal) *types.GoalResult {
 	// user changes the model or tier mid-task, the second half runs on the new
 	// config, while "what this task ran with" must be judged by startup --
 	// taking it at teardown would record a config that never fully applied.
-	snap := a.Cfg.Snapshot()
+	snap := a.Config().Snapshot()
 	// prog collects delivery-side facts from inside the loop (which attempt
 	// succeeded, how many reworks) and writes them back into the result --
 	// kept next to the growth record below so "what we count" and "what we
@@ -272,12 +272,13 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	// context" while the doer and the scorer were still the same model -- same
 	// blind spots, with nothing to offset self-assessment bias.
 	planner := a.buildPlanner(req, models.tier, models.helper)
+	setupCfg := a.Config()
 	reflector := &Reflector{
 		LLM:           models.verify,
-		DoneThreshold: a.Cfg.Agent.DoneThreshold,
+		DoneThreshold: setupCfg.Agent.DoneThreshold,
 		TaskID:        taskID,
 	}
-	tell := Narrator{Style: a.Cfg.Persona.Style}
+	tell := Narrator{Style: setupCfg.Persona.Style}
 
 	var feedback string
 	var last *types.GoalResult
@@ -287,12 +288,16 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 	// this task; re-planning is not a reason to ask the same question again.
 	grants := &pathGrants{}
 	planned := false
-	attempts := a.Cfg.Agent.MaxReplans + 1
+	attempts := setupCfg.Agent.MaxReplans + 1
 	if attempts < 1 {
 		attempts = 1
 	}
 
 	for attempt := 1; attempt <= attempts; attempt++ {
+		// One consistent snapshot per attempt: a settings save between attempts
+		// still takes effect (hot reload), but a single attempt never sees a
+		// half-applied config.
+		cfg := a.Config()
 		if prog != nil {
 			prog.attempts = attempt
 		}
@@ -310,7 +315,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// Automatic context compression: old conversation turns evicted from
 		// the short window are summarized into a rolling summary (section 9
 		// risk response).
-		if a.Cfg.Agent.ContextCompress && a.Mem != nil {
+		if cfg.Agent.ContextCompress && a.Mem != nil {
 			if a.Mem.Compress(a.CompressSummarizer(ctx, taskID)) {
 				notify("plan", tell.Compressed(), 4, "info")
 			}
@@ -410,19 +415,19 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// Execute
 		executor := &Executor{
 			Reg: a.Reg, Gate: a.Gate, Notifier: a.Notifier,
-			MaxConcurrency: a.Cfg.Agent.MaxConcurrency,
-			StepTimeout:    time.Duration(a.Cfg.Agent.StepTimeoutSecs) * time.Second,
-			StepRetries:    a.Cfg.Agent.StepRetries,
-			Dedupe:         a.Cfg.Agent.DedupeCalls,
-			MaxOutputRunes: a.Cfg.Agent.MaxOutputRunes,
-			DataDir:        a.Cfg.DataDir,
+			MaxConcurrency: cfg.Agent.MaxConcurrency,
+			StepTimeout:    time.Duration(cfg.Agent.StepTimeoutSecs) * time.Second,
+			StepRetries:    cfg.Agent.StepRetries,
+			Dedupe:         cfg.Agent.DedupeCalls,
+			MaxOutputRunes: cfg.Agent.MaxOutputRunes,
+			DataDir:        cfg.DataDir,
 			OnUsage:        a.BumpUsage,
 			// Run-time persistence: if the process exits mid-run, tasks/
 			// holds nothing, and runs/<taskID>.jsonl is the only evidence
 			// answering "how far did it get". DiscardRunLog removes it on
 			// normal completion (the terminal snapshot is more complete;
 			// keeping it is noise).
-			Sink: NewRunLog(a.Cfg.DataDir),
+			Sink: NewRunLog(cfg.DataDir),
 			Goal: goal,
 			// Directories approved outside the workspace are reused on replan.
 			Grants: grants,
@@ -436,7 +441,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// A veto goes to the user -- approved, continue; rejected, stop here.
 		// Stopping before Execute is deliberate: what it reviews is exactly
 		// "what happens next", and once running, things are already moving.
-		if a.Cfg.Safety.DeepReview {
+		if cfg.Safety.DeepReview {
 			if ok, reason := a.deepReviewPlan(ctx, taskID, goal, &plan); !ok && !a.confirmDeepReview(ctx, taskID, reason) {
 				res := &types.GoalResult{
 					Goal: goal, Status: types.GoalFailed, Score: 0,
@@ -503,7 +508,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		// into completionReached so each of the three guards is individually
 		// testable -- it used to be one long condition where a missing clause
 		// was invisible (see TestCompletionReached_*).
-		if completionReached(reflection, plan.Acceptance, exec, a.Cfg.Agent.DoneThreshold) {
+		if completionReached(reflection, plan.Acceptance, exec, cfg.Agent.DoneThreshold) {
 			if prog != nil && attempt == 1 {
 				prog.firstRound = true
 			}
@@ -591,13 +596,14 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	notify := func(phase, msg string, pct int, kind string) {
 		a.Notifier.OnProgress(types.ProgressEvent{TaskID: taskID, Phase: phase, Message: msg, Progress: pct, Kind: kind})
 	}
+	cfg := a.Config()
 	if a.Mem != nil {
 		a.Mem.AddTurn("user", goal)
-		if a.Cfg.Agent.ContextCompress && a.Mem.Compress(a.CompressSummarizer(ctx, taskID)) {
+		if cfg.Agent.ContextCompress && a.Mem.Compress(a.CompressSummarizer(ctx, taskID)) {
 			notify("context", "已自动压缩早期上下文", 15, "info")
 		}
 	}
-	name := a.Cfg.Persona.Name
+	name := cfg.Persona.Name
 	if strings.TrimSpace(name) == "" {
 		name = "Gleam"
 	}
@@ -607,9 +613,9 @@ func (a *Agent) runChatPath(ctx context.Context, goal, taskID, role string) *typ
 	// waste the whole prefix.
 	sys := fmt.Sprintf("你是 %s（微光），运行在用户本机的桌面智能体，当前对话模式。"+
 		"用与用户一致的语言自然对话：回答简洁、具体、可执行；涉及本机文件、命令或抓取网页链接的操作，"+
-		"提示切换到「工作」或「编程」模式提交。%s", name, styleInstruction(a.Cfg.Persona.Style))
+		"提示切换到「工作」或「编程」模式提交。%s", name, styleInstruction(cfg.Persona.Style))
 	var volatile strings.Builder
-	fmt.Fprintf(&volatile, "\n\n## 当前环境\n工作目录：%s", a.Cfg.Workspace)
+	fmt.Fprintf(&volatile, "\n\n## 当前环境\n工作目录：%s", cfg.Workspace)
 	if a.Mem != nil {
 		// Same tail and annotation as the planner: a rolling summary is most
 		// useful at its newest end, and the "omitted N turns" note lives there.
@@ -772,10 +778,11 @@ const minGEOContentRunes = 80
 // Conditions: switch on + task succeeded + deliverable long enough + creative
 // (writer role or recognized creative intent).
 func (a *Agent) shouldAnalyzeGEO(role string, result *types.GoalResult) bool {
-	if a == nil || a.LLM == nil || result == nil || a.Cfg == nil {
+	if a == nil || result == nil || a.PrimaryLLM() == nil {
 		return false
 	}
-	if !a.Cfg.Agent.GEOEnabled {
+	cfg := a.Config()
+	if cfg == nil || !cfg.Agent.GEOEnabled {
 		return false
 	}
 	if result.Status != types.GoalSuccess {

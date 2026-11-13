@@ -72,5 +72,21 @@ func (a *Agent) llmKeyFor(baseURL, explicit string) (key, storedHost string) {
 	if a == nil {
 		return "", ""
 	}
-	return LLMKeyFor(a.Cfg, a.Creds, baseURL, explicit)
+	return LLMKeyFor(a.Config(), a.Creds, baseURL, explicit)
+}
+
+// ImageLLMTarget resolves the base URL, API key and image model used by
+// image.generate. The key is bound by host on a private clone that is then
+// published, so an env/flag-injected key gets its scope recorded without
+// mutating the live config in place. Resolving fresh each call lets a newly
+// saved key take effect immediately.
+func (a *Agent) ImageLLMTarget() (baseURL, key, imageModel string, err error) {
+	err = a.updateConfig(func(cfg *config.Config) error {
+		baseURL = cfg.LLM.BaseURL
+		MarkInjectedLLMKey(cfg, baseURL)
+		key, _ = BindLLMKey(cfg, a.Creds, baseURL, "", false)
+		imageModel = cfg.LLM.ImageModel
+		return nil
+	})
+	return baseURL, key, imageModel, err
 }

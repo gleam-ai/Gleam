@@ -30,13 +30,13 @@ import (
 // Agent is the Gleam core engine: the Plan-Execute-Reflect loop plus the task
 // registry.
 type Agent struct {
-	LLM       llm.Client
+	LLM       llm.Client // read via PrimaryLLM(); swapped under cfgMu
 	Reg       *registry.Registry
 	Mem       *memory.Manager
 	Gate      *safety.Gate
 	Skills    *skill.Store
 	Sched     *scheduler.Scheduler
-	Cfg       *config.Config
+	Cfg       *config.Config // read via Config(); hot reload swaps clones under cfgMu
 	Notifier  Notifier
 	MCP       *MCPManager
 	FileTools *file.Tools         // file toolset (Roots updated on workspace hot-switch)
@@ -67,6 +67,12 @@ type Agent struct {
 	// rebuilt by RebuildTierClients after a settings save).
 	tierMu      sync.Mutex
 	tierClients map[string]llm.Client
+
+	// cfgMu guards the Cfg pointer and the LLM/FastLLM client fields. Hot
+	// reload publishes a cloned Config under the write lock (updateConfig);
+	// readers take a snapshot via Config()/PrimaryLLM()/FastClient() and then
+	// read it without locks, because a published Config is never mutated.
+	cfgMu sync.RWMutex
 
 	// Latest context window reading: input token size of the most recent
 	// request (see ctxwindow.go). It belongs to no task: memory's short window
@@ -184,7 +190,7 @@ func (a *Agent) pruneTasksLocked() {
 // Planner: two copies drift apart sooner or later, and then what is evaluated
 // is no longer the real runtime behavior.
 func (a *Agent) BuildPlanner(req types.GoalRequest) *Planner {
-	return a.buildPlanner(req, a.TierLLM(req.Role), a.FastLLM)
+	return a.buildPlanner(req, a.TierLLM(req.Role), a.FastClient())
 }
 
 func (a *Agent) buildPlanner(req types.GoalRequest, tier, helper llm.Client) *Planner {
@@ -192,12 +198,13 @@ func (a *Agent) buildPlanner(req types.GoalRequest, tier, helper llm.Client) *Pl
 	if taskID == "" {
 		taskID = types.NewID()
 	}
+	cfg := a.Config()
 	pl := &Planner{
 		LLM: tier, Reg: a.Reg,
-		MaxSteps:   a.Cfg.Agent.MaxSteps,
-		Style:      a.Cfg.Persona.Style,
+		MaxSteps:   cfg.Agent.MaxSteps,
+		Style:      cfg.Persona.Style,
 		TaskMode:   string(normalizeTaskMode(req.TaskMode)),
-		CommitHint: a.Cfg.Git.CommitInstructions,
+		CommitHint: cfg.Git.CommitInstructions,
 		Role:       req.Role,
 		TaskID:     taskID,
 		// Effective tier: the rule table uses it to decide "whether to swap in
@@ -209,7 +216,7 @@ func (a *Agent) buildPlanner(req types.GoalRequest, tier, helper llm.Client) *Pl
 		// on-demand filtered schemas. Helper is given only when an auxiliary
 		// model is really configured -- otherwise screening wastes an extra
 		// main-model call.
-		MaxToolSchemas: a.Cfg.Agent.MaxToolSchemas,
+		MaxToolSchemas: cfg.Agent.MaxToolSchemas,
 		Helper:         helper,
 		// Differences from scenario templates: core tools (always present),
 		// output format and model tier (see buildSystemPrompt / TierLLM).
@@ -227,8 +234,8 @@ func (a *Agent) workspaceOf(req types.GoalRequest) string {
 	if v, ok := req.Context["cwd"].(string); ok && v != "" {
 		return v
 	}
-	if a.Cfg != nil && a.Cfg.Workspace != "" {
-		return a.Cfg.Workspace
+	if cfg := a.Config(); cfg != nil && cfg.Workspace != "" {
+		return cfg.Workspace
 	}
 	cwd, _ := os.Getwd()
 	return cwd

@@ -80,11 +80,12 @@ func (s *Server) handleNetworkInfo(w http.ResponseWriter, _ *http.Request) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	cfg := s.Agent.Config()
 	host := ""
-	if u, err := url.Parse(s.Agent.Cfg.LLM.BaseURL); err == nil {
+	if u, err := url.Parse(cfg.LLM.BaseURL); err == nil {
 		host = u.Host
 	}
-	netw := s.Agent.Cfg.Network
+	netw := cfg.Network
 	mode := netw.ProxyModeOrDefault()
 	manual := ""
 	if mode == "manual" {
@@ -93,7 +94,7 @@ func (s *Server) handleNetworkInfo(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"proxy_env": env, "proxy_keys": keys,
 		"proxy_mode": mode, "proxy_url": manual,
-		"llm_host": host, "llm_provider": s.Agent.Cfg.LLM.Provider,
+		"llm_host": host, "llm_provider": cfg.LLM.Provider,
 	})
 }
 
@@ -113,7 +114,7 @@ func redactProxy(v string) string {
 
 func (s *Server) handleGoalDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	path := agent.TaskArchivePath(s.Agent.Cfg.DataDir, id)
+	path := agent.TaskArchivePath(s.Agent.Config().DataDir, id)
 	if path == "" {
 		writeErr(w, http.StatusBadRequest, "非法任务 id")
 		return

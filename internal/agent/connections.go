@@ -130,7 +130,8 @@ func humanBytes(n int, en bool) string {
 }
 
 func (a *Agent) llmRow(rep safety.EgressReport, en bool) ConnectionRow {
-	base := strings.TrimSpace(a.Cfg.LLM.BaseURL)
+	cfg := a.Config()
+	base := strings.TrimSpace(cfg.LLM.BaseURL)
 	host := llm.KeyScope(base)
 	r := ConnectionRow{
 		ID: "llm", Title: bi{"模型服务", "Model service"}.pick(en), Kind: "out",
@@ -153,7 +154,7 @@ func (a *Agent) llmRow(rep safety.EgressReport, en bool) ConnectionRow {
 		}.pick(en),
 		Stats: egressStatsText(rep, "llm", en),
 	}
-	if a.Cfg.LLM.Provider == "mock" || host == "" {
+	if cfg.LLM.Provider == "mock" || host == "" {
 		r.Status = bi{
 			"没配真实模型，这条线发不出东西",
 			"No real model configured — this line carries nothing",
@@ -222,7 +223,7 @@ func (a *Agent) webFetchRow(rep safety.EgressReport, en bool) ConnectionRow {
 		r.Status = bi{"这个构建里没注册", "Not registered in this build"}.pick(en)
 		r.Target = "—"
 	}
-	if a.Cfg.Safety.AllowPrivateWeb {
+	if a.Config().Safety.AllowPrivateWeb {
 		r.Alert = bi{
 			"已打开 safety.allow_private_web：抓取可以打到本机与内网地址（含云元数据接口）——被注入的提示词就多了一条读内网的路",
 			"safety.allow_private_web is on: fetches can reach loopback and private-network addresses (cloud metadata endpoints included) — an injected prompt gains one more route into your internal network",
@@ -576,7 +577,8 @@ func (a *Agent) gitRemoteRow(rep safety.EgressReport, en bool) ConnectionRow {
 			"Settings → Worktrees: turn off \"Fetch before create\"; turn off the master switch too and no task worktree is created at all",
 		}.pick(en),
 	}
-	if a.Cfg == nil || !a.Cfg.Worktrees.Enabled || !a.Cfg.Worktrees.FetchBeforeCreate {
+	cfg := a.Config()
+	if cfg == nil || !cfg.Worktrees.Enabled || !cfg.Worktrees.FetchBeforeCreate {
 		r.Status = bi{
 			"关着：worktree 总开关与「创建前先 fetch」没同时打开，这条线不存在",
 			"Off: the Worktrees master switch and \"Fetch before create\" are not both on — this line does not exist",

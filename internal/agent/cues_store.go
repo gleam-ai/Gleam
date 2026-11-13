@@ -181,7 +181,7 @@ func (a *Agent) cueRecord(id, reason string) error {
 	}
 	for _, row := range a.cueRowsAll() {
 		if row.ID == id {
-			return loadCueStore(a.Cfg.DataDir).record(row, reason)
+			return loadCueStore(a.Config().DataDir).record(row, reason)
 		}
 	}
 	return fmt.Errorf("这条候补目标已经不成立了（历史变了，或它已被裁剪）")
@@ -191,7 +191,7 @@ func (a *Agent) CueUnsuppress(fp string) error {
 	if fp == "" {
 		return fmt.Errorf("缺少处置记录编号")
 	}
-	st := loadCueStore(a.Cfg.DataDir)
+	st := loadCueStore(a.Config().DataDir)
 	ok, err := st.clear(fp)
 	if err != nil {
 		return err
@@ -203,7 +203,7 @@ func (a *Agent) CueUnsuppress(fp string) error {
 }
 
 func (a *Agent) cueRowsAll() []CueRow {
-	results, _, err := ListTaskResults(a.Cfg.DataDir, cueTaskScan)
+	results, _, err := ListTaskResults(a.Config().DataDir, cueTaskScan)
 	if err != nil {
 		return nil
 	}

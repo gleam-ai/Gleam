@@ -110,7 +110,7 @@ func (a *Agent) TaskLLM(ctx context.Context) llm.Client {
 	if m, ok := taskModelsFrom(ctx); ok && m.tier != nil {
 		return m.tier
 	}
-	return a.LLM
+	return a.PrimaryLLM()
 }
 
 func (a *Agent) taskHelperLLM(ctx context.Context) llm.Client {

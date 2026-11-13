@@ -51,14 +51,15 @@ func (a *Agent) DelegateSubtask(ctx context.Context, goal, role string) (string,
 	a.notifySubtask(taskID, "子任务开始"+roleLabel+"："+types.Shorten(goal, 60))
 
 	// Plan: give the subtask a bounded plan (step count capped).
+	cfg := a.Config()
 	planner := &Planner{
 		LLM:      a.taskTierLLM(dctx, role),
 		Reg:      a.Reg,
-		MaxSteps: min(a.Cfg.Agent.MaxSteps, subtaskMaxSteps),
+		MaxSteps: min(cfg.Agent.MaxSteps, subtaskMaxSteps),
 		Role:     role,
 		TaskID:   taskID,
 	}
-	plan, err := planner.Plan(dctx, goal, a.Cfg.Workspace, nil, nil, "", "")
+	plan, err := planner.Plan(dctx, goal, cfg.Workspace, nil, nil, "", "")
 	if err != nil {
 		return "", fmt.Errorf("子任务规划失败: %w", err)
 	}
@@ -68,12 +69,12 @@ func (a *Agent) DelegateSubtask(ctx context.Context, goal, role string) (string,
 	// all stay in effect.
 	executor := &Executor{
 		Reg: a.Reg, Gate: a.Gate, Notifier: a.Notifier,
-		MaxConcurrency: a.Cfg.Agent.MaxConcurrency,
-		StepTimeout:    time.Duration(a.Cfg.Agent.StepTimeoutSecs) * time.Second,
-		StepRetries:    a.Cfg.Agent.StepRetries,
-		Dedupe:         a.Cfg.Agent.DedupeCalls,
-		MaxOutputRunes: a.Cfg.Agent.MaxOutputRunes,
-		DataDir:        a.Cfg.DataDir,
+		MaxConcurrency: cfg.Agent.MaxConcurrency,
+		StepTimeout:    time.Duration(cfg.Agent.StepTimeoutSecs) * time.Second,
+		StepRetries:    cfg.Agent.StepRetries,
+		Dedupe:         cfg.Agent.DedupeCalls,
+		MaxOutputRunes: cfg.Agent.MaxOutputRunes,
+		DataDir:        cfg.DataDir,
 		OnUsage:        a.BumpUsage,
 		Goal:           "子任务：" + types.Shorten(goal, 40),
 		Hooks:          a.Hooks,

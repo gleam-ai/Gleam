@@ -77,7 +77,8 @@ type traceGroup struct {
 }
 
 func (a *Agent) CueView(en bool) CueLedger {
-	results, skipped, err := ListTaskResults(a.Cfg.DataDir, cueTaskScan)
+	dataDir := a.Config().DataDir
+	results, skipped, err := ListTaskResults(dataDir, cueTaskScan)
 	led := CueLedger{
 		Limit:    cueLimit,
 		Scanned:  len(results),
@@ -91,7 +92,7 @@ func (a *Agent) CueView(en bool) CueLedger {
 		}.pick(en), err)
 		return led
 	}
-	kept := loadCueStore(a.Cfg.DataDir)
+	kept := loadCueStore(dataDir)
 	all := deriveCues(results, en)
 	led.Suppressed = kept.list(en, all)
 	rows := make([]CueRow, 0, len(all))
