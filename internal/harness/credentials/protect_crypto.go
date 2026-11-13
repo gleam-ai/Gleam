@@ -62,7 +62,9 @@ func sealBlob(plain, key []byte, src byte) ([]byte, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	blob := make([]byte, 0, 1+nonceSize+len(plain)+gcmTagSize)
+	// Header-only capacity: gcm.Seal grows the slice for plaintext+tag. Sizing
+	// by len(plain) here would risk an allocation-size overflow.
+	blob := make([]byte, 0, 1+nonceSize+gcmTagSize)
 	blob = append(blob, src)
 	blob = append(blob, nonce...)
 	return gcm.Seal(blob, nonce, plain, nil), nil
