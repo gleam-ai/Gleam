@@ -20,8 +20,9 @@ r"""前端不许再抄一份版本号，也不许替「有没有新版」下结�
 **官网（`website/`）是同一件事的另一半，规则刻意相反**：应用内前端有 `GET /api/info`
 可问，所以那里不许抄；官网是纯静态页，没有出口可问，只能抄一份——那就把这一份关进
 `id="dl-version"` 与 `id="dl-date"` 两个打了标记的元素里，要求它**等于 owner**
-（版本的 owner 是 `buildinfo`，发布日期的 owner 是 `dist/` 下最新那份
-`SHA256SUMS-<date>.txt`，由 `scripts/package.sh` 打包时写出）。每个语言页各有一份徽标：
+（版本的 owner 是 `buildinfo`，发布日期的 owner 是 GitHub Release 的 `publishedAt`；
+离线时回落 `dist/` 下最新那份 `SHA256SUMS-<date>.txt` 的打包日期作代理，并出声说明）。
+每个语言页各有一份徽标：
 `website/index.html` 与 `website/index-zh.html` 都必须带上这两个标记，且标记**之外**
 不许再出现版本字面量。标记读不到时报"判据失效"而不是"通过"。
 
@@ -41,9 +42,12 @@ r"""前端不许再抄一份版本号，也不许替「有没有新版」下结�
 """
 
 import io
+import json
 import os
 import re
+import subprocess
 import sys
+import urllib.request
 
 import _utf8  # noqa: F401  # emit UTF-8 to stdout: Windows defaults to cp936
 
@@ -158,12 +162,50 @@ def marked(text, marker):
     return m.group(1).strip() if m else None
 
 
-def release_date(root):
-    """「这次发布是哪天」的 owner：`dist/` 下最新那份 `SHA256SUMS-<date>.txt`。
+def github_publish_date():
+    """「这次发布是哪天」的真 owner：GitHub Release 的 publishedAt（UTC 日期）。
 
-    它由 `scripts/package.sh` 在打包时写出，所以官网上那个日期不需要有人记得改——
-    漏改就是这道判据报红。
+    打包日期不等于发布日期：包可以今天打、明天才发。官网写的是"发布于"，
+    所以判据跟着发布走。仓库 slug 从 git remote 取，不在脚本里再抄一份。
     """
+    try:
+        remote = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+        m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", remote)
+        if not m:
+            return None
+        req = urllib.request.Request(
+            "https://api.github.com/repos/%s/releases/latest" % m.group(1),
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "gleam-version-owner-gate",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            pub = json.load(resp).get("published_at") or ""
+        if len(pub) >= 10:
+            return pub[:10]
+    except Exception:
+        pass
+    return None
+
+
+def release_date(root):
+    """发布日期：先问 GitHub（真 owner）；离线时回落 `dist/` 最新打包日期作代理。
+
+    回落必须出声：代理口径和真口径可能差一天，静默回落会把"判据换了数据源"
+    这件事藏起来。dist/ 那份由 `scripts/package.sh` 打包时写出。
+    """
+    d = github_publish_date()
+    if d:
+        return d
+    print(
+        "GitHub 发布日期不可达（离线或 API 出错）：回落 dist/ 打包日期作代理口径。"
+    )
     try:
         names = os.listdir(os.path.join(root, PACK))
     except OSError as e:
@@ -217,7 +259,7 @@ def site_hits(scan_texts, version, latest_date):
             (
                 "dl-date",
                 latest_date,
-                "发布日期要等于 dist/ 下最新那份校验和的日期",
+                "发布日期要等于 GitHub Release 的 publishedAt（离线代理：dist/ 最新校验和日期）",
             ),
         ):
             n_mark = len(re.findall(r'id="%s"' % re.escape(marker), text))

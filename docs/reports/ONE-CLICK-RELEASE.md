@@ -35,8 +35,8 @@
 ### 文档文件
 - ✅ [RELEASE-CHECKLIST.md](../releases/RELEASE-CHECKLIST.md) - 完整发布检查清单
 - ✅ [PUBLISHING.md](../releases/PUBLISHING.md) - 多平台发布指南
-- ✅ `config/taskrouter.md` - 用户配置文档
-- ✅ `config/taskrouter.json.example` - 配置文件模板
+- ✅ `configs/taskrouter.md` - 用户配置文档
+- ✅ `configs/taskrouter.json.example` - 配置文件模板
 
 ### 源代码
 - ✅ `internal/agent/tools/cua/*` (5 files)

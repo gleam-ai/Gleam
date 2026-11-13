@@ -61,8 +61,8 @@ echo "✅ Combined size ~2KB per instance (runtime)"
 # Step 7: Configuration validation
 echo ""
 echo "⚙️ Validating configuration files..."
-if [ -f "config/taskrouter.json.example" ]; then
-  python3 -c "import json; json.load(open('config/taskrouter.json.example'))" || {
+if [ -f "configs/taskrouter.json.example" ]; then
+  python3 -c "import json; json.load(open('configs/taskrouter.json.example'))" || {
     echo "❌ Invalid JSON config"
     exit 1
   }
@@ -74,7 +74,7 @@ fi
 # Step 8: Documentation check
 echo ""
 echo "📄 Checking documentation..."
-if [ -f "docs/releases/RELEASE-CHECKLIST.md" ] && [ -f "config/taskrouter.md" ]; then
+if [ -f "docs/releases/RELEASE-CHECKLIST.md" ] && [ -f "configs/taskrouter.md" ]; then
   echo "✅ All docs present"
 else
   echo "⚠️  Some documentation missing"

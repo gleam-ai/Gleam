@@ -16,7 +16,7 @@ Read this in other languages: [English](README.en.md) · [简体中文](README.m
   You decide. Gleam executes.
 </p>
 
-Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with memory, judgment, and the ability to drive work forward**. The core is built from scratch in Go with **zero third-party Go dependencies** and ships as a single binary of about **10 MB**; the desktop shell is Electron, packaging that core into an installer you **double-click and use**.
+Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with memory, judgment, and the ability to drive work forward**. The core is built from scratch in Go with **zero third-party Go dependencies** and ships as a single binary of about **16 MB**; the desktop shell is Electron, packaging that core into a ~150 MB installer you **double-click and use**.
 
 **Local-first** means conversations, memory, task state, and audit logs stay on your machine by default. It does **not** mean an offline LLM: when you connect a real model, Gleam calls the API endpoints you configure. Mock mode can run without network. See [Local-first honesty](#local-first-honesty) below.
 
@@ -34,12 +34,12 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 ## Preview
 
 <p align="center">
-  <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam desktop" width="90%">
+  <img src="assets/screenshots/gleam-desktop-2026-10-23.png" alt="Gleam desktop" width="90%">
 </p>
 
 <p align="center">
-  <img src="artifacts/settings-tab-llm-2026-10-10.png" alt="Model settings" width="45%">
-  <img src="artifacts/settings-tab-engine-2026-10-10.png" alt="Engine settings" width="45%">
+  <img src="assets/screenshots/settings-tab-llm-2026-10-10.png" alt="Model settings" width="45%">
+  <img src="assets/screenshots/settings-tab-engine-2026-10-10.png" alt="Engine settings" width="45%">
 </p>
 
 ---
@@ -60,7 +60,7 @@ Gleam is neither a chat box nor a dumb task runner. It is a **desktop agent with
 | :--- | :--- |
 | **What it is** | Local-first desktop AI agent for file organization, task planning, scheduled work, and tool-driven automation |
 | **What it is not** | A hosted SaaS chat product, a cloud RAG platform, or a fully offline LLM |
-| **Core** | Single file ~10 MB, pure Go (no cgo), cross-compiled for multiple platforms |
+| **Core** | Single file ~16 MB, pure Go (no cgo), cross-compiled for multiple platforms |
 | **Desktop shell** | Electron over the local core; Windows gets an assisted installer with Node and uv bundled — **install and use, no environment setup** |
 | **Extensibility** | 45 built-in tools + MCP servers for hot-plugged external tools |
 | **Interfaces** | Desktop app, CLI (`goal` / `doctor` / …), Web UI, JSON-RPC over stdio (editor plugins) |

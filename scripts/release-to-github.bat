@@ -115,7 +115,7 @@ Run \`scripts/verify-release.sh\` before deployment.
 
 Documentation:
 - docs/releases/RELEASE-CHECKLIST.md
-- config/taskrouter.md
+- configs/taskrouter.md
 
 ---
 **Release Date:** %s

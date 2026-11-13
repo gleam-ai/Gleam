@@ -197,6 +197,11 @@ type Reflection struct {
 	Reason     string        `json:"reason"`
 	Suggestion string        `json:"suggestion,omitempty"`
 	Checks     []CheckResult `json:"checks,omitempty"`
+	// Unverified marks the local fallback where every step succeeded but the
+	// acceptance criteria could not be checked (reflector down/unparseable).
+	// Replanning cannot fix a dead reflector, so the goal loop stops instead of
+	// burning attempts; the final status stays "partial", never "success".
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 type ProgressEvent struct {

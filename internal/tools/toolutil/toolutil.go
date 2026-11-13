@@ -3,6 +3,7 @@ package toolutil
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"gleam/pkg/types"
@@ -57,9 +58,13 @@ func Bool(args map[string]any, key string) bool {
 func Int(args map[string]any, key string, def int) int {
 	switch v := args[key].(type) {
 	case float64:
-		return int(v)
+		if n, ok := intFromFloat(v); ok {
+			return n
+		}
 	case int64:
-		return int(v)
+		if n, ok := intFromInt64(v); ok {
+			return n
+		}
 	case int:
 		return v
 	case string:
@@ -69,6 +74,25 @@ func Int(args map[string]any, key string, def int) int {
 		}
 	}
 	return def
+}
+
+// Model-provided numbers arrive as float64/int64 and may exceed int range
+// (especially on 32-bit builds); an unchecked conversion wraps or is undefined,
+// so out-of-range values fall back to the default instead.
+func intFromInt64(v int64) (int, bool) {
+	if v < math.MinInt || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
+}
+
+func intFromFloat(f float64) (int, bool) {
+	if math.IsNaN(f) || f < math.MinInt || f >= math.MaxInt {
+		return 0, false
+	}
+	// Narrow via the int64 helper: after the range guard the float fits int64,
+	// and the helper's bounds check is the form CodeQL recognizes.
+	return intFromInt64(int64(f))
 }
 
 func Map(args map[string]any, key string) map[string]any {
@@ -108,9 +132,13 @@ func IntOf(v any) int {
 	case int:
 		return n
 	case int64:
-		return int(n)
+		if r, ok := intFromInt64(n); ok {
+			return r
+		}
 	case float64:
-		return int(n)
+		if r, ok := intFromFloat(n); ok {
+			return r
+		}
 	case string:
 		var r int
 		if _, err := fmt.Sscanf(strings.TrimSpace(n), "%d", &r); err == nil {

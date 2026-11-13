@@ -123,10 +123,10 @@ type Store struct {
 	index *searchIndex
 
 	// Batch write optimization
-	batchBuf   []Message   // 批量写入缓冲区
-	batchID    string      // 当前批次所属的会话 ID
-	batchTimer *time.Timer // 定时刷盘定时器
-	batchFlush chan string // 触发刷盘的通道 (buf size = 1)
+	batchBuf   []Message   // batch write buffer
+	batchID    string      // conversation ID owning the current batch
+	batchTimer *time.Timer // periodic flush timer
+	batchFlush chan string // flush trigger channel (buf size = 1)
 }
 
 func Open(dataDir string) (*Store, error) {
@@ -481,8 +481,8 @@ func truncate(s string, n int) string {
 	if len(r) <= n {
 		return s
 	}
-	// 避免在代理对 (Emoji) 或中日文字符中间切断
-	// 末尾留一个位置给省略号
+	// Never cut inside a surrogate pair (emoji) or CJK character;
+	// reserve the last slot for the ellipsis.
 	cut := n - 1
 	if cut < 0 {
 		return ""
@@ -490,15 +490,15 @@ func truncate(s string, n int) string {
 	if cut >= len(r) {
 		return string(r) + "…"
 	}
-	// 检查最后字符是否为代理对的高位，如果是则向前调整
+	// If the last rune is a high surrogate, back up to a full character.
 	result := r[:cut]
 	if len(result) > 0 {
 		last := result[len(result)-1]
-		// UTF-16 代理对范围：高 0xD800-0xDBFF，低 0xDC00-0xDFFF
+		// UTF-16 surrogate ranges: high 0xD800-0xDBFF, low 0xDC00-0xDFFF
 		if last >= 0xD800 && last <= 0xDBFF && cut < len(r) {
 			next := r[cut]
 			if next >= 0xDC00 && next <= 0xDFFF {
-				// 避免切断代理对，往前找完整字符
+				// Back up past the split pair to the last complete character.
 				for i := len(result) - 2; i >= 0; i-- {
 					if result[i] < 0xD800 || result[i] > 0xDBFF {
 						result = result[:i+1]

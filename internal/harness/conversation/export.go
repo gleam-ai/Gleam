@@ -12,9 +12,9 @@ import (
 
 // ExportOptions configures how conversations are exported.
 type ExportOptions struct {
-	IncludeMetadata bool   // 包含创建/更新时间戳
-	SpaceID         string // 只导出特定 SpaceID 的会话
-	Limit           int    // 最多导出多少条会话
+	IncludeMetadata bool   // include created/updated timestamps
+	SpaceID         string // export only conversations with this SpaceID
+	Limit           int    // max conversations to export
 }
 
 // Export exports conversations to a JSON file.
@@ -101,7 +101,7 @@ func (s *Store) Import(path string) (int, error) {
 
 		// Generate new ID for each conversation. It must live inside the JSON,
 		// not just in the file name: List/Get read the embedded ID, and
-		// ReassignSpace rewrites by it — an empty ID collapses every imported
+		// ReassignSpace rewrites by it; an empty ID collapses every imported
 		// conversation into the same ".json" file.
 		newID := NewImportID(c.Title)
 		c.ID = newID
