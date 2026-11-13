@@ -11,6 +11,14 @@
     <title>Gleam 微光 · 本地优先的桌面 AI 助手</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@500;600&display=swap"
+      media="print"
+      onload="this.media = 'all'"
+    />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -23,8 +31,8 @@
         </a>
         <div class="nav-links">
           <a href="#features">功能</a>
-          <a href="#screenshots">截图</a>
-          <a href="#quickstart">快速开始</a>
+          <a href="#how-it-works">界面</a>
+          <a href="#download">下载</a>
           <a
             href="https://github.com/gleam-ai/Gleam"
             target="_blank"
@@ -36,7 +44,7 @@
           <a href="index.html" class="lang-toggle" title="Switch to English"
             >EN</a
           >
-          <a href="#download" class="nav-cta">下载</a>
+          <a href="#download" class="nav-cta">开始使用</a>
         </div>
       </div>
     </nav>
@@ -44,31 +52,33 @@
     <!-- Hero -->
     <section class="hero">
       <div class="container">
-        <p class="hero-eyebrow">Local-first · 10 MB · Zero cloud dependency</p>
-        <h1 class="hero-title">
+        <p class="hero-eyebrow reveal">
+          Local-first · 10 MB · Zero cloud dependency
+        </p>
+        <h1 class="hero-title reveal reveal-delay-1">
           <span class="line give"
             >把想法交给<span class="brand">微光</span>，</span
           >
           <span class="line keep">把时间留给重要的事。</span>
         </h1>
-        <p class="hero-subtitle">
-          Gleam（微光）—— 10 MB
-          单文件，规划-执行-反思闭环。数据留在本机，模型随你切换。
+        <p class="hero-subtitle reveal reveal-delay-2">
+          Gleam（微光）是本地优先的 AI 助手，会规划、执行并复盘你的任务。10 MB
+          单文件，零云端依赖，数据留在本机。
         </p>
-        <div class="hero-actions">
-          <a href="#download" class="btn btn-primary">立即下载</a>
+        <div class="hero-actions reveal reveal-delay-3">
+          <a href="#download" class="btn btn-primary">下载 Windows 版</a>
           <a
             href="https://github.com/gleam-ai/Gleam"
             target="_blank"
             rel="noopener noreferrer"
             class="btn-ghost"
-            >GitHub</a
+            >GitHub 加星</a
           >
         </div>
-        <p class="hero-meta">开源 MIT · 自动更新修复</p>
+        <p class="hero-meta reveal reveal-delay-3">开源 · MIT 许可</p>
 
         <!-- 推进轨：命令 → 步骤 → 完成卡片 -->
-        <div class="flow">
+        <div class="flow reveal reveal-delay-4">
           <div class="flow-cmd">
             <span class="prompt">$</span>gleam goal
             <span class="arg">"整理我的 markdown 文件"</span>
@@ -101,21 +111,27 @@
         </div>
 
         <!-- 事实条 -->
-        <div class="facts">
+        <div class="facts reveal">
           <div class="fact">
-            <div class="n">~10 <small>MB</small></div>
+            <div class="n">
+              <span class="fact-num" data-target="10">0</span><small> MB</small>
+            </div>
             <div class="k">单文件大小</div>
           </div>
           <div class="fact">
-            <div class="n">&lt;20 <small>ms</small></div>
-            <div class="k">启动时间</div>
+            <div class="n">
+              <span class="fact-num" data-target="45">0</span>
+            </div>
+            <div class="k">内置工具</div>
           </div>
           <div class="fact">
-            <div class="n">55<small>%</small></div>
+            <div class="n">
+              <span class="fact-num" data-target="55">0</span><small>%</small>
+            </div>
             <div class="k">Token 节省</div>
           </div>
           <div class="fact">
-            <div class="n">0</div>
+            <div class="n"><span class="fact-num" data-target="0">0</span></div>
             <div class="k">外部依赖</div>
           </div>
         </div>
@@ -161,51 +177,55 @@
             </div>
             <h3>本地优先</h3>
             <p>
-              对话和任务数据默认留在本机。只有调用真实 LLM 时才走你配置的 API。
+              对话、记忆、任务与审计日志都留在本机。只有真实 LLM
+              调用才会离开——用哪家由你决定。
             </p>
           </div>
-          <div class="ev-card reveal">
+          <div class="ev-card reveal" data-delay="100">
             <div class="ev-head">
               <span class="ev-num">02</span><span class="ev-pill">MODELS</span>
             </div>
-            <h3>多模型支持</h3>
+            <h3>24 家模型厂商</h3>
             <p>
-              智谱、DeepSeek、Kimi、Qwen、OpenAI、Anthropic 等多家 API；内置
-              Mock 模型可离线体验。
+              智谱、DeepSeek、Kimi、Qwen、OpenAI、Anthropic、OpenRouter
+              等。分层路由：强模型规划、快模型总结；内置 Mock 可离线体验。
             </p>
           </div>
-          <div class="ev-card reveal">
+          <div class="ev-card reveal" data-delay="200">
             <div class="ev-head">
-              <span class="ev-num">03</span><span class="ev-pill">ROLES</span>
+              <span class="ev-num">03</span><span class="ev-pill">TOOLS</span>
             </div>
-            <h3>专家角色系统</h3>
+            <h3>45 个内置工具</h3>
             <p>
-              预设分析师、工程师、产品经理等角色，也可自定义。不同任务用不同专家。
+              文件、Shell、网页、Git、剪贴板、截图、记忆、定时任务——还可通过 MCP
+              扩展。
             </p>
           </div>
-          <div class="ev-card reveal">
+          <div class="ev-card reveal" data-delay="100">
             <div class="ev-head">
-              <span class="ev-num">04</span><span class="ev-pill">TOKENS</span>
+              <span class="ev-num">04</span><span class="ev-pill">ROLES</span>
             </div>
-            <h3>Token 优化</h3>
+            <h3>7 种专家角色</h3>
             <p>
-              紧凑的工具 schema、指数退避重试、角色提示词精简，Token 消耗降低
-              55%。
+              分析师、工程师、产品经理、研究员、运维、创作者——也可自定义。每个角色自带系统提示词、工具集与模型层级。
             </p>
           </div>
-          <div class="ev-card reveal">
+          <div class="ev-card reveal" data-delay="200">
             <div class="ev-head">
-              <span class="ev-num">05</span><span class="ev-pill">VOICE</span>
+              <span class="ev-num">05</span><span class="ev-pill">SKILLS</span>
             </div>
-            <h3>语音输入</h3>
-            <p>内置语音识别，说话就能输入，支持中英文。</p>
+            <h3>技能固化</h3>
+            <p>成功的任务会固化为带版本、可复用的技能，并跟踪成功率。</p>
+            <div class="ev-facts">
+              代码审查 <b>92%</b> · 文件整理 <b>87%</b> · Git 流程 <b>95%</b>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
     <!-- Screenshots -->
-    <section id="screenshots" class="screenshots">
+    <section id="how-it-works" class="showcase">
       <div class="container">
         <div class="section-header reveal">
           <p class="section-eyebrow">Interface</p>
@@ -221,66 +241,19 @@
               alt="主界面"
               loading="lazy"
             />
-            <div class="showcase-label">主界面 · 一句话开始</div>
+            <div class="showcase-label">一句话开始</div>
           </div>
-          <div class="showcase-card reveal">
+          <div class="showcase-card reveal" data-delay="100">
             <img src="images/settings-llm.png" alt="模型配置" loading="lazy" />
-            <div class="showcase-label">模型配置 · 多厂商支持</div>
+            <div class="showcase-label">多厂商模型配置</div>
           </div>
-          <div class="showcase-card reveal">
+          <div class="showcase-card reveal" data-delay="200">
             <img
               src="images/settings-engine.png"
               alt="引擎设置"
               loading="lazy"
             />
-            <div class="showcase-label">引擎设置 · 精细控制</div>
-          </div>
-          <div class="showcase-card reveal">
-            <img
-              src="images/composer-experts.png"
-              alt="专家团"
-              loading="lazy"
-            />
-            <div class="showcase-label">专家团 · 输入框内切换</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Quick Start -->
-    <section id="quickstart" class="quickstart">
-      <div class="container">
-        <div class="section-header">
-          <h2>快速开始</h2>
-          <p>三步上手，无需复杂配置</p>
-        </div>
-        <div class="steps">
-          <div class="step">
-            <div class="step-number">1</div>
-            <h3>下载</h3>
-            <p>选择你的平台，下载单文件可执行程序。</p>
-            <div class="code-block">
-              <code># Windows<br />gleam-windows-amd64.exe</code>
-            </div>
-          </div>
-          <div class="step">
-            <div class="step-number">2</div>
-            <h3>运行</h3>
-            <p>双击运行，默认使用 Mock 模型，可离线体验。</p>
-            <div class="code-block">
-              <code># 双击即可运行<br /># 或命令行启动<br />./gleam</code>
-            </div>
-          </div>
-          <div class="step">
-            <div class="step-number">3</div>
-            <h3>配置（可选）</h3>
-            <p>如需真实 LLM，在设置页配置 API Key。</p>
-            <div class="code-block">
-              <code
-                ># 支持 OpenAI / Anthropic / 智谱 / 深度求索等<br />#
-                也可自建兼容 OpenAI 协议的服务</code
-              >
-            </div>
+            <div class="showcase-label">精细引擎控制</div>
           </div>
         </div>
       </div>
@@ -289,8 +262,12 @@
     <!-- Download -->
     <section id="download" class="download">
       <div class="container">
-        <div class="section-header">
-          <h2>立即下载</h2>
+        <div class="section-header reveal">
+          <p class="section-eyebrow">Get started</p>
+          <h2>
+            <span class="line give">一个文件。</span>
+            <span class="line keep">零配置。</span>
+          </h2>
           <p class="section-sub">
             发布于 <span id="dl-version">v0.0.36</span> ·
             <time id="dl-date" datetime="2026-11-13">2026-11-13</time> · MIT
@@ -316,7 +293,7 @@
               </svg>
               Windows 桌面版 <span class="dm-badge">推荐</span>
             </div>
-            <p class="dm-desc">x86_64 · 一键安装，含托盘与自动更新</p>
+            <p class="dm-desc">一键安装 · 托盘图标 · 自动更新 · 内置运行时</p>
             <div class="dm-meta">~127 MB · NSIS</div>
           </a>
           <div class="download-list">
@@ -326,7 +303,7 @@
               href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-windows-amd64.exe"
             >
               <span class="dl-name">Windows CLI</span>
-              <span class="dl-desc">x86_64 · 单文件命令行版</span>
+              <span class="dl-desc">单文件命令行版</span>
               <span class="dl-size">~12 MB</span>
             </a>
             <a
@@ -335,7 +312,7 @@
               href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-darwin-arm64"
             >
               <span class="dl-name">macOS</span>
-              <span class="dl-desc">Apple Silicon · 可执行文件</span>
+              <span class="dl-desc">Apple Silicon</span>
               <span class="dl-size">~15 MB</span>
             </a>
             <a
@@ -344,7 +321,7 @@
               href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-darwin-amd64"
             >
               <span class="dl-name">macOS</span>
-              <span class="dl-desc">Intel · 可执行文件</span>
+              <span class="dl-desc">Intel</span>
               <span class="dl-size">~15 MB</span>
             </a>
             <a
@@ -353,22 +330,18 @@
               href="https://github.com/gleam-ai/Gleam/releases/latest/download/gleam-linux-amd64"
             >
               <span class="dl-name">Linux</span>
-              <span class="dl-desc">x86_64 · 可执行文件</span>
+              <span class="dl-desc">x86_64 可执行文件</span>
               <span class="dl-size">~15 MB</span>
             </a>
           </div>
         </div>
-        <div class="download-note">
-          <p>
-            需要其他平台？查看
-            <a
-              href="https://github.com/gleam-ai/Gleam/releases"
-              target="_blank"
-              rel="noopener noreferrer"
-              >所有发布版本</a
-            >
-          </p>
-        </div>
+        <p class="download-alt">
+          或从源码构建：
+          <code
+            >git clone https://github.com/gleam-ai/Gleam.git &amp;&amp; cd Gleam
+            &amp;&amp; go build -o gleam ./cmd/gleam</code
+          >
+        </p>
       </div>
     </section>
 
@@ -377,11 +350,8 @@
       <div class="container">
         <div class="footer-content">
           <div class="footer-brand">
-            <img src="favicon.svg" alt="" width="32" height="32" />
-            <div>
-              <div class="footer-name">Gleam 微光</div>
-              <div class="footer-tagline">本地优先的桌面 AI 助手</div>
-            </div>
+            <img src="favicon.svg" alt="" width="24" height="24" />
+            <span>Gleam</span>
           </div>
           <div class="footer-links">
             <a
@@ -391,16 +361,22 @@
               >GitHub</a
             >
             <a
-              href="https://github.com/gleam-ai/Gleam/issues"
+              href="https://github.com/gleam-ai/Gleam/releases"
               target="_blank"
               rel="noopener noreferrer"
-              >问题反馈</a
+              >发布版本</a
             >
             <a
               href="https://github.com/gleam-ai/Gleam/blob/master/LICENSE"
               target="_blank"
               rel="noopener noreferrer"
               >MIT 许可</a
+            >
+            <a
+              href="https://github.com/gleam-ai/Gleam/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              >问题反馈</a
             >
           </div>
         </div>
@@ -419,7 +395,7 @@
           </div>
         </div>
         <div class="footer-bottom">
-          <p>© 2026 Gleam. 由 Go 驱动，本地运行。</p>
+          <p>由 Go 驱动，本地运行。&copy; 2026 Gleam</p>
         </div>
       </div>
     </footer>
