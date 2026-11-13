@@ -3,7 +3,6 @@ package credentials
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -126,13 +125,11 @@ func TestNoPlaintextKeyOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.GOOS == "windows" {
-		if strings.Contains(string(raw), "sk-super-secret-123") {
-			t.Error("DPAPI 应已加密，但明文 key 仍出现在文件里")
-		}
-		if !strings.HasPrefix(string(raw), magic) {
-			t.Errorf("缺少加密标记前缀，头部 = %.20q", string(raw))
-		}
+	if strings.Contains(string(raw), "sk-super-secret-123") {
+		t.Error("应已加密，但明文 key 仍出现在文件里")
+	}
+	if !strings.HasPrefix(string(raw), magic) {
+		t.Errorf("缺少加密标记前缀，头部 = %.20q", string(raw))
 	}
 	if k, _ := s.ResolveLLMAPIKey(hostA); k != "sk-super-secret-123" {
 		t.Error("回读失败")
@@ -156,7 +153,7 @@ func TestLegacyPlaintextMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(path)
-	if runtime.GOOS == "windows" && strings.Contains(string(raw), "sk-old-plain") {
+	if strings.Contains(string(raw), "sk-old-plain") {
 		t.Error("迁移后旧明文 key 不应残留在文件里")
 	}
 	if k, _ := s.ResolveLLMAPIKey(hostA); k != "sk-new" {
