@@ -4,7 +4,7 @@ Run goals through the [Gleam](../README.md) agent engine without leaving the edi
 
 The extension starts `gleam serve` as a child process and speaks **JSON-RPC 2.0 over
 newline-delimited JSON on stdio** — the same channel any editor can use (see
-[`editor-plugin/gleam.plugin.json`](../editor-plugin/gleam.plugin.json) for the method
+[`docs/editor-plugin/gleam.plugin.json`](../docs/editor-plugin/gleam.plugin.json) for the method
 inventory). Nothing else is required: no daemon, no port, no cloud.
 
 ## Install for development

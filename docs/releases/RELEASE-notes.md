@@ -72,7 +72,7 @@ Optimized for WeChat, QQ, DingTalk with proper composition window handling.
 
 - [`COMPUTER_USE_INTEGRATION.md`](../reports/COMPUTER_USE_INTEGRATION.md) - Full integration report
 - [`ONE-CLICK-RELEASE.md`](../reports/ONE-CLICK-RELEASE.md) - Multi-platform release guide  
-- [`config/taskrouter.json.example`](../../config/taskrouter.json.example) - Configuration template
+- [`config/taskrouter.json.example`](../../configs/taskrouter.json.example) - Configuration template
 
 ## 🐛 Known Issues
 
