@@ -2,6 +2,7 @@ package toolutil
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -105,5 +106,35 @@ func TestValidateArgs_RequiredStringSlice(t *testing.T) {
 	}
 	if err := ValidateArgs(tool, map[string]any{"path": "a.txt", "content": "ok"}); err != nil {
 		t.Fatalf("合法参数被拒: %v", err)
+	}
+}
+
+func TestIntOutOfRangeFallsBack(t *testing.T) {
+	cases := []struct {
+		name string
+		v    any
+	}{
+		{"float64 超上界", float64(math.MaxInt64) * 2},
+		{"float64 超下界", float64(math.MinInt64) * 2},
+		{"float64 NaN", math.NaN()},
+		{"float64 正无穷", math.Inf(1)},
+		{"int64 超界", int64(math.MaxInt64)},
+	}
+	for _, c := range cases {
+		if c.name == "int64 超界" && math.MaxInt == math.MaxInt64 {
+			continue // 64-bit: int64(max) is a valid int
+		}
+		if got := Int(map[string]any{"n": c.v}, "n", 7); got != 7 {
+			t.Errorf("%s: Int = %d, 应回落默认 7", c.name, got)
+		}
+		if got := IntOf(c.v); got != 0 {
+			t.Errorf("%s: IntOf = %d, 应回落 0", c.name, got)
+		}
+	}
+	if got := Int(map[string]any{"n": float64(-5)}, "n", 7); got != -5 {
+		t.Errorf("负整数应保留: %d", got)
+	}
+	if got := IntOf(int64(42)); got != 42 {
+		t.Errorf("int64 正常值: %d", got)
 	}
 }

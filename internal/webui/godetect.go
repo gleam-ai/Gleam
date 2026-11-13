@@ -1,13 +1,12 @@
 package webui
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
-	"time"
 )
 
 type GoStatus struct {
@@ -88,8 +87,13 @@ func DetectGo(customPath ...string) GoStatus {
 	return GoStatus{Found: false}
 }
 
+// goDirRe restricts candidate directories to a conservative charset: the path
+// arrives over HTTP, so anything outside ordinary filesystem characters is
+// rejected before it touches the filesystem.
+var goDirRe = regexp.MustCompile(`^[A-Za-z0-9 _().+\-/\\:~]+$`)
+
 func checkGoAt(dir string) GoStatus {
-	if dir == "" {
+	if dir == "" || !filepath.IsAbs(dir) || !goDirRe.MatchString(dir) {
 		return GoStatus{}
 	}
 	binaryName := "go"
@@ -100,16 +104,23 @@ func checkGoAt(dir string) GoStatus {
 	if st, err := os.Stat(goPath); err != nil || st.IsDir() {
 		return GoStatus{}
 	}
-	// A user-specified path is executed to read its version; bound it so a
-	// hung/non-Go binary cannot hold the HTTP handler forever.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	v, _ := exec.CommandContext(ctx, goPath, "version").Output()
+	root := filepath.Dir(dir)
 	return GoStatus{
 		Found:   true,
 		Path:    goPath,
-		Version: strings.TrimSpace(string(v)),
+		Version: goVersionFromFile(root),
 		BinDir:  dir,
-		Root:    filepath.Dir(dir),
+		Root:    root,
 	}
+}
+
+// goVersionFromFile reads GOROOT/VERSION instead of executing the candidate:
+// the directory comes from an HTTP request, and running whatever binary sits
+// there would turn "detect Go" into "execute a caller-chosen program".
+func goVersionFromFile(root string) string {
+	b, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
 }
