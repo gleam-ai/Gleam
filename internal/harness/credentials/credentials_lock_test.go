@@ -11,7 +11,7 @@ import (
 
 // setKey retries on ErrLocked. The advisory lock is unfair (Windows LockFileEx
 // has no wait queue), so under full-suite parallel load a writer can be briefly
-// starved — that is transient contention, not a lost update. Retrying isolates
+// starved; that is transient contention, not a lost update. Retrying isolates
 // the property under test (completed writes never clobber each other) from
 // load-induced starvation. Without the cross-process lock SetLLMAPIKey never
 // returns ErrLocked, so a real lost update still surfaces as a missing key.

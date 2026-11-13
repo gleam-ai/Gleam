@@ -68,15 +68,15 @@ func TestTruncateEmojiAndUnicode(t *testing.T) {
 		name     string
 		input    string
 		maxRunes int
-		wantEnd  string // 结尾应该是什么
+		wantEnd  string // expected suffix
 	}{
 		{"emoji_pair", "Hello 👨‍👩‍👧‍👦 world", 10, "…"},
 		{"chinese_char", "你好世界 🌍", 4, "…"},
-		{"exact_fit", "abc 定", 3, ""},      // 正好 3 个 rune，不应加省略号
-		{"one_rune", "a", 1, ""},           // 1 个字符不超过限制
-		{"empty", "", 5, ""},               // 空字符串
-		{"only_ellipsis", "😀", 1, "…"},     // Emoji 被替换为省略号
-		{"multi_emoji", "🎉🎊🎈test", 5, "…"}, // 多个 Emoji
+		{"exact_fit", "abc 定", 3, ""},      // exactly 3 runes, no ellipsis
+		{"one_rune", "a", 1, ""},           // single rune within limit
+		{"empty", "", 5, ""},               // empty string
+		{"only_ellipsis", "😀", 1, "…"},     // emoji replaced by ellipsis
+		{"multi_emoji", "🎉🎊🎈test", 5, "…"}, // multiple emoji
 	}
 
 	for _, tt := range tests {
@@ -84,23 +84,23 @@ func TestTruncateEmojiAndUnicode(t *testing.T) {
 			got := truncate(tt.input, tt.maxRunes)
 			title := got
 
-			// 检查是否以省略号结尾 (如果超过限制)
+			// over the limit must end with the ellipsis
 			if len([]rune(tt.input)) > tt.maxRunes {
 				if !strings.HasSuffix(title, "…") {
 					t.Errorf("截断后应以省略号结尾：%q", title)
 				}
 			}
 
-			// 检查总长度不超过 maxRunes（包含省略号）
+			// total length including ellipsis stays within maxRunes
 			if len([]rune(title)) > tt.maxRunes {
 				t.Errorf("标题长度=%d, 超过上限 %d: %q", len([]rune(title)), tt.maxRunes, title)
 			}
 
-			// 检查没有损坏代理对 (简单检查：不会在代理对中间截断)
+			// no split surrogate pairs
 			r := []rune(title)
 			for i := 0; i < len(r)-1; i++ {
 				if r[i] >= 0xD800 && r[i] <= 0xDBFF {
-					// 高位代理对必须有低位跟随
+					// a high surrogate must be followed by a low one
 					if i+1 >= len(r) || r[i+1] < 0xDC00 || r[i+1] > 0xDFFF {
 						t.Errorf("代理对被切断：%v", r)
 					}
