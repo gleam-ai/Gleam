@@ -568,10 +568,16 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if entry.ID == "" {
-		entry.ID = fmt.Sprintf("model-%d", time.Now().UnixNano()%100000)
-	}
 	err = a.updateConfig(func(cfg *config.Config) error {
+		if entry.ID == "" {
+			// UnixNano%100000 collides when two adds land in the same 100µs
+			// window; probe forward for a free slot under the config lock.
+			n := time.Now().UnixNano() % 100000
+			for modelIndex(cfg, fmt.Sprintf("model-%d", n)) >= 0 {
+				n = (n + 1) % 100000
+			}
+			entry.ID = fmt.Sprintf("model-%d", n)
+		}
 		if modelIndex(cfg, entry.ID) >= 0 {
 			return fmt.Errorf("模型 ID %q 已存在", entry.ID)
 		}
