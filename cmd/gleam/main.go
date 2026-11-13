@@ -262,7 +262,8 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 			return nil, fmt.Errorf("读取本地密钥失败: %w", keyErr)
 		}
 		client = llm.New(protocol, baseURL, key, model,
-			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+			llm.WithEnableThinking(cfg.LLM.EnableThinking))
 	}
 
 	mem, err := memory.Open(cfg.DataDir, cfg.Memory.ShortTermCap, cfg.Memory.VectorDim, cfg.Memory.MaxItems)

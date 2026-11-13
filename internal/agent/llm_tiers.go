@@ -40,7 +40,8 @@ func (a *Agent) rebuildFastClientLocked(cfg *config.Config) {
 		}
 		key, _ := LLMKeyFor(cfg, a.Creds, base, entry.APIKey)
 		a.FastLLM = llm.New(protocol, base, key, model,
-			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+			llm.WithEnableThinking(cfg.LLM.EnableThinking))
 		return
 	}
 	if strings.TrimSpace(cfg.LLM.FastModel) == "" {
@@ -52,7 +53,8 @@ func (a *Agent) rebuildFastClientLocked(cfg *config.Config) {
 		protocol = llm.ProtocolOpenAIChat
 	}
 	a.FastLLM = llm.New(protocol, cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.FastModel,
-		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+		llm.WithEnableThinking(cfg.LLM.EnableThinking))
 }
 
 func (a *Agent) RebuildTierClients() {
@@ -99,7 +101,8 @@ func (a *Agent) tierLLM(tier string) llm.Client {
 		protocol = llm.ProtocolOpenAIChat
 	}
 	c := llm.New(protocol, cfg.LLM.BaseURL, cfg.LLM.APIKey, model,
-		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+		llm.WithEnableThinking(cfg.LLM.EnableThinking))
 	if a.tierClients == nil {
 		a.tierClients = map[string]llm.Client{}
 	}

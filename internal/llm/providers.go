@@ -522,17 +522,37 @@ func ResolveTarget(providerID, plan, baseURL, model, protocol string) (string, s
 	return base, model, protocol
 }
 
-func New(protocol, baseURL, apiKey, model string, temperature float64, maxTokens, timeoutSecs int) Client {
+// ClientOption tunes a freshly built client without widening New's positional
+// signature. Options that target a specific protocol are no-ops on the others.
+type ClientOption func(Client)
+
+// WithEnableThinking sets the top-level enable_thinking flag for OpenAI-chat
+// endpoints that support it (e.g. Qwen thinking models). nil leaves the field
+// out so the model keeps its own default; a non-nil value is sent verbatim.
+func WithEnableThinking(v *bool) ClientOption {
+	return func(c Client) {
+		if g, ok := c.(*GLMClient); ok {
+			g.EnableThinking = v
+		}
+	}
+}
+
+func New(protocol, baseURL, apiKey, model string, temperature float64, maxTokens, timeoutSecs int, opts ...ClientOption) Client {
 	if timeoutSecs <= 0 {
 		timeoutSecs = 60
 	}
 	timeout := time.Duration(timeoutSecs) * time.Second
+	var c Client
 	switch protocol {
 	case ProtocolOpenAIResponses:
-		return NewResponses(baseURL, apiKey, model, temperature, maxTokens, timeout)
+		c = NewResponses(baseURL, apiKey, model, temperature, maxTokens, timeout)
 	case ProtocolAnthropic:
-		return NewAnthropic(baseURL, apiKey, model, temperature, maxTokens, timeout)
+		c = NewAnthropic(baseURL, apiKey, model, temperature, maxTokens, timeout)
 	default:
-		return NewGLM(baseURL, apiKey, model, temperature, maxTokens, timeout)
+		c = NewGLM(baseURL, apiKey, model, temperature, maxTokens, timeout)
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
