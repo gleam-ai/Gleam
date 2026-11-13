@@ -199,3 +199,36 @@ func TestFieldsCoexist(t *testing.T) {
 		t.Error("登出不应动 key")
 	}
 }
+
+func TestMCPSecretsMergeAndDelete(t *testing.T) {
+	s := openStore(t)
+	if err := s.SetMCPSecrets("srv", MCPSecrets{
+		Env:     map[string]string{"TOKEN": "ghp-mcp-secret-value"},
+		Headers: map[string]string{"Authorization": "Bearer mcp-header-secret"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMCPSecrets("srv", MCPSecrets{Env: map[string]string{"TOKEN": "", "OTHER": "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := s.GetMCPSecrets("srv")
+	if got.Env["TOKEN"] != "ghp-mcp-secret-value" {
+		t.Errorf("空值不应覆盖已存密钥: %q", got.Env["TOKEN"])
+	}
+	if got.Env["OTHER"] != "x" || got.Headers["Authorization"] != "Bearer mcp-header-secret" {
+		t.Errorf("合并丢字段: %+v", got)
+	}
+	data, err := os.ReadFile(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "ghp-mcp-secret-value") || strings.Contains(string(data), "mcp-header-secret") {
+		t.Error("MCP 密钥不应明文落盘")
+	}
+	if err := s.DeleteMCPSecrets("srv"); err != nil {
+		t.Fatal(err)
+	}
+	if sec := s.GetMCPSecrets("srv"); len(sec.Env) != 0 || len(sec.Headers) != 0 {
+		t.Errorf("删除后应为空: %+v", sec)
+	}
+}

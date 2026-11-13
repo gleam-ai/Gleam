@@ -41,6 +41,14 @@ type CloudConfig struct {
 	SupabaseAnonKey string `json:"supabase_anon_key,omitempty"`
 }
 
+// MCPSecrets holds the sensitive env/header values of one MCP server, keyed by
+// server name in the store. The overlay yaml keeps the keys with empty values
+// so structure stays visible without leaking secrets.
+type MCPSecrets struct {
+	Env     map[string]string `json:"env,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
 type Store struct {
 	path     string
 	lockPath string
@@ -57,6 +65,8 @@ type file struct {
 	LLMAPIKeyHost string        `json:"llm_api_key_host,omitempty"`
 	Cloud         *CloudSession `json:"cloud,omitempty"`
 	CloudCfg      *CloudConfig  `json:"cloud_config,omitempty"`
+	// MCPSecrets is keyed by MCP server name.
+	MCPSecrets map[string]MCPSecrets `json:"mcp_secrets,omitempty"`
 }
 
 // migrateKeys moves the legacy single-key pair into the per-host map. It
@@ -211,6 +221,66 @@ func (s *Store) SetLLMAPIKey(key, host string) error {
 		}
 		return s.write(f)
 	})
+}
+
+func (s *Store) GetMCPSecrets(name string) MCPSecrets {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.read()
+	if err != nil {
+		return MCPSecrets{}
+	}
+	return f.MCPSecrets[name]
+}
+
+// SetMCPSecrets merges incoming values over the stored ones: a non-empty value
+// replaces, an empty value keeps what is stored. Reinstalling a server from the
+// UI (which never sees secret values) must not wipe its secrets.
+func (s *Store) SetMCPSecrets(name string, sec MCPSecrets) error {
+	return s.locked(func() error {
+		f, err := s.read()
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if f == nil {
+			f = &file{}
+		}
+		if f.MCPSecrets == nil {
+			f.MCPSecrets = map[string]MCPSecrets{}
+		}
+		cur := f.MCPSecrets[name]
+		cur.Env = mergeSecretMap(cur.Env, sec.Env)
+		cur.Headers = mergeSecretMap(cur.Headers, sec.Headers)
+		f.MCPSecrets[name] = cur
+		return s.write(f)
+	})
+}
+
+func (s *Store) DeleteMCPSecrets(name string) error {
+	return s.locked(func() error {
+		f, err := s.read()
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil
+			}
+			return err
+		}
+		delete(f.MCPSecrets, name)
+		return s.write(f)
+	})
+}
+
+func mergeSecretMap(dst, src map[string]string) map[string]string {
+	for k, v := range src {
+		if v == "" {
+			continue
+		}
+		if dst == nil {
+			dst = map[string]string{}
+		}
+		dst[k] = v
+	}
+	return dst
 }
 
 func (s *Store) GetCloudConfig() *CloudConfig {

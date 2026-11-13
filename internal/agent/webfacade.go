@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"gleam/internal/config"
+	"gleam/internal/harness/credentials"
 	"gleam/internal/harness/growth"
 	"gleam/internal/harness/safety"
 	"gleam/internal/harness/scheduler"
@@ -1621,6 +1622,16 @@ func (a *Agent) mcpInstall(spec mcpSpec, force bool) (map[string]any, error) {
 		Name: name, Command: command, Args: args, Env: spec.Env,
 		URL: spec.URL, Headers: spec.Headers, Trust: trust, Enabled: true,
 	}
+	if a.Creds != nil {
+		// Secrets go to the encrypted store; the overlay keeps only the keys.
+		// SetMCPSecrets merges, so a reinstall with blank values (the UI never
+		// sees secret values) keeps the stored ones.
+		if err := a.Creds.SetMCPSecrets(name, credentials.MCPSecrets{Env: spec.Env, Headers: spec.Headers}); err != nil {
+			return nil, fmt.Errorf("凭据未保存（%v），安装已取消", err)
+		}
+		srv.Env, _ = splitMCPSecrets(spec.Env)
+		srv.Headers, _ = splitMCPSecrets(spec.Headers)
+	}
 	replaced := false
 	err := a.updateConfig(func(cfg *config.Config) error {
 		idx := mcpIndex(cfg, name)
@@ -1722,6 +1733,7 @@ func (a *Agent) MCPSetEnabled(name string, enabled bool) (map[string]any, error)
 }
 
 func (a *Agent) mcpConnect(srv config.MCPServerConfig) (int, error) {
+	srv = ResolveMCPSecrets(a.Creds, srv)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	client, err := mcp.Start(ctx, mcp.ServerConfig{
@@ -1757,6 +1769,11 @@ func (a *Agent) MCPRemove(name string) (map[string]any, error) {
 		return nil, err
 	}
 	removed := a.mcpDetach(name)
+	if a.Creds != nil {
+		// Best effort: an orphaned secret is harmless, but failing the removal
+		// after the config was already saved would be worse.
+		_ = a.Creds.DeleteMCPSecrets(name)
+	}
 	return map[string]any{"name": name, "removed_tools": removed, "mcp": a.MCPList()}, nil
 }
 
