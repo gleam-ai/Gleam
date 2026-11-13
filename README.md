@@ -21,7 +21,7 @@
 
 Gleam is not a chatbot. It's an agent that **plans tasks, executes them with tools, reflects on the results**, and now **controls your desktop** — all while keeping your data local.
 
-Built from scratch in Go with **zero third-party dependencies**, the core is a single **~10 MB** binary. The desktop shell (Electron) wraps it into a double-click installer with bundled Node and uv runtimes.
+Built from scratch in Go with **zero third-party dependencies**, the core is a single **~16 MB** binary. The desktop shell (Electron) wraps it into a double-click installer (~150 MB) with bundled Node and uv runtimes.
 
 <img src="artifacts/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
 
@@ -139,8 +139,8 @@ The desktop window and the CLI drive the embedded web UI over a local HTTP API (
 
 | Platform | Format | Notes |
 |----------|--------|-------|
-| **Windows** | NSIS installer (~127 MB) | Bundled Node + uv, tray icon, auto-update |
-| **Windows / macOS / Linux** | Single binary (~10–16 MB) | CLI + embedded web UI |
+| **Windows** | NSIS installer (~150 MB) | Bundled Node + uv, tray icon, auto-update |
+| **Windows / macOS / Linux** | Single binary (~16 MB) | CLI + embedded web UI |
 
 Unsigned binaries — macOS Gatekeeper and Windows SmartScreen will prompt once on first run.
 
