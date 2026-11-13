@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"gleam/internal/agent"
 	"gleam/internal/eval"
@@ -27,6 +28,7 @@ func cmdEval(args []string) error {
 	emitCase := fs.String("emit-case", "", "把指定 taskID 的失败任务转成用例草稿（badcase 回流；读取 <data-dir>/tasks/<taskID>.json）")
 	asJSON := fs.Bool("json", false, "输出结构化 JSON 报告")
 	repeat := fs.Int("repeat", 1, "每条用例重跑遍数（>1 时额外报出可重复性：通过率回答「对不对」，可重复性回答「稳不稳」）")
+	timeout := fs.Int("timeout", 60, "单条用例超时秒数（思考模式模型建议 240 起）")
 	save := fs.String("save", "", "把本次报告写成基线文件")
 	baseline := fs.String("baseline", "", "与基线文件对比并报出回归")
 	strict := fs.Bool("strict", false, "有回归则以非零退出（未给基线时：有用例未过即非零）")
@@ -98,11 +100,12 @@ func cmdEval(args []string) error {
 	}
 
 	runner := &eval.Runner{
-		Agent:  rt.agent,
-		Depth:  d,
-		CWD:    *workspace,
-		Tier:   *tier,
-		Repeat: *repeat,
+		Agent:   rt.agent,
+		Depth:   d,
+		CWD:     *workspace,
+		Tier:    *tier,
+		Repeat:  *repeat,
+		Timeout: time.Duration(*timeout) * time.Second,
 		OnCase: func(res eval.CaseResult) {
 			if *asJSON {
 				return
