@@ -56,7 +56,7 @@
 
 - [`COMPUTER_USE_INTEGRATION.md`](../reports/COMPUTER_USE_INTEGRATION.md) - 完整集成报告
 - [`ONE-CLICK-RELEASE.md`](../reports/ONE-CLICK-RELEASE.md) - 一键发布指南
-- [`config/taskrouter.json.example`](../../config/taskrouter.json.example) - 配置文件模板
+- [`config/taskrouter.json.example`](../../configs/taskrouter.json.example) - 配置文件模板
 
 ## 🐛 已知问题
 
