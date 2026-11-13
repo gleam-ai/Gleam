@@ -90,7 +90,9 @@ func intFromFloat(f float64) (int, bool) {
 	if math.IsNaN(f) || f < math.MinInt || f >= math.MaxInt {
 		return 0, false
 	}
-	return int(f), true
+	// Narrow via the int64 helper: after the range guard the float fits int64,
+	// and the helper's bounds check is the form CodeQL recognizes.
+	return intFromInt64(int64(f))
 }
 
 func Map(args map[string]any, key string) map[string]any {
