@@ -195,3 +195,23 @@ func TestValidateSingleToken(t *testing.T) {
 		t.Errorf("干净 token 不应拒绝: %v", err)
 	}
 }
+
+func TestComputerUse_ScreenshotWindowGrounding(t *testing.T) {
+	cu := NewComputerUse()
+	cu.mode = "direct"
+	cu.run = func(_ context.Context, _ string, _ []string) ([]byte, error) {
+		return []byte("ZmFrZQ=="), nil
+	}
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "screenshot", "window": "记事本"}); err == nil {
+		t.Error("direct 后端不支持 window 参数，应诚实报错而不是假装聚焦")
+	}
+	cu.mode = "mcp"
+	if _, err := cu.Execute(context.Background(), map[string]any{"action": "screenshot", "window": "记事本"}); err == nil {
+		t.Error("mcp 后端不支持 window 参数，应诚实报错")
+	}
+	schema := cu.Schema()
+	props := schema["properties"].(map[string]any)
+	if _, ok := props["window"]; !ok {
+		t.Error("schema 应声明 window 参数")
+	}
+}
