@@ -96,6 +96,7 @@ const I18N_EN = {
   执行方式: 'Run mode',
   工作模式: 'Work mode',
   添加文件: 'Add file',
+  附图片: 'Attach image',
   'Enter 发送 · Shift+Enter 换行': 'Enter to send · Shift+Enter for newline',
   '一切从这里开始… 描述任务，或输入 @ 引用':
     'Start here… describe a task, or type @ to reference',
@@ -233,6 +234,7 @@ const I18N_EN = {
   '路径不设限；高风险操作与敏感工具仍需确认一次':
     'Unrestricted paths; high-risk actions and sensitive tools still confirm once',
   从工作区选择: 'Choose from workspace',
+  '对话模式 · 最多 4 张': 'Chat mode · up to 4',
   '从当前工作区选择文件，引用到输入框。':
     'Pick files from the current workspace and reference them in the input.',
   从本地选择: 'Choose from local',
@@ -1128,6 +1130,10 @@ const I18N_EN = {
     'Leave empty to use the main model for helper calls too',
   登录成功: 'Signed in',
   目标已提交: 'Goal submitted',
+  '图片附件仅支持对话模式，已移除': 'Image attachments are chat-only; removed',
+  '图片附件目前仅支持对话模式；工作/编程模式可用 image.understand 工具读图':
+    'Image attachments are chat-only for now; in work/code mode use the image.understand tool',
+  '最多附 4 张图片': 'Up to 4 images',
   直聊: 'Chat',
   '直连：代理已关闭，环境变量不再生效。':
     'Direct: the proxy is off and environment variables no longer apply.',
@@ -1141,6 +1147,7 @@ const I18N_EN = {
     'Helper calls fall back to the main model after removal.',
   移除工具服务: 'Remove the tool service',
   移除引用: 'Remove reference',
+  移除图片: 'Remove image',
   移除站点: 'Remove site',
   '移除辅助模型？': 'Remove the helper model?',
   空间已创建: 'Space created',

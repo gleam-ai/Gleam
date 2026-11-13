@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,6 +154,41 @@ func ValidateGoalRequest(req types.GoalRequest) error {
 	// found", and by then the evidence is gone.
 	if req.TaskID != "" && SafeTaskName(req.TaskID) == "" {
 		return fmt.Errorf("task_id %q 不能作文件名：只允许字母、数字与 - _，长度不超过 128", req.TaskID)
+	}
+	if err := validateImageAttachments(req.Images, req.TaskMode); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateImageAttachments(images []types.ImageAttachment, mode types.TaskMode) error {
+	if len(images) == 0 {
+		return nil
+	}
+	if mode != types.TaskChat {
+		return fmt.Errorf("图片附件目前仅支持对话模式；工作/编程模式可用 image.understand 工具读图")
+	}
+	if len(images) > 4 {
+		return fmt.Errorf("一次最多附 4 张图片")
+	}
+	for _, img := range images {
+		if img.URL != "" {
+			if !strings.HasPrefix(img.URL, "http://") && !strings.HasPrefix(img.URL, "https://") {
+				return fmt.Errorf("图片 URL 仅支持 http/https")
+			}
+			continue
+		}
+		switch img.MIME {
+		case "image/png", "image/jpeg", "image/webp", "image/gif":
+		default:
+			return fmt.Errorf("不支持的图片类型 %q（仅 png/jpeg/webp/gif）", img.MIME)
+		}
+		if img.Data == "" {
+			return fmt.Errorf("图片内容为空")
+		}
+		if len(img.Data) > 8<<20 {
+			return fmt.Errorf("单张图片过大（base64 后请控制在 8MB 内）")
+		}
 	}
 	return nil
 }

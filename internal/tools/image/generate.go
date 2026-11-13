@@ -4,9 +4,9 @@
 // workspace, and returns the path.
 //
 // Both response shapes are accepted: b64_json (decoded directly) and url
-// (downloaded). Image bytes never enter the model context; only the path and
-// metadata come back, matching Gleam's "wire protocol carries text only"
-// policy.
+// (downloaded). Generated image bytes never enter the model context here;
+// only the path and metadata come back. Reading images back into a model is
+// the separate image.understand tool (vision input).
 package image
 
 import (
@@ -158,6 +158,7 @@ func (t *Generate) Execute(ctx context.Context, args map[string]any) (any, error
 	return map[string]any{
 		"path": path, "bytes": len(data), "model": model,
 		"prompt": prompt,
+		"url":    "/api/images/" + filepath.Base(path),
 	}, nil
 }
 

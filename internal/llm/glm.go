@@ -45,14 +45,22 @@ type chatMessage struct {
 	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
+// chatRequestMessage mirrors chatMessage but Content is any: with image
+// attachments the OpenAI chat protocol expects an array of content parts
+// instead of a plain string. Responses always come back as text.
+type chatRequestMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
 type chatRequestPayload struct {
-	Model          string         `json:"model"`
-	Messages       []chatMessage  `json:"messages"`
-	Temperature    float64        `json:"temperature"`
-	MaxTokens      int            `json:"max_tokens,omitempty"`
-	Stream         bool           `json:"stream"`
-	StreamOptions  *streamOptions `json:"stream_options,omitempty"`
-	EnableThinking *bool          `json:"enable_thinking,omitempty"`
+	Model          string               `json:"model"`
+	Messages       []chatRequestMessage `json:"messages"`
+	Temperature    float64              `json:"temperature"`
+	MaxTokens      int                  `json:"max_tokens,omitempty"`
+	Stream         bool                 `json:"stream"`
+	StreamOptions  *streamOptions       `json:"stream_options,omitempty"`
+	EnableThinking *bool                `json:"enable_thinking,omitempty"`
 }
 
 type streamOptions struct {
@@ -107,13 +115,35 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-func (c *GLMClient) buildMessages(req ChatRequest) []chatMessage {
-	msgs := make([]chatMessage, 0, len(req.Messages)+1)
+func (c *GLMClient) buildMessages(req ChatRequest) []chatRequestMessage {
+	msgs := make([]chatRequestMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
-		msgs = append(msgs, chatMessage{Role: RoleSystem, Content: req.System})
+		msgs = append(msgs, chatRequestMessage{Role: RoleSystem, Content: req.System})
 	}
 	for _, m := range req.Messages {
-		msgs = append(msgs, chatMessage{Role: m.Role, Content: m.Content})
+		if len(m.Images) == 0 {
+			msgs = append(msgs, chatRequestMessage{Role: m.Role, Content: m.Content})
+			continue
+		}
+		parts := make([]map[string]any, 0, len(m.Images)+1)
+		if m.Content != "" {
+			parts = append(parts, map[string]any{"type": "text", "text": m.Content})
+		}
+		for _, img := range m.Images {
+			url := img.URL
+			if url == "" && img.Data != "" {
+				mime := img.MIME
+				if mime == "" {
+					mime = "image/png"
+				}
+				url = "data:" + mime + ";base64," + img.Data
+			}
+			if url == "" {
+				continue
+			}
+			parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}})
+		}
+		msgs = append(msgs, chatRequestMessage{Role: m.Role, Content: parts})
 	}
 	return msgs
 }
