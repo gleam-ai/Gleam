@@ -40,7 +40,7 @@ Earlier releases (v0.0.27–v0.0.35) are documented in [CHANGELOG.md](CHANGELOG.
 - **Plan → Execute → Reflect** — DAG-based task execution with 0–100 scoring and automatic replanning on low scores
 - **Desktop Control (CUA)** — Natural language control of Chrome, WeChat, VSCode via Windows UI Automation
 - **Local-first** — conversations, memory, tasks, and audit logs stay on your machine by default
-- **9 LLM providers** — GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and more, with multi-model tier routing
+- **24 LLM providers** — GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and more, with multi-model tier routing
 - **45 built-in tools** — file, shell, web, git, desktop integration, memory, scheduling — plus MCP for unlimited extensions
 - **7 expert roles** — analyst, engineer, PM, researcher, ops, creator, or bring your own
 - **Skill system** — successful executions crystallize into reusable, versioned skills with success-rate tracking
