@@ -75,6 +75,7 @@ func cmdApp(args []string) error {
 	srv.BindAddr = ln.Addr().String()
 	url := "http://" + ln.Addr().String() + "/"
 	announceToken(srv)
+	defer srv.ReleaseTokenFile()
 	fmt.Fprintf(os.Stderr, "[gleam] 桌面端已启动: %s（托盘常驻，关闭窗口不退出）\n", url)
 
 	go func() {

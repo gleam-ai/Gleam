@@ -40,6 +40,7 @@ func cmdWebUI(args []string) error {
 	rt.reg.MustRegister(std.NewTodoWrite(srv))
 	srv.BindAddr = *addr
 	announceToken(srv)
+	defer srv.ReleaseTokenFile()
 	httpServer := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Handler(),

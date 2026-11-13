@@ -139,6 +139,9 @@ func newFixture(t *testing.T, scripts []llm.Scripted) *fixture {
 	srv := NewServer(a)
 	ts := newTokenTestServer(srv)
 	t.Cleanup(ts.Close)
+	// Release canonical token ownership before t.TempDir removes the data dir;
+	// on Windows an open lock handle would block the cleanup.
+	t.Cleanup(srv.ReleaseTokenFile)
 
 	return &fixture{t: t, ts: ts, agent: a, srv: srv, ws: ws, mock: m, dataDir: dataDir}
 }

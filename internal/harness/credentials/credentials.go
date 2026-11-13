@@ -9,9 +9,19 @@ import (
 	"time"
 
 	"gleam/internal/atomicfile"
+	"gleam/internal/filelock"
 )
 
 const File = "credentials.json"
+
+// lockFile guards the read-modify-write cycle across processes sharing a data
+// dir (desktop sidecar + CLI). lockTimeout is a safety net, not a target: each
+// cycle is a brief local write, so contention normally resolves in milliseconds;
+// the generous cap only absorbs slow disk/AV latency under heavy concurrent load.
+const (
+	lockFile    = "credentials.lock"
+	lockTimeout = 20 * time.Second
+)
 
 var ErrNotFound = errors.New("凭证尚未创建")
 
@@ -32,8 +42,9 @@ type CloudConfig struct {
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	lockPath string
+	mu       sync.Mutex
 }
 
 type file struct {
@@ -74,10 +85,23 @@ func Open(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	return &Store{path: filepath.Join(dataDir, File)}, nil
+	return &Store{
+		path:     filepath.Join(dataDir, File),
+		lockPath: filepath.Join(dataDir, lockFile),
+	}, nil
 }
 
 func (s *Store) Path() string { return s.path }
+
+// locked serializes a read-modify-write cycle both in-process (mu) and across
+// processes sharing the data dir (advisory file lock), so two sidecars cannot
+// clobber each other's keys or session. Pure reads skip it: atomicfile.Write
+// already guarantees a reader sees a complete blob, never a torn one.
+func (s *Store) locked(fn func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return filelock.WithLock(s.lockPath, lockTimeout, fn)
+}
 
 func (s *Store) read() (*file, error) {
 	data, err := os.ReadFile(s.path)
@@ -111,77 +135,80 @@ func (s *Store) write(f *file) error {
 }
 
 func (s *Store) ResolveLLMAPIKey(host string) (key, storedHost string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil {
-		return "", ""
-	}
-	if f.migrateKeys() {
-		// Encrypt the legacy plaintext key on this read instead of leaving it
-		// on disk.
-		_ = s.write(f)
-	}
-	if k := f.LLMAPIKeys[host]; k != "" {
-		return k, host
-	}
-	// Keys in old files carry no host: bind them to the current host on first
-	// use, then stop lending them out.
-	if host != "" {
-		if k := f.LLMAPIKeys[""]; k != "" {
-			delete(f.LLMAPIKeys, "")
-			f.LLMAPIKeys[host] = k
-			f.LLMAPIKeyHost = host
-			if err := s.write(f); err != nil {
-				return k, host
-			}
-			return k, host
+	_ = s.locked(func() error {
+		f, err := s.read()
+		if err != nil {
+			return nil
 		}
-		// Older scopes kept explicit default ports (host:443 / host:80);
-		// rebind them to the normalized host instead of losing the key.
-		for _, legacy := range []string{host + ":443", host + ":80"} {
-			if k := f.LLMAPIKeys[legacy]; k != "" {
-				delete(f.LLMAPIKeys, legacy)
+		if f.migrateKeys() {
+			// Encrypt the legacy plaintext key on this read instead of leaving it
+			// on disk.
+			_ = s.write(f)
+		}
+		if k := f.LLMAPIKeys[host]; k != "" {
+			key, storedHost = k, host
+			return nil
+		}
+		// Keys in old files carry no host: bind them to the current host on first
+		// use, then stop lending them out.
+		if host != "" {
+			if k := f.LLMAPIKeys[""]; k != "" {
+				delete(f.LLMAPIKeys, "")
 				f.LLMAPIKeys[host] = k
 				f.LLMAPIKeyHost = host
 				_ = s.write(f)
-				return k, host
+				key, storedHost = k, host
+				return nil
+			}
+			// Older scopes kept explicit default ports (host:443 / host:80);
+			// rebind them to the normalized host instead of losing the key.
+			for _, legacy := range []string{host + ":443", host + ":80"} {
+				if k := f.LLMAPIKeys[legacy]; k != "" {
+					delete(f.LLMAPIKeys, legacy)
+					f.LLMAPIKeys[host] = k
+					f.LLMAPIKeyHost = host
+					_ = s.write(f)
+					key, storedHost = k, host
+					return nil
+				}
 			}
 		}
-	}
-	return "", f.lastHost()
+		storedHost = f.lastHost()
+		return nil
+	})
+	return key, storedHost
 }
 
 func (s *Store) SetLLMAPIKey(key, host string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return err
-	}
-	if f == nil {
-		f = &file{}
-	}
-	f.migrateKeys()
-	if key == "" {
-		if host == "" {
-			// Empty key + empty host = clear everything (legacy callers).
-			f.LLMAPIKeys = nil
-			f.LLMAPIKeyHost = ""
-		} else {
-			delete(f.LLMAPIKeys, host)
-			if f.LLMAPIKeyHost == host {
+	return s.locked(func() error {
+		f, err := s.read()
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if f == nil {
+			f = &file{}
+		}
+		f.migrateKeys()
+		if key == "" {
+			if host == "" {
+				// Empty key + empty host = clear everything (legacy callers).
+				f.LLMAPIKeys = nil
 				f.LLMAPIKeyHost = ""
+			} else {
+				delete(f.LLMAPIKeys, host)
+				if f.LLMAPIKeyHost == host {
+					f.LLMAPIKeyHost = ""
+				}
 			}
+		} else {
+			if f.LLMAPIKeys == nil {
+				f.LLMAPIKeys = map[string]string{}
+			}
+			f.LLMAPIKeys[host] = key
+			f.LLMAPIKeyHost = host
 		}
-	} else {
-		if f.LLMAPIKeys == nil {
-			f.LLMAPIKeys = map[string]string{}
-		}
-		f.LLMAPIKeys[host] = key
-		f.LLMAPIKeyHost = host
-	}
-	return s.write(f)
+		return s.write(f)
+	})
 }
 
 func (s *Store) GetCloudConfig() *CloudConfig {
@@ -195,25 +222,25 @@ func (s *Store) GetCloudConfig() *CloudConfig {
 }
 
 func (s *Store) SetCloudConfig(cfg CloudConfig) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return err
-	}
-	if f == nil {
-		f = &file{}
-	}
-	if f.CloudCfg == nil {
-		f.CloudCfg = &CloudConfig{}
-	}
-	if cfg.SupabaseURL != "" {
-		f.CloudCfg.SupabaseURL = cfg.SupabaseURL
-	}
-	if cfg.SupabaseAnonKey != "" {
-		f.CloudCfg.SupabaseAnonKey = cfg.SupabaseAnonKey
-	}
-	return s.write(f)
+	return s.locked(func() error {
+		f, err := s.read()
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if f == nil {
+			f = &file{}
+		}
+		if f.CloudCfg == nil {
+			f.CloudCfg = &CloudConfig{}
+		}
+		if cfg.SupabaseURL != "" {
+			f.CloudCfg.SupabaseURL = cfg.SupabaseURL
+		}
+		if cfg.SupabaseAnonKey != "" {
+			f.CloudCfg.SupabaseAnonKey = cfg.SupabaseAnonKey
+		}
+		return s.write(f)
+	})
 }
 
 func (s *Store) GetSession() *CloudSession {
@@ -227,29 +254,29 @@ func (s *Store) GetSession() *CloudSession {
 }
 
 func (s *Store) SetSession(sess *CloudSession) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return err
-	}
-	if f == nil {
-		f = &file{}
-	}
-	f.Cloud = sess
-	return s.write(f)
+	return s.locked(func() error {
+		f, err := s.read()
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if f == nil {
+			f = &file{}
+		}
+		f.Cloud = sess
+		return s.write(f)
+	})
 }
 
 func (s *Store) ClearSession() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	f, err := s.read()
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return nil
+	return s.locked(func() error {
+		f, err := s.read()
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil
+			}
+			return err
 		}
-		return err
-	}
-	f.Cloud = nil
-	return s.write(f)
+		f.Cloud = nil
+		return s.write(f)
+	})
 }

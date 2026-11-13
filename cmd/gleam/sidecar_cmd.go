@@ -68,6 +68,7 @@ func cmdDesktopSidecar(args []string) error {
 	_ = os.Unsetenv(webui.TokenEnv)
 	srv.BindAddr = ln.Addr().String()
 	announceToken(srv)
+	defer srv.ReleaseTokenFile()
 	go rt.startMCP()
 	return runSidecar(srv.Handler(), ln, os.Stdin, os.Stdout)
 }
