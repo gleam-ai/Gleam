@@ -277,6 +277,16 @@ func renderEvalReport(rep eval.Report, total int) string {
 		if c.Error != "" {
 			fmt.Fprintf(&b, "          · 执行错误：%s\n", c.Error)
 		}
+		if c.Summary != "" {
+			sum := []rune(c.Summary)
+			if len(sum) > 200 {
+				sum = sum[:200]
+			}
+			fmt.Fprintf(&b, "          · 任务回答：%s\n", string(sum))
+		}
+		if c.TaskID != "" {
+			fmt.Fprintf(&b, "          · 完整回答与回放：gleam replay %s\n", c.TaskID)
+		}
 		if c.Note != "" {
 			fmt.Fprintf(&b, "          （这条在守什么：%s）\n", c.Note)
 		}
