@@ -41,7 +41,7 @@ Earlier releases (v0.0.27–v0.0.35) are documented in [CHANGELOG.md](CHANGELOG.
 - **Desktop Control (CUA)** — Natural language control of Chrome, WeChat, VSCode via Windows UI Automation
 - **Local-first** — conversations, memory, tasks, and audit logs stay on your machine by default
 - **24 LLM providers** — GLM, DeepSeek, Kimi, Qwen, OpenAI, Anthropic, OpenRouter, and more, with multi-model tier routing
-- **45 built-in tools** — file, shell, web, git, desktop integration, memory, scheduling — plus MCP for unlimited extensions
+- **46 built-in tools** — file, shell, web, git, desktop integration, memory, scheduling — plus MCP for unlimited extensions
 - **7 expert roles** — analyst, engineer, PM, researcher, ops, creator, or bring your own
 - **Skill system** — successful executions crystallize into reusable, versioned skills with success-rate tracking
 - **Token efficient** — compact schemas, exponential backoff, role prompt optimization: **55% less token usage**
@@ -105,6 +105,7 @@ The desktop window and the CLI drive the embedded web UI over a local HTTP API (
 - **Hardware** — `/api/hardware/configure-wifi` · `/api/hardware/connect` · `/api/hardware/devices` · `/api/hardware/disconnect` · `/api/hardware/info/{id}` · `/api/hardware/instances` · `/api/hardware/receive` · `/api/hardware/scan-wifi` · `/api/hardware/send`
 - **Hooks** — `/api/hooks/{name}`
 - **Heartbeat** — `/api/heartbeat`
+- **Images** — `/api/images/{name}`
 - **Import** — `/api/import/apply` · `/api/import/scan`
 - **Info** — `/api/info`
 - **LLM** — `/api/llm/models` · `/api/llm/test`

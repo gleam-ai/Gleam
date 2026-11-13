@@ -2,10 +2,15 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"unicode"
 )
+
+// ErrImagesUnsupported is returned by protocols without image input support:
+// dropping images silently would let the model answer as if it had seen them.
+var ErrImagesUnsupported = errors.New("当前协议暂不支持图片输入，请改用 OpenAI 兼容 chat 协议")
 
 const (
 	RoleSystem    = "system"
@@ -13,9 +18,30 @@ const (
 	RoleAssistant = "assistant"
 )
 
+// ImagePart is one image attached to a message: either a remote URL or inline
+// base64 data with its MIME type. Only the OpenAI-compatible chat protocol
+// sends images; other protocols reject them explicitly instead of dropping
+// them silently.
+type ImagePart struct {
+	MIME string `json:"mime,omitempty"`
+	Data string `json:"data,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content string      `json:"content"`
+	Images  []ImagePart `json:"images,omitempty"`
+}
+
+// HasImages reports whether any message carries image attachments.
+func HasImages(msgs []Message) bool {
+	for _, m := range msgs {
+		if len(m.Images) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type ChatRequest struct {

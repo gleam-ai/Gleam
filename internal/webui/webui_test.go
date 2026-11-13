@@ -353,7 +353,8 @@ func TestWebUI_GoalRejectsNonStrictAndOversizedJSON(t *testing.T) {
 	tests := map[string]string{
 		"multiple values": valid + valid,
 		"garbage suffix":  valid + "garbage",
-		"oversized body":  valid + strings.Repeat(" ", 2<<20),
+		// Goal bodies carry base64 image attachments, so the cap is 36MB.
+		"oversized body": valid + strings.Repeat(" ", 36<<20),
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {

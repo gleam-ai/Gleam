@@ -347,14 +347,23 @@ func ValidateReferences(refs []Reference) error {
 	return nil
 }
 
+// ImageAttachment is a user-supplied image: inline base64 data with its MIME
+// type, or a remote URL. Chat mode sends it to the model as a vision part.
+type ImageAttachment struct {
+	MIME string `json:"mime,omitempty"`
+	Data string `json:"data,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
 type GoalRequest struct {
-	TaskID     string         `json:"task_id,omitempty"`
-	Goal       string         `json:"goal"`
-	Context    map[string]any `json:"context,omitempty"`
-	References []Reference    `json:"references,omitempty"`
-	Mode       string         `json:"mode"`
-	TaskMode   TaskMode       `json:"task_mode,omitempty"`
-	Role       string         `json:"role,omitempty"`
+	TaskID     string            `json:"task_id,omitempty"`
+	Goal       string            `json:"goal"`
+	Context    map[string]any    `json:"context,omitempty"`
+	References []Reference       `json:"references,omitempty"`
+	Mode       string            `json:"mode"`
+	TaskMode   TaskMode          `json:"task_mode,omitempty"`
+	Role       string            `json:"role,omitempty"`
+	Images     []ImageAttachment `json:"images,omitempty"`
 
 	ConversationID string `json:"conversation_id,omitempty"`
 }

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	harness "gleam/internal/harness"
 	"gleam/internal/harness/skill"
 	"gleam/internal/market"
+	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
 )
 
@@ -71,6 +73,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/goals", s.handleGoalSubmit)
 	mux.HandleFunc("GET /api/goals", s.handleGoalList)
 	mux.HandleFunc("GET /api/goals/{id}", s.handleGoalGet)
+	mux.HandleFunc("GET /api/images/{name}", s.handleWorkspaceImage)
 	mux.HandleFunc("POST /api/goals/{id}/cancel", s.handleGoalCancel)
 	mux.HandleFunc("GET /api/goals/{id}/diff", s.handleGoalDiff)
 	mux.HandleFunc("POST /api/goals/{id}/revert", s.handleGoalRevert)
@@ -251,6 +254,31 @@ func writeErr(w http.ResponseWriter, status int, format string, args ...any) {
 	writeJSON(w, status, map[string]any{"error": fmt.Sprintf(format, args...)})
 }
 
+// handleWorkspaceImage serves generated images from the workspace images/
+// directory only: single-segment names, image extensions, symlink-checked
+// containment via ResolveInRoots.
+func (s *Server) handleWorkspaceImage(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, "/\\") {
+		writeErr(w, 400, "图片名无效")
+		return
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+	default:
+		writeErr(w, 400, "仅支持访问图片文件")
+		return
+	}
+	dir := filepath.Join(s.Agent.Config().Workspace, "images")
+	abs, err := toolutil.ResolveInRoots(name, []string{dir})
+	if err != nil {
+		writeErr(w, 404, "图片不存在")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	http.ServeFile(w, r, abs)
+}
+
 func readJSON(r *http.Request, dst any) error {
 	return readJSONCap(r, 2<<20, dst)
 }
@@ -332,17 +360,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 type goalSubmitBody struct {
-	Goal           string            `json:"goal"`
-	Mode           string            `json:"mode"`
-	TaskMode       string            `json:"task_mode"`
-	References     []types.Reference `json:"references,omitempty"`
-	Role           string            `json:"role,omitempty"`
-	ConversationID string            `json:"conversation_id,omitempty"`
+	Goal           string                  `json:"goal"`
+	Mode           string                  `json:"mode"`
+	TaskMode       string                  `json:"task_mode"`
+	References     []types.Reference       `json:"references,omitempty"`
+	Role           string                  `json:"role,omitempty"`
+	Images         []types.ImageAttachment `json:"images,omitempty"`
+	ConversationID string                  `json:"conversation_id,omitempty"`
 }
 
 func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 	var body goalSubmitBody
-	if err := readJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
+	// Image attachments arrive as base64: 4 images x 8MB plus JSON overhead.
+	if err := readJSONCap(r, 36<<20, &body); err != nil && !errors.Is(err, io.EOF) {
 		writeErr(w, 400, "请求体格式无效")
 		return
 	}
@@ -350,7 +380,7 @@ func (s *Server) handleGoalSubmit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "目标太短，请至少输入 2 个字")
 		return
 	}
-	req := types.GoalRequest{Goal: body.Goal, References: body.References, Mode: body.Mode, TaskMode: types.TaskMode(body.TaskMode), Role: body.Role, ConversationID: body.ConversationID}
+	req := types.GoalRequest{Goal: body.Goal, References: body.References, Mode: body.Mode, TaskMode: types.TaskMode(body.TaskMode), Role: body.Role, Images: body.Images, ConversationID: body.ConversationID}
 	if err := agent.ValidateGoalRequest(req); err != nil {
 		writeErr(w, 400, "%v", err)
 		return

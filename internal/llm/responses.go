@@ -137,6 +137,9 @@ func textFromOutput(raw []byte) (string, Usage, error) {
 }
 
 func (c *ResponsesClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
+	if HasImages(req.Messages) {
+		return "", ErrImagesUnsupported
+	}
 	ctx, cancel := withRequestTimeout(ctx, c.timeout)
 	defer cancel()
 	body, err := json.Marshal(c.payload(req, false))
@@ -156,6 +159,9 @@ func (c *ResponsesClient) Chat(ctx context.Context, req ChatRequest) (string, er
 }
 
 func (c *ResponsesClient) ChatStream(ctx context.Context, req ChatRequest, onDelta func(string)) (string, error) {
+	if HasImages(req.Messages) {
+		return "", ErrImagesUnsupported
+	}
 	body, err := json.Marshal(c.payload(req, true))
 	if err != nil {
 		return "", err
