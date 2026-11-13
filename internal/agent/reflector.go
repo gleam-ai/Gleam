@@ -135,17 +135,40 @@ func evalInstruction(hasChecks bool) string {
 func alignChecks(got []types.CheckResult, acceptance []string) []types.CheckResult {
 	byName := map[string]types.CheckResult{}
 	for _, c := range got {
-		byName[strings.TrimSpace(c.Criterion)] = c
+		byName[normCriterion(c.Criterion)] = c
 	}
 	out := make([]types.CheckResult, 0, len(acceptance))
 	for _, a := range acceptance {
-		if c, ok := byName[a]; ok {
+		key := normCriterion(a)
+		c, ok := byName[key]
+		if !ok {
+			// Models often restate a criterion with minor wording drift; an
+			// exact-only match would count a judged criterion as "unjudged"
+			// and sink the score into a wasted replan. Containment both ways,
+			// longest match wins, short keys (<3 runes) never fuzzy-match.
+			best := ""
+			for k, v := range byName {
+				if len([]rune(k)) < 3 || len([]rune(key)) < 3 {
+					continue
+				}
+				if strings.Contains(k, key) || strings.Contains(key, k) {
+					if len(k) > len(best) {
+						best, c, ok = k, v, true
+					}
+				}
+			}
+		}
+		if ok {
 			out = append(out, types.CheckResult{Criterion: a, Passed: c.Passed, Note: strings.TrimSpace(c.Note)})
 			continue
 		}
 		out = append(out, types.CheckResult{Criterion: a, Passed: false, Note: "未判定，按未通过计"})
 	}
 	return out
+}
+
+func normCriterion(s string) string {
+	return strings.Join(strings.Fields(s), "")
 }
 
 func scoreFromChecks(checks []types.CheckResult) int {
@@ -232,9 +255,10 @@ func heuristicReflection(exec *Result, note string, hasChecks bool) types.Reflec
 	case exec.Succeeded == exec.Total && exec.Total > 0:
 		if hasChecks {
 			return types.Reflection{
-				Score:   0,
-				Verdict: "replan",
-				Reason:  notePrefix + "全部步骤执行成功，但验收标准未能核对，无法给出完成度（本地兜底不做逐条判定）",
+				Score:      0,
+				Verdict:    "replan",
+				Reason:     notePrefix + "全部步骤执行成功，但验收标准未能核对，无法给出完成度（本地兜底不做逐条判定）",
+				Unverified: true,
 			}
 		}
 		return types.Reflection{
