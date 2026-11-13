@@ -925,12 +925,13 @@ body::before {
 }
 
 /* ── Scroll Reveal ── */
+/* GLEAM-DESIGN §8.1 caps transitions at .4s; .3s is the sanctioned translate duration. */
 .reveal {
   opacity: 0;
   transform: translateY(24px);
   transition:
-    opacity 0.6s var(--ease),
-    transform 0.6s var(--ease);
+    opacity 0.3s var(--ease),
+    transform 0.3s var(--ease);
 }
 
 .reveal.visible {
