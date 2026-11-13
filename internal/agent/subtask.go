@@ -116,12 +116,13 @@ func subtaskFailureSummary(exec *Result) string {
 // under the mock model it degrades to deterministic output joining -- offline
 // self-tests must be reproducible and cannot depend on model phrasing.
 func (a *Agent) summarizeSubtask(ctx context.Context, taskID, goal, role string, exec *Result) string {
+	budget := a.Config().Agent.MaxOutputRunes
 	var b strings.Builder
 	fmt.Fprintf(&b, "子任务目标：%s\n\n各步骤产出：\n", goal)
 	for _, r := range exec.Steps {
 		switch r.Status {
 		case types.StepSucceeded:
-			fmt.Fprintf(&b, "- %s：成功 %s\n", r.Tool, types.Shorten(oneLineOf(r.Output), 600))
+			fmt.Fprintf(&b, "- %s：成功\n%s\n", r.Tool, fitSubtaskOutput(r.Output, budget))
 		case types.StepFailed:
 			fmt.Fprintf(&b, "- %s：失败 %s\n", r.Tool, types.Shorten(oneLineOf(r.Error), 200))
 		default:
@@ -132,7 +133,7 @@ func (a *Agent) summarizeSubtask(ctx context.Context, taskID, goal, role string,
 
 	tier := a.taskTierLLM(ctx, role)
 	if tier == nil || llm.IsMockClient(tier) {
-		return deterministicSubtaskAnswer(goal, exec, facts)
+		return deterministicSubtaskAnswer(goal, exec, facts, budget)
 	}
 	sys := "你是子任务汇总器。根据下面的步骤产出，回答子任务目标。要求：自包含、直接给结论、" +
 		"不要复述步骤流水账。若产出不足以回答目标，明确说缺什么。"
@@ -145,23 +146,24 @@ func (a *Agent) summarizeSubtask(ctx context.Context, taskID, goal, role string,
 	}
 	text, err := tier.Chat(ctx, req)
 	if err != nil || strings.TrimSpace(text) == "" {
-		return deterministicSubtaskAnswer(goal, exec, facts)
+		return deterministicSubtaskAnswer(goal, exec, facts, budget)
 	}
 	return strings.TrimSpace(text)
 }
 
-// deterministicSubtaskAnswer is the no-model fallback: the raw (truncated)
-// output of the successful steps. The caller gets information equivalent to
-// the model-written summary, just without the polish.
-func deterministicSubtaskAnswer(goal string, exec *Result, facts string) string {
+// deterministicSubtaskAnswer is the no-model fallback: the raw output of the
+// successful steps, capped at the Executor's own output budget. The caller
+// gets information equivalent to the model-written summary, just without the
+// polish.
+func deterministicSubtaskAnswer(goal string, exec *Result, facts string, budget int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "子任务「%s」完成（成功 %d/%d 步）。\n\n", types.Shorten(goal, 60), exec.Succeeded, exec.Total)
 	for _, r := range exec.Steps {
 		if r.Status != types.StepSucceeded {
 			continue
 		}
-		if out := strings.TrimSpace(oneLineOf(r.Output)); out != "" {
-			fmt.Fprintf(&b, "%s\n", types.Shorten(out, 800))
+		if out := strings.TrimSpace(fitSubtaskOutput(r.Output, budget)); out != "" {
+			fmt.Fprintf(&b, "%s\n", out)
 		}
 	}
 	if b.Len() == 0 {
@@ -170,18 +172,36 @@ func deterministicSubtaskAnswer(goal string, exec *Result, facts string) string 
 	return strings.TrimSpace(b.String())
 }
 
-// oneLineOf flattens a step output into single-line text for summaries and
-// the fallback answer.
-func oneLineOf(v any) string {
+// fitSubtaskOutput renders a successful step's output for the summary, capped
+// at the Executor's own MaxOutputRunes budget. The Executor already truncated
+// (and spilled) each step to that budget, so re-cutting to a small fixed size
+// here would drop the middle layers of a multi-file trace and their line
+// numbers. max <= 0 means the Executor kept the full output, so the summary
+// keeps it too. Newlines are preserved so file:line structure survives.
+func fitSubtaskOutput(v any, max int) string {
+	s := textOf(v)
+	if max > 0 {
+		return types.Shorten(s, max)
+	}
+	return s
+}
+
+// textOf renders a step output or error as text, preserving newlines.
+func textOf(v any) string {
 	switch t := v.(type) {
 	case nil:
 		return ""
 	case string:
-		return strings.ReplaceAll(t, "\n", " ")
+		return t
 	case error:
-		return strings.ReplaceAll(t.Error(), "\n", " ")
+		return t.Error()
 	default:
-		s := fmt.Sprintf("%v", t)
-		return strings.ReplaceAll(s, "\n", " ")
+		return fmt.Sprintf("%v", t)
 	}
+}
+
+// oneLineOf flattens a step output into single-line text for compact error
+// summaries.
+func oneLineOf(v any) string {
+	return strings.ReplaceAll(textOf(v), "\n", " ")
 }

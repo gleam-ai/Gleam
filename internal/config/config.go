@@ -83,6 +83,11 @@ type LLMConfig struct {
 	MaxTokens     int
 	TimeoutSecs   int
 	ContextWindow int
+	// EnableThinking toggles reasoning on OpenAI-chat endpoints that support it
+	// (e.g. Qwen). nil omits the field so the model keeps its default; false
+	// disables thinking, which structured planning needs to avoid spending the
+	// whole token budget on reasoning_content.
+	EnableThinking *bool
 	// ImageModel is the text-to-image model for the image.generate tool:
 	// cogview-4-250304 for GLM, gpt-image-1 for OpenAI. Empty = image
 	// generation unavailable (the tool reports a clear error).
@@ -244,6 +249,10 @@ func (c *Config) Clone() *Config {
 	out := *c
 	out.LLM.Tiers = maps.Clone(c.LLM.Tiers)
 	out.LLM.Models = slices.Clone(c.LLM.Models)
+	if c.LLM.EnableThinking != nil {
+		b := *c.LLM.EnableThinking
+		out.LLM.EnableThinking = &b
+	}
 	out.Safety.TrustedPaths = slices.Clone(c.Safety.TrustedPaths)
 	out.Safety.TrustedTools = slices.Clone(c.Safety.TrustedTools)
 	out.Safety.ToolPermissions = maps.Clone(c.Safety.ToolPermissions)
@@ -341,6 +350,9 @@ func (c *Config) SaveOverlay(path string) error {
 	llm.Set("max_tokens", c.LLM.MaxTokens)
 	llm.Set("timeout_seconds", c.LLM.TimeoutSecs)
 	llm.Set("context_window", c.LLM.ContextWindow)
+	if c.LLM.EnableThinking != nil {
+		llm.Set("enable_thinking", *c.LLM.EnableThinking)
+	}
 	llm.Set("image_model", c.LLM.ImageModel)
 	root.Set("llm", llm)
 
@@ -546,6 +558,7 @@ func (c *Config) apply(m map[string]any) {
 		getInt(v, "max_tokens", &c.LLM.MaxTokens)
 		getInt(v, "timeout_seconds", &c.LLM.TimeoutSecs)
 		getInt(v, "context_window", &c.LLM.ContextWindow)
+		getBoolPtr(v, "enable_thinking", &c.LLM.EnableThinking)
 		getStr(v, "image_model", &c.LLM.ImageModel)
 	}
 	if v, ok := sub(m, "agent"); ok {
@@ -754,6 +767,12 @@ func getFloat(m map[string]any, key string, dst *float64) {
 func getBool(m map[string]any, key string, dst *bool) {
 	if v, ok := m[key].(bool); ok {
 		*dst = v
+	}
+}
+
+func getBoolPtr(m map[string]any, key string, dst **bool) {
+	if v, ok := m[key].(bool); ok {
+		*dst = &v
 	}
 }
 

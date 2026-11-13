@@ -262,7 +262,8 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 			return nil, fmt.Errorf("读取本地密钥失败: %w", keyErr)
 		}
 		client = llm.New(protocol, baseURL, key, model,
-			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+			cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+			llm.WithEnableThinking(cfg.LLM.EnableThinking))
 	}
 
 	mem, err := memory.Open(cfg.DataDir, cfg.Memory.ShortTermCap, cfg.Memory.VectorDim, cfg.Memory.MaxItems)
@@ -336,6 +337,12 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 
 	gate := safety.New(cfg.Safety.Mode, cfg.Safety.TrustedTools, cfg.Safety.TrustedPaths,
 		wsRoots, time.Duration(cfg.Safety.ApprovalTimeoutSecs)*time.Second)
+	// The CLI stdin prompt must wait on the same deadline as the Gate, or a
+	// custom approval_timeout_seconds leaves the terminal waiting long after
+	// the gate already auto-rejected (or vice versa).
+	if cn, ok := notifier.(*consoleNotifier); ok {
+		cn.approvalTimeout = gate.ApprovalTimeoutDuration()
+	}
 	gate.SetAuditPath(filepath.Join(cfg.DataDir, auditFile))
 	llm.SetEgressHook(func(host string, nbytes int) { gate.RecordEgress("llm", host, nbytes) })
 	webTool.OnEgress = func(host string, nbytes int) { gate.RecordEgress("web.fetch", host, nbytes) }
@@ -798,7 +805,8 @@ func defaultDataDir() string {
 }
 
 type consoleNotifier struct {
-	stdin *bufio.Reader
+	stdin           *bufio.Reader
+	approvalTimeout time.Duration
 }
 
 func newConsoleNotifier() *consoleNotifier { return &consoleNotifier{stdin: bufio.NewReader(os.Stdin)} }
@@ -837,7 +845,8 @@ func (c *consoleNotifier) OnApproval(req types.ApprovalRequest) types.ApprovalRe
 	for _, line := range req.Plan {
 		fmt.Fprintf(os.Stderr, "  - %s\n", line)
 	}
-	fmt.Fprintf(os.Stderr, "允许执行吗? [y/N]（%v 秒内未答复将自动拒绝）> ", int(gApprovalTimeout().Seconds()))
+	to := approvalTimeout(c.approvalTimeout)
+	fmt.Fprintf(os.Stderr, "允许执行吗? [y/N]（%v 秒内未答复将自动拒绝）> ", int(to.Seconds()))
 	ch := make(chan string, 1)
 	go func() {
 		line, err := c.stdin.ReadString('\n')
@@ -853,7 +862,7 @@ func (c *consoleNotifier) OnApproval(req types.ApprovalRequest) types.ApprovalRe
 			return types.ApprovalResponse{Approved: true}
 		}
 		return types.ApprovalResponse{Approved: false, Note: "用户拒绝"}
-	case <-time.After(gApprovalTimeout()):
+	case <-time.After(to):
 		fmt.Fprintln(os.Stderr, "\n（超时，自动拒绝）")
 		return types.ApprovalResponse{Approved: false, Note: "审批超时"}
 	}
@@ -872,12 +881,19 @@ func (c *consoleNotifier) OnTaskDone(ev types.TaskDoneEvent) {
 	fmt.Fprintf(os.Stderr, "\n🔔 %s：%s\n", ev.Title(), ev.Line())
 }
 
-func gApprovalTimeout() time.Duration {
+// approvalTimeout resolves the CLI stdin approval deadline. GLEAM_APPROVAL_TIMEOUT_SEC
+// wins; otherwise it uses the configured safety.approval_timeout_seconds (the same
+// value the Gate runs on), falling back to 5 minutes. Keeping the prompt and the
+// Gate on one number avoids "the card timed out but the terminal is still waiting".
+func approvalTimeout(configured time.Duration) time.Duration {
 	if v := os.Getenv("GLEAM_APPROVAL_TIMEOUT_SEC"); v != "" {
 		var n int
 		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
 			return time.Duration(n) * time.Second
 		}
+	}
+	if configured > 0 {
+		return configured
 	}
 	return 5 * time.Minute
 }

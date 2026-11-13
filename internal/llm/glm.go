@@ -14,14 +14,15 @@ import (
 )
 
 type GLMClient struct {
-	BaseURL       string
-	APIKey        string
-	Model         string
-	Temperature   float64
-	MaxTokens     int
-	HTTP          *http.Client
-	timeout       time.Duration
-	noStreamUsage atomic.Bool
+	BaseURL        string
+	APIKey         string
+	Model          string
+	Temperature    float64
+	MaxTokens      int
+	EnableThinking *bool
+	HTTP           *http.Client
+	timeout        time.Duration
+	noStreamUsage  atomic.Bool
 }
 
 func NewGLM(baseURL, apiKey, model string, temperature float64, maxTokens int, timeout time.Duration) *GLMClient {
@@ -45,12 +46,13 @@ type chatMessage struct {
 }
 
 type chatRequestPayload struct {
-	Model         string         `json:"model"`
-	Messages      []chatMessage  `json:"messages"`
-	Temperature   float64        `json:"temperature"`
-	MaxTokens     int            `json:"max_tokens,omitempty"`
-	Stream        bool           `json:"stream"`
-	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	Model          string         `json:"model"`
+	Messages       []chatMessage  `json:"messages"`
+	Temperature    float64        `json:"temperature"`
+	MaxTokens      int            `json:"max_tokens,omitempty"`
+	Stream         bool           `json:"stream"`
+	StreamOptions  *streamOptions `json:"stream_options,omitempty"`
+	EnableThinking *bool          `json:"enable_thinking,omitempty"`
 }
 
 type streamOptions struct {
@@ -126,11 +128,12 @@ func (c *GLMClient) payload(req ChatRequest, stream bool) chatRequestPayload {
 		maxTok = c.MaxTokens
 	}
 	p := chatRequestPayload{
-		Model:       c.Model,
-		Messages:    c.buildMessages(req),
-		Temperature: temp,
-		MaxTokens:   maxTok,
-		Stream:      stream,
+		Model:          c.Model,
+		Messages:       c.buildMessages(req),
+		Temperature:    temp,
+		MaxTokens:      maxTok,
+		Stream:         stream,
+		EnableThinking: c.EnableThinking,
 	}
 	if stream && !c.noStreamUsage.Load() {
 		p.StreamOptions = &streamOptions{IncludeUsage: true}

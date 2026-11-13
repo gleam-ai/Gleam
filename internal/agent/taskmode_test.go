@@ -51,14 +51,14 @@ func TestRunGoal_WorkModeChatFallbackOnPlanFailures(t *testing.T) {
 	f.llm.Enqueue("chat_mode", "（回落）你好呀，我是 Gleam。")
 
 	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "你好，介绍下你自己"})
-	if res.Status != types.GoalSuccess {
-		t.Fatalf("规划屡败应回落直聊成功: %s %s", res.Status, res.Error)
+	if res.Status != types.GoalPartial {
+		t.Fatalf("规划屡败回落直聊应记部分完成（工作目标未执行）: %s %s", res.Status, res.Error)
 	}
 	if !strings.Contains(res.Summary, "Gleam") {
 		t.Errorf("summary = %q", res.Summary)
 	}
-	if res.Score != 70 {
-		t.Errorf("回落完成度应为 70, got %d", res.Score)
+	if res.Score != 40 {
+		t.Errorf("回落完成度应为 40, got %d", res.Score)
 	}
 	if !strings.Contains(res.Suggestion, "对话") {
 		t.Errorf("应提示对话模式: %q", res.Suggestion)
@@ -132,7 +132,35 @@ func TestRunGoal_LLMRecoverFallsBackSuccess(t *testing.T) {
 	f.llm.FailNext(errors.New("llm: 网络抖动"))
 	f.llm.Enqueue("chat_mode", "（回落）直接回答")
 	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "g"})
-	if res.Status != types.GoalSuccess || !strings.Contains(res.Summary, "直接回答") {
-		t.Fatalf("回落应成功: %s %q", res.Status, res.Summary)
+	if res.Status != types.GoalPartial || !strings.Contains(res.Summary, "直接回答") {
+		t.Fatalf("回落应记部分完成并保留回答: %s %q", res.Status, res.Summary)
+	}
+}
+
+// A genuine work goal (code mode, needs file changes) that never plans must not
+// be reported as success just because the chat fallback wrote a coherent reply.
+// This is the qwen4-eval G3 badcase: zero steps, zero changes, yet success/70.
+func TestRunGoal_CodeModePlanFailDoesNotMaskSuccess(t *testing.T) {
+	f := newFixture(t, nil)
+	for i := 0; i < 3; i++ {
+		f.llm.Enqueue("plan", "抱歉，这不是 JSON")
+	}
+	f.llm.Enqueue("chat_mode", "（回落）我可以帮你写测试，思路如下……")
+
+	res := f.a.RunGoal(context.Background(), types.GoalRequest{
+		Goal:     "给 config.go 的 ApplyEnv 补一个单元测试并运行 go test",
+		TaskMode: types.TaskCode,
+	})
+	if res.Status == types.GoalSuccess {
+		t.Fatalf("零步骤零改动的编程目标不能记成功: %s", res.Status)
+	}
+	if res.Status != types.GoalPartial {
+		t.Fatalf("应记部分完成（回答已给、工作未做）: %s %s", res.Status, res.Error)
+	}
+	if len(res.Steps) != 0 {
+		t.Errorf("规划失败不应有已执行步骤, got %d", len(res.Steps))
+	}
+	if !strings.Contains(res.Error, "未执行任何工作步骤") {
+		t.Errorf("应说明工作未执行: %q", res.Error)
 	}
 }

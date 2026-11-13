@@ -215,7 +215,12 @@ func (r *Runner) runCaseOnce(ctx context.Context, c Case) CaseResult {
 		obs.Error = g.Error
 		res.Status = string(g.Status)
 		res.Score = g.Score
+		res.Summary = g.Summary
+		res.TaskID = g.TaskID
 		res.Usage = usageFromTask(g.Usage)
+		if g.TaskID != "" {
+			_ = agent.SaveTaskResult(r.Agent.Config().DataDir, g)
+		}
 		for k, n := range g.FailureBreakdown {
 			if res.FailureKinds == nil {
 				res.FailureKinds = map[string]int{}

@@ -761,7 +761,8 @@ func (a *Agent) applyModelEntry(cfg *config.Config, entry config.ModelEntry) err
 		key, _ = LLMKeyFor(cfg, a.Creds, baseURL, "")
 	}
 	a.LLM = llm.New(protocol, baseURL, key, model,
-		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+		cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+		llm.WithEnableThinking(cfg.LLM.EnableThinking))
 	cfg.LLM.BaseURL = baseURL
 	cfg.LLM.Model = model
 	cfg.LLM.Protocol = protocol
@@ -1134,7 +1135,8 @@ func (a *Agent) ApplySettings(patch map[string]any) (map[string]any, error) {
 			if _, hasLLM := sanitized["llm"]; hasLLM {
 				cfg.LLM.BaseURL, cfg.LLM.Model, cfg.LLM.Protocol = targetBase, targetModel, targetProtocol
 				a.LLM = llm.New(targetProtocol, targetBase, cfg.LLM.APIKey, targetModel,
-					cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs)
+					cfg.LLM.Temperature, cfg.LLM.MaxTokens, cfg.LLM.TimeoutSecs,
+					llm.WithEnableThinking(cfg.LLM.EnableThinking))
 				a.rebuildFastClientLocked(cfg)
 				// The default entry drives the runtime at startup; leaving its old
 				// connection here made the next launch restore the previous model.

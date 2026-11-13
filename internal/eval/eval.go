@@ -149,6 +149,8 @@ type CaseResult struct {
 	Stable       bool           `json:"stable,omitempty"`
 	Variants     []string       `json:"variants,omitempty"`
 	Usage        *CaseUsage     `json:"usage,omitempty"`
+	TaskID       string         `json:"task_id,omitempty"`
+	Summary      string         `json:"summary,omitempty"`
 }
 
 type Diff struct {
