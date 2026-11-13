@@ -102,6 +102,7 @@ func (cu *ComputerUse) Schema() map[string]any {
 		"y":        toolutil.SchemaProp("click：屏幕 Y 坐标（像素）", "integer"),
 		"text":     toolutil.SchemaProp("type_text：要输入的文本（先 Set-Clipboard 再 Ctrl+V，中文可靠）", "string"),
 		"app_name": toolutil.SchemaProp("open_app：应用名、可执行文件路径，或要交给浏览器打开的 http(s) 网址", "string"),
+		"window":   toolutil.SchemaProp("screenshot：目标窗口标题关键词（可选，仅 Windows powershell 模式）。传入后先把该窗口带到前台再截屏，结果附 window_title 供核对", "string"),
 	})
 }
 
@@ -114,7 +115,7 @@ func (cu *ComputerUse) Execute(ctx context.Context, args map[string]any) (any, e
 
 	switch action {
 	case "screenshot":
-		return cu.screenshot(ctx)
+		return cu.screenshot(ctx, strings.TrimSpace(toolutil.Str(args, "window")))
 	case "click":
 		x, y := toolutil.Int(args, "x", -1), toolutil.Int(args, "y", -1)
 		if x < 0 || y < 0 {
@@ -171,19 +172,35 @@ func validateSingleToken(s, field string) error {
 	return nil
 }
 
-func (cu *ComputerUse) screenshot(ctx context.Context) (any, error) {
+func (cu *ComputerUse) screenshot(ctx context.Context, window string) (any, error) {
 	switch cu.mode {
 	case "mock":
 		return nil, fmt.Errorf("mock 模式不产生真实截图（设置 GLEAM_CUA_MODE=powershell|direct|mcp 以真实执行）")
 	case "direct":
+		if window != "" {
+			return nil, fmt.Errorf("window 参数仅在 powershell 模式支持（direct 后端无法定位窗口）")
+		}
 		out, err := cu.runCmd(ctx, "cua", "screenshot", "--format", "base64")
 		if err != nil {
 			return nil, fmt.Errorf("cua 截屏失败: %w", err)
 		}
 		return map[string]any{"action": "screenshot", "mode": "direct", "format": "base64", "data": strings.TrimSpace(string(out))}, nil
 	case "mcp":
+		if window != "" {
+			return nil, fmt.Errorf("window 参数仅在 powershell 模式支持（mcp 后端无法定位窗口）")
+		}
 		return cu.mcpCall(ctx, "cua:screenshot", map[string]any{"format": "base64"})
 	default: // powershell
+		focused := ""
+		if window != "" {
+			if err := runSeparate(ctx, func(ctx context.Context) error {
+				t, err := desktop.FocusWindow(window)
+				focused = t
+				return err
+			}); err != nil {
+				return nil, err
+			}
+		}
 		dir := filepath.Join(os.TempDir(), "gleam-screenshots")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -196,7 +213,14 @@ func (cu *ComputerUse) screenshot(ctx context.Context) (any, error) {
 		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
 			return nil, fmt.Errorf("截屏文件未生成或为空: %s", path)
 		}
-		return map[string]any{"action": "screenshot", "mode": cu.mode, "path": path}, nil
+		out := map[string]any{"action": "screenshot", "mode": cu.mode, "path": path}
+		if window != "" {
+			// Grounding evidence: the title read back from the foreground
+			// window after focusing, so the caller can verify the capture
+			// target instead of trusting vision alone.
+			out["window_title"] = focused
+		}
+		return out, nil
 	}
 }
 
