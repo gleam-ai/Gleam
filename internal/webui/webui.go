@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gleam/internal/agent"
+	"gleam/internal/filelock"
 	"gleam/internal/harness/feedback"
 	"gleam/pkg/types"
 )
@@ -29,6 +30,10 @@ type Server struct {
 	BindAddr string
 
 	token string
+	// tokenLock holds canonical webui.token ownership for this data dir while
+	// the server lives; nil when another instance owns it (we wrote a
+	// per-instance file instead).
+	tokenLock *filelock.Lock
 
 	feedback *feedback.Store
 

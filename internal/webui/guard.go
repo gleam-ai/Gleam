@@ -4,15 +4,18 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"mime"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gleam/internal/atomicfile"
+	"gleam/internal/filelock"
 )
 
 const TokenHeader = "X-Gleam-Token"
@@ -20,6 +23,10 @@ const TokenHeader = "X-Gleam-Token"
 const TokenEnv = "GLEAM_WEBUI_TOKEN"
 
 const TokenFileName = "webui.token"
+
+// tokenLockFileName guards canonical webui.token ownership across processes
+// sharing a data dir, so a second sidecar cannot clobber the first one's token.
+const tokenLockFileName = "webui.lock"
 
 const tokenQueryParam = "token"
 
@@ -53,15 +60,56 @@ func (s *Server) TokenFilePath() string {
 	return filepath.Join(s.Agent.DataDir(), TokenFileName)
 }
 
+// WriteTokenFile publishes this server's API token for local consumers. The
+// first live instance on a data dir owns the canonical webui.token; a second
+// instance (e.g. CLI alongside the desktop sidecar) must not clobber it, so it
+// writes a per-instance webui.<port>.token instead. Ownership is held via an
+// advisory lock for the server's lifetime and released on shutdown.
 func (s *Server) WriteTokenFile() (string, error) {
-	p := s.TokenFilePath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	canonical := s.TokenFilePath()
+	dir := filepath.Dir(canonical)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	if err := atomicfile.Write(p, []byte(s.token+"\n"), 0o600); err != nil {
-		return "", err
+	// Already the owner (e.g. a repeated call): just refresh the canonical file.
+	if s.tokenLock != nil {
+		return canonical, s.writeToken(canonical)
 	}
-	return p, nil
+	lk, err := filelock.TryAcquire(filepath.Join(dir, tokenLockFileName))
+	switch {
+	case err == nil:
+		s.tokenLock = lk
+		return canonical, s.writeToken(canonical)
+	case errors.Is(err, filelock.ErrLocked):
+		alt := filepath.Join(dir, "webui."+s.instanceTag()+".token")
+		return alt, s.writeToken(alt)
+	default:
+		// Locking failed for an unexpected reason (e.g. permissions): keep the
+		// old best-effort behavior rather than refusing to start.
+		return canonical, s.writeToken(canonical)
+	}
+}
+
+func (s *Server) writeToken(path string) error {
+	return atomicfile.Write(path, []byte(s.token+"\n"), 0o600)
+}
+
+// instanceTag names a secondary instance's token file by its listen port, or by
+// PID when the port is not yet known.
+func (s *Server) instanceTag() string {
+	if _, port, err := net.SplitHostPort(s.BindAddr); err == nil && port != "" && port != "0" {
+		return port
+	}
+	return strconv.Itoa(os.Getpid())
+}
+
+// ReleaseTokenFile releases canonical token ownership so a later instance can
+// reclaim it. The OS also releases it automatically if the process exits.
+func (s *Server) ReleaseTokenFile() {
+	if s.tokenLock != nil {
+		_ = s.tokenLock.Release()
+		s.tokenLock = nil
+	}
 }
 
 func (s *Server) guard(next http.Handler) http.Handler {
