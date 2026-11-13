@@ -278,6 +278,16 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		DoneThreshold: setupCfg.Agent.DoneThreshold,
 		TaskID:        taskID,
 	}
+	// Cascade: when the judge is the executor itself (no independent verify
+	// tier) and a distinct main model exists, low-confidence verdicts get one
+	// re-judgment from it. With an independent reasoning-tier judge there is
+	// no stronger configured model, so low confidence is flagged for human
+	// review instead of silently trusted.
+	if models.verify == models.tier && a.EffectiveTier(req.Role) != TierReasoning {
+		if primary := a.PrimaryLLM(); primary != nil && primary != models.tier {
+			reflector.Escalate = primary
+		}
+	}
 	tell := Narrator{Style: setupCfg.Persona.Style}
 
 	var feedback string
