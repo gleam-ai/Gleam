@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"gleam/internal/harness/registry"
 	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
 )
@@ -43,6 +44,28 @@ type Manager struct {
 }
 
 func NewManager() *Manager { return &Manager{servers: map[string]*server{}} }
+
+// Available reports whether gopls is on PATH. The code-intelligence tools are
+// only registered when it is, so the model is not offered a tool that can only
+// fail with "install gopls" and burn a step discovering that (eval A4).
+func Available() bool {
+	_, err := exec.LookPath("gopls")
+	return err == nil
+}
+
+// RegisterAll registers the lsp tools only when gopls is available. The
+// per-call LookPath in ensure stays as a fallback for a server removed
+// mid-session, but the common "never installed" case is handled here by not
+// exposing the tools at all.
+func RegisterAll(reg *registry.Registry) {
+	if !Available() {
+		return
+	}
+	m := NewManager()
+	reg.MustRegister(NewDefinition(m))
+	reg.MustRegister(NewReferences(m))
+	reg.MustRegister(NewHover(m))
+}
 
 // ensure starts and initializes gopls for the given workspace.
 func (m *Manager) ensure(ctx context.Context, workspace string) (*server, error) {

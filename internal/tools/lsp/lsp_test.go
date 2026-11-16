@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gleam/internal/harness/registry"
 )
 
 // Tool metadata: ensure permission/Schema wiring is correct and the tools are read-only.
@@ -30,6 +32,37 @@ func TestToolsAreReadOnly(t *testing.T) {
 	hov := NewHover(m)
 	if hov.Name() != "lsp.hover" {
 		t.Errorf("hover name = %s", hov.Name())
+	}
+}
+
+// eval A4: the lsp tools must not be exposed when gopls is absent, otherwise
+// the model picks a code-intelligence tool that can only fail with "install
+// gopls" and wastes a step discovering that. Empty PATH guarantees LookPath
+// resolves nothing (the package dir holds no gopls binary).
+func TestRegisterAll_SkipsWhenGoplsAbsent(t *testing.T) {
+	t.Setenv("PATH", "")
+	if Available() {
+		t.Skip("gopls still resolvable with empty PATH; cannot assert absence")
+	}
+	reg := registry.New()
+	RegisterAll(reg)
+	for _, name := range []string{"lsp.definition", "lsp.references", "lsp.hover"} {
+		if _, ok := reg.Get(name); ok {
+			t.Errorf("gopls 不可用时不应暴露 %s", name)
+		}
+	}
+}
+
+func TestRegisterAll_RegistersWhenGoplsPresent(t *testing.T) {
+	if !Available() {
+		t.Skip("gopls not installed")
+	}
+	reg := registry.New()
+	RegisterAll(reg)
+	for _, name := range []string{"lsp.definition", "lsp.references", "lsp.hover"} {
+		if _, ok := reg.Get(name); !ok {
+			t.Errorf("gopls 可用时应暴露 %s", name)
+		}
 	}
 }
 
