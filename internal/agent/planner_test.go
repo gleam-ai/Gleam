@@ -158,6 +158,28 @@ func TestPlanner_FencedOutput(t *testing.T) {
 	}
 }
 
+// eval A3: planning must stream so a thinking model's long generation is not
+// cut off by a fixed non-streaming deadline. The progress callback is wired by
+// the caller but only fires via ChatStream — non-streaming Chat never invokes
+// it, so a zero delta count means planning regressed to the blocking path.
+func TestPlanner_StreamsProgress(t *testing.T) {
+	out := "```json\n{\"steps\":[{\"id\":\"s1\",\"tool\":\"reply\",\"args\":{\"text\":\"hi\"}}]}\n```"
+	var deltaChars int
+	p := &Planner{LLM: mockReturning(out), Reg: newTestRegistry(), OnLLMDelta: func(s string) {
+		deltaChars += len([]rune(s))
+	}}
+	plan, err := p.Plan(testCtx(), "g", "", nil, nil, "", "")
+	if err != nil {
+		t.Fatalf("流式规划应成功: %v", err)
+	}
+	if deltaChars == 0 {
+		t.Error("规划应经 ChatStream 触发 OnLLMDelta 进度（非流式 Chat 不会调用它）")
+	}
+	if len(plan.Steps) != 1 || plan.Steps[0].Tool != "reply" {
+		t.Errorf("计划解析错误: %+v", plan.Steps)
+	}
+}
+
 type mockOneShot struct{ text string }
 
 func (m *mockOneShot) Chat(_ context.Context, _ llm.ChatRequest) (string, error) { return m.text, nil }

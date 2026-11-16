@@ -13,22 +13,22 @@ import (
 )
 
 // deadlineLLM records the context deadline seen by the planning call so a test
-// can prove the per-case timeout came from Runner.Timeout, not the hardcoded
-// default. Both probe values stay below the planner's own 90s cap, so the
-// deadline reflects the Runner setting without being masked.
+// can prove the per-case timeout came from Runner.Timeout, not a hardcoded
+// default. Planning streams (ChatStream) and the planner adds no cap of its
+// own, so the deadline captured here is exactly the Runner setting.
 type deadlineLLM struct {
 	planLLM
 	got time.Duration
 	set bool
 }
 
-func (m *deadlineLLM) Chat(ctx context.Context, req llm.ChatRequest) (string, error) {
+func (m *deadlineLLM) ChatStream(ctx context.Context, req llm.ChatRequest, onDelta func(string)) (string, error) {
 	if !m.set && llm.KindOf(req.System) == "plan" {
 		if dl, ok := ctx.Deadline(); ok {
 			m.got, m.set = time.Until(dl), true
 		}
 	}
-	return m.planLLM.Chat(ctx, req)
+	return m.planLLM.ChatStream(ctx, req, onDelta)
 }
 
 func TestRunnerTimeoutControlsCaseDeadline(t *testing.T) {

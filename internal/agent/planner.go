@@ -20,8 +20,6 @@ import (
 	"gleam/pkg/types"
 )
 
-const planningTimeout = 90 * time.Second
-
 const screenTimeout = 15 * time.Second
 
 var goalURLPattern = regexp.MustCompile(`https?://[^\s]+`)
@@ -49,12 +47,14 @@ func (p *Planner) Plan(ctx context.Context, goal, cwd string, recent []memory.Tu
 	sys := p.buildSystemPrompt(goal, cwd, recent, relevant, summary, feedback)
 	req := llm.ChatRequest{System: sys, Messages: []llm.Message{{Role: llm.RoleUser, Content: goal}}, TaskID: p.TaskID}
 
-	pctx, cancel := context.WithTimeout(ctx, planningTimeout)
-	defer cancel()
-
-	var text string
-	var err error
-	text, err = p.LLM.Chat(pctx, req)
+	// Stream the plan rather than waiting for a single non-streaming body. A
+	// thinking model emits reasoning tokens continuously, so the stream stall
+	// watcher tolerates a long generation that the old fixed 90s deadline cut
+	// off mid-think, yielding 0 steps and a replan loop (eval A3). OnLLMDelta
+	// reports progress only (the caller throttles it to a char count, never raw
+	// JSON); ChatStream returns content only, reasoning excluded. Hangs are
+	// bounded by the stream TTFB/stall watchers and the parent task context.
+	text, err := p.LLM.ChatStream(ctx, req, p.OnLLMDelta)
 	if err != nil {
 		return types.Plan{}, fmt.Errorf("规划调用失败: %w", err)
 	}
