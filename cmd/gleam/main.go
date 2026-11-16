@@ -303,10 +303,7 @@ func buildRuntime(configPath, workspace, dataDir string, mockLLM bool, mockScrip
 	reg.MustRegister(shell.NewJobsKill(jobs))
 	pshells := shell.NewPShells()
 	reg.MustRegister(shell.NewPersistentShell(pshells, 60*time.Second, wsRoots...))
-	lspMgr := lsp.NewManager()
-	reg.MustRegister(lsp.NewDefinition(lspMgr))
-	reg.MustRegister(lsp.NewReferences(lspMgr))
-	reg.MustRegister(lsp.NewHover(lspMgr))
+	lsp.RegisterAll(reg)
 	gitCfg := func() gittools.Config {
 		return gittools.Config{
 			BranchPrefix:       cfg.Git.BranchPrefix,
