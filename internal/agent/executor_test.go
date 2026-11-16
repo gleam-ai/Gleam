@@ -188,6 +188,52 @@ func TestExecute_DepFailureSkips(t *testing.T) {
 	}
 }
 
+// A redundant exploration step failing must not swallow the final answer the
+// other steps already gathered (eval C1: s3–s6 had the answer, s7 failed, reply
+// was cascade-skipped and scored 0). The reply runs best-effort: it is delivered
+// with the available evidence, and a reference to the failed step degrades to an
+// inline placeholder instead of failing the whole reply.
+func TestExecute_ReplySurvivesDepFailure(t *testing.T) {
+	e := &Executor{Reg: newTestRegistry(), Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}}
+	plan := types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "counter"},
+		{ID: "s2", Tool: "fail"},
+		{ID: "s3", Tool: "reply", DependsOn: []string{"s1", "s2"}, Args: map[string]any{
+			"text": "答案：{ref:s1.text}；探索 {ref:s2.text}",
+		}},
+	}}
+	res := e.Execute(context.Background(), plan, "t", "auto", false)
+	reply := res.ByID["s3"]
+	if reply == nil || reply.Status != types.StepSucceeded {
+		t.Fatalf("reply 应尽力产出而非被级联跳过，实际 %+v", reply)
+	}
+	if !strings.Contains(res.ReplyText, "hello") {
+		t.Errorf("最终答复应带上已取得的证据，实际 %q", res.ReplyText)
+	}
+	if !strings.Contains(res.ReplyText, "s2") {
+		t.Errorf("失败步骤的引用应降级为占位标注，实际 %q", res.ReplyText)
+	}
+	if res.Skipped != 0 {
+		t.Errorf("reply 不该被跳过，Skipped=%d", res.Skipped)
+	}
+}
+
+// Best-effort is scoped to the reply only: a side-effecting tool that needs a
+// failed step's output must still fail, not run on a placeholder hole.
+func TestExecute_NonReplyRefToFailedStepStillFails(t *testing.T) {
+	e := &Executor{Reg: newTestRegistry(), Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}}
+	plan := types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "fail"},
+		{ID: "s2", Tool: "echo", DependsOn: []string{"s1"}, Args: map[string]any{
+			"in": "$ref:s1.text",
+		}},
+	}}
+	res := e.Execute(context.Background(), plan, "t", "auto", false)
+	if res.ByID["s2"].Status == types.StepSucceeded {
+		t.Fatal("非 reply 工具引用失败步骤的结果不该成功")
+	}
+}
+
 func TestExecute_RefSubstitution(t *testing.T) {
 	var seenIn, seenWhole, seenField any
 	r := registry.New()

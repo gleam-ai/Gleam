@@ -362,6 +362,7 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 			step := plan.Steps[i]
 
 			var depFailed []string
+			needsHuman := false
 			for _, dep := range step.DependsOn {
 				if _, exists := state.idxOf[dep]; !exists {
 					continue
@@ -373,9 +374,25 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 				}
 				if dr == nil || dr.Status != types.StepSucceeded {
 					depFailed = append(depFailed, dep)
+					if dr != nil && dr.ErrorKind == types.ErrNeedsHuman {
+						needsHuman = true
+					}
 				}
 			}
-			if len(depFailed) > 0 {
+			// The reply is the terminal deliverable, not a side-effecting action:
+			// a redundant exploration step failing must not swallow the answer the
+			// other steps already gathered, so it runs best-effort with missing
+			// evidence marked inline. A needs-human blocker (challenge page, login
+			// wall) is the exception -- a hollow reply would mask a task that
+			// genuinely needs the user, so the reply stays skipped and the handoff
+			// path delivers the actionable next step instead.
+			replyBestEffort := step.Tool == "reply" && !needsHuman
+			if len(depFailed) > 0 && replyBestEffort {
+				notify(progress(taskID, "execute",
+					fmt.Sprintf("↪ %s 是最终答复，依赖未满足仍尽力产出", step.ID),
+					progressPct(doneCount.Load(), total, 10, 80), "warn"))
+			}
+			if len(depFailed) > 0 && !replyBestEffort {
 				state.results[i] = types.StepResult{
 					StepID: step.ID, Tool: step.Tool, Status: types.StepSkipped,
 					Error:     fmt.Sprintf("依赖步骤未成功: %s", strings.Join(depFailed, ", ")),
@@ -635,6 +652,11 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 	}
 
 	ctx = safety.WithMode(ctx, mode)
+	// A reply synthesizes whatever evidence exists; a failed or missing upstream
+	// step degrades to an inline placeholder instead of failing the whole answer.
+	// Other tools keep strict substitution: a write that needs a failed read's
+	// output must not run on a hole.
+	bestEffort := step.Tool == "reply"
 	args, err := substituteArgs(step.Args, func(ref string) (any, bool, error) {
 		id, path := splitRef(ref)
 		dep, ok := state.resultOf(ctx, id)
@@ -642,13 +664,22 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 			if ctx.Err() != nil {
 				return nil, false, fmt.Errorf("任务已取消")
 			}
+			if bestEffort {
+				return fmt.Sprintf("（步骤 %s 无结果）", id), true, nil
+			}
 			return nil, false, fmt.Errorf("引用的步骤 %q 不存在", id)
 		}
 		if dep.Status != types.StepSucceeded {
+			if bestEffort {
+				return fmt.Sprintf("（步骤 %s 未成功：%s）", id, dep.Error), true, nil
+			}
 			return nil, false, fmt.Errorf("引用的步骤 %q 未成功执行", id)
 		}
 		v, ok := navigate(dep.Output, path)
 		if !ok {
+			if bestEffort {
+				return fmt.Sprintf("（步骤 %s 结果缺少字段 %s）", id, path), true, nil
+			}
 			return nil, false, fmt.Errorf("步骤 %q 的结果中不存在字段 %q", id, path)
 		}
 		return e.capOutput(v, taskID, id), true, nil
