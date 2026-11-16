@@ -238,6 +238,7 @@ func (a *Agent) buildPlanner(req types.GoalRequest, tier, helper llm.Client) *Pl
 	pl := &Planner{
 		LLM: tier, Reg: a.Reg,
 		MaxSteps:   cfg.Agent.MaxSteps,
+		Thinking:   cfg.LLM.EnableThinking != nil && *cfg.LLM.EnableThinking,
 		Style:      cfg.Persona.Style,
 		TaskMode:   string(normalizeTaskMode(req.TaskMode)),
 		CommitHint: cfg.Git.CommitInstructions,

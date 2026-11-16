@@ -56,6 +56,7 @@ func (a *Agent) DelegateSubtask(ctx context.Context, goal, role string) (string,
 		LLM:      a.taskTierLLM(dctx, role),
 		Reg:      a.Reg,
 		MaxSteps: min(cfg.Agent.MaxSteps, subtaskMaxSteps),
+		Thinking: cfg.LLM.EnableThinking != nil && *cfg.LLM.EnableThinking,
 		Role:     role,
 		TaskID:   taskID,
 	}
