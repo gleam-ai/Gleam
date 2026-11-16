@@ -32,6 +32,7 @@ func cmdEval(args []string) error {
 	save := fs.String("save", "", "把本次报告写成基线文件")
 	baseline := fs.String("baseline", "", "与基线文件对比并报出回归")
 	strict := fs.Bool("strict", false, "有回归则以非零退出（未给基线时：有用例未过即非零）")
+	approveHigh := fs.Bool("approve-high", false, "无人值守自动批准审批请求（含高风险 shell.exec）；仅 --depth full 有效，请只在隔离的评测工作区使用，交互默认不变")
 	flagArgs, positionals := splitFlagArgs(args, fs)
 	if err := fs.Parse(flagArgs); err != nil {
 		return err
@@ -76,7 +77,16 @@ func cmdEval(args []string) error {
 		return err
 	}
 
-	rt, err := buildRuntime(*configPath, *workspace, *dataDir, *mockLLM, *mockScript, agent.NopNotifier{})
+	if *approveHigh && d != eval.DepthFull {
+		return fmt.Errorf("--approve-high 只对 --depth full 有效（select/plan 深度不执行工具，没有审批）")
+	}
+	var notifier agent.Notifier = agent.NopNotifier{}
+	if *approveHigh {
+		fmt.Fprintf(os.Stderr, "[gleam eval] ⚠ --approve-high：本次将无人值守自动批准所有审批（含高风险 shell.exec）。工作区：%s —— 请确认这是隔离的评测工作区，而非真实数据目录。\n", *workspace)
+		notifier = eval.AutoApproveNotifier{W: os.Stderr}
+	}
+
+	rt, err := buildRuntime(*configPath, *workspace, *dataDir, *mockLLM, *mockScript, notifier)
 	if err != nil {
 		return err
 	}
