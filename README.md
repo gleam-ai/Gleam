@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.36](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.37](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -25,15 +25,15 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 
 <img src="assets/screenshots/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
 
-## What's new in v0.0.36
+## What's new in v0.0.37
 
-- **Thinking mode is now a switch**: a new `llm.enable_thinking` config (unset = model default, `false` = off, `true` = on) lets you disable Qwen-style thinking mode, which used to blow past case timeouts and approval windows
-- **No more fake success**: a work goal that falls back to chat after repeated planning failures now reports `partial` (score 40) and states that no work steps ran, instead of masking the failure as success
-- **Approval timeout follows your config**: the CLI stdin approval prompt honors `safety.approval_timeout_seconds` (`GLEAM_APPROVAL_TIMEOUT_SEC` > config > 5min default) instead of a fixed 5 minutes
-- **Delegation keeps the whole trace**: subtask summaries honor the executor's `MaxOutputRunes` budget and preserve newlines, so a multi-file trace keeps every layer and its line numbers
-- **Credentials encrypted at rest on macOS/Linux**: local credentials are no longer stored in plaintext on non-Windows platforms
+- **Thinking-mode planning actually works**: planning now streams via `ChatStream` with no fixed 90s cutoff, so a thinking model emitting reasoning tokens isn't cut off mid-think (previously 0 steps + a replan loop). `reasoning_content` is internal chain-of-thought and no longer leaks into answers, skill output, or plan JSON; a reasoning-only response correctly reads as empty
+- **Final answers no longer swallowed**: `reply` is best-effort — a redundant failed dependency no longer cascade-skips the final reply and drops the gathered answer (failed refs degrade to placeholders); needs-human blockers still hand off normally
+- **Unattended eval approval opt-in**: `eval --approve-high` (full-depth sandbox only) auto-approves high-risk steps so unattended evals run end-to-end; interactive defaults are unchanged
+- **Code-intelligence tools probe gopls**: `lsp` (definition/references/hover) is only exposed when `gopls` is installed, so the planner won't pick a tool that must fail
+- **Actionable parameter type errors**: tool argument type failures return structured feedback (field / expected type / actual type / example) so the model corrects in one shot instead of spinning on a bare error
 
-Earlier releases (v0.0.27–v0.0.35) are documented in [CHANGELOG.md](CHANGELOG.md); per-version release notes and publishing guides are archived under [docs/releases/](docs/releases/).
+Earlier releases (v0.0.27–v0.0.36) are documented in [CHANGELOG.md](CHANGELOG.md); per-version release notes and publishing guides are archived under [docs/releases/](docs/releases/).
 
 ## What you get
 
