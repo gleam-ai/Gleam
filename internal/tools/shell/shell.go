@@ -33,7 +33,9 @@ func NewWithRoots(defaultTimeout time.Duration, roots ...string) *Tool {
 
 func (t *Tool) Name() string { return "shell.exec" }
 func (t *Tool) Description() string {
-	return "在系统 Shell 中执行命令并返回输出（高风险操作，需要用户批准）"
+	return "在系统 Shell 中执行命令并返回输出（高风险操作，需要用户批准）。" +
+		"Windows 默认 cmd.exe；检测到 PowerShell（powershell/pwsh -Command、$ 变量或 Get-/Set-/Rename- 等 cmdlet）时自动改用 powershell -NoProfile -Command 直接执行（不经 cmd），$ 变量与中文不被吞。" +
+		"写 PowerShell 时字符串优先用单引号，避免 $ 被提前解析。"
 }
 func (t *Tool) Permission() types.Permission {
 	return types.PermissionFullAccess
@@ -230,8 +232,13 @@ func windowsCmd() string {
 }
 
 // shellCommand builds the interpreter invocation shared by every shell tool.
+// PowerShell is run via -Command directly (not through cmd.exe) so $variables
+// and non-ASCII survive; -Command is not subject to the script execution policy.
 func shellCommand(command string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
+		if script, ok := powerShellScript(command); ok {
+			return exec.Command(powerShellExe(), "-NoProfile", "-Command", script)
+		}
 		return exec.Command(windowsCmd(), "/C", command)
 	}
 	return exec.Command("sh", "-c", command)
