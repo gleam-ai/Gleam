@@ -226,26 +226,55 @@ func checkType(key string, v any, typ string) error {
 	switch typ {
 	case "string":
 		if _, ok := v.(string); !ok {
-			return fmt.Errorf("参数 %q 应为字符串", key)
+			return TypeError(key, v, "字符串", `"文本内容"`)
 		}
 	case "number", "integer":
 		switch v.(type) {
 		case float64, int64, int:
 		default:
-			return fmt.Errorf("参数 %q 应为数字", key)
+			return TypeError(key, v, "数字", `10`)
 		}
 	case "boolean":
 		if _, ok := v.(bool); !ok {
-			return fmt.Errorf("参数 %q 应为布尔值", key)
+			return TypeError(key, v, "布尔值", `true`)
 		}
 	case "array":
 		if _, ok := v.([]any); !ok {
-			return fmt.Errorf("参数 %q 应为数组", key)
+			return TypeError(key, v, "数组", `["a", "b"]`)
 		}
 	case "object":
 		if _, ok := v.(map[string]any); !ok {
-			return fmt.Errorf("参数 %q 应为对象", key)
+			return TypeError(key, v, "对象", `{"key": "value"}`)
 		}
 	}
 	return nil
+}
+
+// TypeError builds an actionable validation error: which field, the expected
+// type, what actually arrived, and a concrete example of the correct form. A
+// bare "应为字符串" left the model unable to tell what it had sent wrong, so it
+// spun on unrelated tools instead of fixing the argument (eval A5).
+func TypeError(key string, v any, want, example string) error {
+	return fmt.Errorf("参数 %q 应为%s，实际收到 %s；例如 %q: %s",
+		key, want, jsonType(v), key, example)
+}
+
+// jsonType names the JSON kind of a decoded argument value for error messages.
+func jsonType(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "string"
+	case float64, int64, int:
+		return "number"
+	case bool:
+		return "boolean"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	default:
+		return fmt.Sprintf("%T", v)
+	}
 }

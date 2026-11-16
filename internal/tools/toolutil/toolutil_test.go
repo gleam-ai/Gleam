@@ -109,6 +109,42 @@ func TestValidateArgs_RequiredStringSlice(t *testing.T) {
 	}
 }
 
+// eval A5: a type error must tell the model what it sent wrong and how to fix
+// it — field, expected type, the actual received kind, and a concrete example —
+// otherwise it spins on unrelated tools instead of correcting the argument.
+func TestValidateArgs_TypeErrorIsActionable(t *testing.T) {
+	cases := []struct {
+		name    string
+		typ     string
+		val     any
+		want    string
+		actual  string
+		example string
+	}{
+		{"string 收到 object", "string", map[string]any{"text": "x"}, "字符串", "object", `"f": "文本内容"`},
+		{"integer 收到 string", "integer", "10", "数字", "string", `"f": 10`},
+		{"boolean 收到 string", "boolean", "true", "布尔值", "string", `"f": true`},
+		{"array 收到 string", "array", "x", "数组", "string", `"f": ["a", "b"]`},
+		{"object 收到 array", "object", []any{"x"}, "对象", "array", `"f": {"key": "value"}`},
+	}
+	for _, tc := range cases {
+		tool := schemaOnlyTool{schema: Schema("工具", []string{"f"}, map[string]any{
+			"f": SchemaProp("参数", tc.typ),
+		})}
+		err := ValidateArgs(tool, map[string]any{"f": tc.val})
+		if err == nil {
+			t.Errorf("%s: 应报错", tc.name)
+			continue
+		}
+		msg := err.Error()
+		for _, want := range []string{"f", tc.want, tc.actual, tc.example} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s: 错误信息缺少 %q，实际 %q", tc.name, want, msg)
+			}
+		}
+	}
+}
+
 func TestIntOutOfRangeFallsBack(t *testing.T) {
 	cases := []struct {
 		name string
