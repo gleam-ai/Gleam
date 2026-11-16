@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -103,14 +104,10 @@ func (a *Agent) notifySubtask(taskID, message string) {
 
 func subtaskFailureSummary(exec *Result) string {
 	var b strings.Builder
-	for i, r := range exec.Steps {
-		if i >= 3 {
-			fmt.Fprintf(&b, "…（其余 %d 步略）", len(exec.Steps)-i)
-			break
-		}
-		fmt.Fprintf(&b, "[%s] %s: %s；", r.StepID, r.Tool, types.Shorten(r.Error, 120))
+	for _, r := range exec.Steps {
+		fmt.Fprintf(&b, "[%s] %s: %s\n", r.StepID, r.Tool, textOf(r.Error))
 	}
-	return b.String()
+	return strings.TrimSpace(b.String())
 }
 
 // summarizeSubtask prefers a model to weave the step outputs into an answer;
@@ -125,7 +122,7 @@ func (a *Agent) summarizeSubtask(ctx context.Context, taskID, goal, role string,
 		case types.StepSucceeded:
 			fmt.Fprintf(&b, "- %s：成功\n%s\n", r.Tool, fitSubtaskOutput(r.Output, budget))
 		case types.StepFailed:
-			fmt.Fprintf(&b, "- %s：失败 %s\n", r.Tool, types.Shorten(oneLineOf(r.Error), 200))
+			fmt.Fprintf(&b, "- [%s] %s：失败\n%s\n", r.StepID, r.Tool, fitSubtaskOutput(r.Error, budget))
 		default:
 			fmt.Fprintf(&b, "- %s：%s（未产出）\n", r.Tool, r.Status)
 		}
@@ -167,6 +164,12 @@ func deterministicSubtaskAnswer(goal string, exec *Result, facts string, budget 
 			fmt.Fprintf(&b, "%s\n", out)
 		}
 	}
+	for _, r := range exec.Steps {
+		if r.Status != types.StepFailed {
+			continue
+		}
+		fmt.Fprintf(&b, "\n[%s] %s 失败：\n%s\n", r.StepID, r.Tool, fitSubtaskOutput(r.Error, budget))
+	}
 	if b.Len() == 0 {
 		return facts
 	}
@@ -197,12 +200,9 @@ func textOf(v any) string {
 	case error:
 		return t.Error()
 	default:
+		if b, err := json.Marshal(t); err == nil {
+			return string(b)
+		}
 		return fmt.Sprintf("%v", t)
 	}
-}
-
-// oneLineOf flattens a step output into single-line text for compact error
-// summaries.
-func oneLineOf(v any) string {
-	return strings.ReplaceAll(textOf(v), "\n", " ")
 }
