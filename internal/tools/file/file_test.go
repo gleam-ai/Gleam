@@ -16,6 +16,26 @@ func newTools(t *testing.T) (*Tools, string) {
 	return New(ws), ws
 }
 
+// eval A5: file.write must report a content type error actionably (field,
+// expected type, actual kind, example), not a bare "应为字符串" that leaves the
+// model guessing what it sent wrong.
+func TestFileTools_WriteContentTypeErrorIsActionable(t *testing.T) {
+	tools, _ := newTools(t)
+	wt := &writeTool{tools}
+	_, err := wt.Execute(context.Background(), map[string]any{
+		"path": "a.txt", "content": map[string]any{"text": "x"},
+	})
+	if err == nil {
+		t.Fatal("content 传对象应报错")
+	}
+	msg := err.Error()
+	for _, want := range []string{"content", "字符串", "object", `"content": "文本内容"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("错误信息缺少 %q，实际 %q", want, msg)
+		}
+	}
+}
+
 func TestFileTools_WriteReadList(t *testing.T) {
 	tools, ws := newTools(t)
 	ctx := context.Background()

@@ -207,7 +207,7 @@ func (t *writeTool) Execute(ctx context.Context, args map[string]any) (any, erro
 	}
 	content, ok := raw.(string)
 	if !ok {
-		return nil, fmt.Errorf("参数 \"content\" 应为字符串")
+		return nil, toolutil.TypeError("content", raw, "字符串", `"文本内容"`)
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return nil, err
