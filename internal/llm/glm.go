@@ -297,15 +297,18 @@ func (c *GLMClient) ChatStream(ctx context.Context, req ChatRequest, onDelta fun
 			streamUsage = cr.Usage
 		}
 		for _, ch := range cr.Choices {
-			if ch.Delta != nil {
-				if ch.Delta.ReasoningContent != "" {
-					full.WriteString(ch.Delta.ReasoningContent)
-				}
-				if ch.Delta.Content != "" {
-					full.WriteString(ch.Delta.Content)
-					if onDelta != nil {
-						onDelta(ch.Delta.Content)
-					}
+			if ch.Delta == nil {
+				continue
+			}
+			// ReasoningContent is internal chain-of-thought, not the deliverable.
+			// The live deltas below already skip it, so the returned text must
+			// match: appending it here leaked reasoning prose into answers,
+			// skill output and plan JSON (eval A3). A response that produced
+			// only reasoning (budget exhausted) now correctly reads as empty.
+			if ch.Delta.Content != "" {
+				full.WriteString(ch.Delta.Content)
+				if onDelta != nil {
+					onDelta(ch.Delta.Content)
 				}
 			}
 		}
