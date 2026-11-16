@@ -22,6 +22,9 @@ import (
 
 const screenTimeout = 15 * time.Second
 
+// thinkingPlanMaxTokens: thinking models spend max_tokens on reasoning first, so the 4096 default yields 0 steps; thinking-mode only, to avoid small-output caps.
+const thinkingPlanMaxTokens = 16384
+
 var goalURLPattern = regexp.MustCompile(`https?://[^\s]+`)
 
 type Planner struct {
@@ -38,6 +41,7 @@ type Planner struct {
 	ForceTools     []string
 	RoleTools      []string
 	Tier           string
+	Thinking       bool
 	OnLLMDelta     func(text string)
 	LastBreakdown  types.ContextBreakdown
 	Pinned         []string
@@ -46,6 +50,9 @@ type Planner struct {
 func (p *Planner) Plan(ctx context.Context, goal, cwd string, recent []memory.Turn, relevant []memory.Hit, summary, feedback string) (types.Plan, error) {
 	sys := p.buildSystemPrompt(goal, cwd, recent, relevant, summary, feedback)
 	req := llm.ChatRequest{System: sys, Messages: []llm.Message{{Role: llm.RoleUser, Content: goal}}, TaskID: p.TaskID}
+	if p.Thinking {
+		req.MaxTokens = thinkingPlanMaxTokens
+	}
 
 	// Stream the plan rather than waiting for a single non-streaming body. A
 	// thinking model emits reasoning tokens continuously, so the stream stall
@@ -505,8 +512,7 @@ func normalizeAcceptance(in []string) []string {
 	return out
 }
 
-// stepLimit is shared by validate() and the system prompt so the model is told
-// the same cap it is held to (eval C1: plans overshot a cap they were never told).
+// stepLimit is shared by validate() and the prompt so the model is told the cap it is held to.
 func (p *Planner) stepLimit() int {
 	if p.MaxSteps > 0 {
 		return p.MaxSteps

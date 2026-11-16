@@ -216,3 +216,43 @@ func (m *mockOneShot) ChatStream(_ context.Context, _ llm.ChatRequest, onDelta f
 func (m *mockOneShot) Name() string { return "mock-one-shot" }
 
 func mockReturning(text string) *mockOneShot { return &mockOneShot{text: text} }
+
+type mockCaptureReq struct {
+	text string
+	got  llm.ChatRequest
+}
+
+func (m *mockCaptureReq) Chat(_ context.Context, r llm.ChatRequest) (string, error) {
+	m.got = r
+	return m.text, nil
+}
+func (m *mockCaptureReq) ChatStream(_ context.Context, r llm.ChatRequest, onDelta func(string)) (string, error) {
+	m.got = r
+	if onDelta != nil {
+		onDelta(m.text)
+	}
+	return m.text, nil
+}
+func (m *mockCaptureReq) Name() string { return "mock-capture" }
+
+// eval probe: the 4096 default is spent on reasoning and yields 0 steps; only
+// thinking mode raises the planning budget, so small-output models keep it.
+func TestPlanner_ThinkingRaisesPlanBudget(t *testing.T) {
+	out := `{"steps":[{"id":"s1","tool":"reply","args":{"text":"hi"}}]}`
+	for _, tc := range []struct {
+		thinking bool
+		want     int
+	}{
+		{true, thinkingPlanMaxTokens},
+		{false, 0},
+	} {
+		m := &mockCaptureReq{text: out}
+		p := &Planner{LLM: m, Reg: newTestRegistry(), Thinking: tc.thinking}
+		if _, err := p.Plan(testCtx(), "g", "", nil, nil, "", ""); err != nil {
+			t.Fatalf("thinking=%v: 规划应成功: %v", tc.thinking, err)
+		}
+		if m.got.MaxTokens != tc.want {
+			t.Errorf("thinking=%v: 规划 MaxTokens=%d，期望 %d", tc.thinking, m.got.MaxTokens, tc.want)
+		}
+	}
+}
