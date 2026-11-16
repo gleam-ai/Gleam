@@ -464,6 +464,9 @@ func (p *Planner) buildSystemPromptMeasured(goal, cwd string, recent []memory.Tu
 		}
 	})
 	bd.Instruction += seg(func() {
+		fmt.Fprintf(&b, "\n## 步骤上限\n最多 %d 个步骤；需要更多操作时合并成更粗粒度的步骤，不要超出上限。\n", p.stepLimit())
+	})
+	bd.Instruction += seg(func() {
 		b.WriteString("\n## 输出提醒\n只输出一个 JSON 对象，形如 {\"steps\":[...],\"estimated_time\":\"...\",\"acceptance\":[...]}，不要任何其他文字、不要代码块。\n")
 	})
 	bd.Total = b.Len()
@@ -502,6 +505,15 @@ func normalizeAcceptance(in []string) []string {
 	return out
 }
 
+// stepLimit is shared by validate() and the system prompt so the model is told
+// the same cap it is held to (eval C1: plans overshot a cap they were never told).
+func (p *Planner) stepLimit() int {
+	if p.MaxSteps > 0 {
+		return p.MaxSteps
+	}
+	return config.DefaultMaxSteps
+}
+
 func (p *Planner) validate(raw []byte, goal string) (types.Plan, error) {
 	var rp rawPlan
 	if err := json.Unmarshal(raw, &rp); err != nil {
@@ -510,10 +522,7 @@ func (p *Planner) validate(raw []byte, goal string) (types.Plan, error) {
 	if len(rp.Steps) == 0 {
 		return types.Plan{}, fmt.Errorf("计划没有步骤")
 	}
-	maxSteps := p.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = config.DefaultMaxSteps
-	}
+	maxSteps := p.stepLimit()
 	if len(rp.Steps) > maxSteps {
 		return types.Plan{}, fmt.Errorf("步骤数 %d 超过上限 %d", len(rp.Steps), maxSteps)
 	}

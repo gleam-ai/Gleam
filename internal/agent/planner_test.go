@@ -35,6 +35,30 @@ func TestValidateFallbackSharesConfigDefault(t *testing.T) {
 	}
 }
 
+func TestPromptStatesTheStepLimitItEnforces(t *testing.T) {
+	planJSON := func(n int) string {
+		steps := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			steps = append(steps, fmt.Sprintf(`{"id":"s%d","tool":"reply","args":{"text":"x"}}`, i+1))
+		}
+		return `{"steps":[` + strings.Join(steps, ",") + `]}`
+	}
+	// limit=6 mirrors the subtask cap; limit=0 falls back to the config default.
+	for _, limit := range []int{6, 0} {
+		p := &Planner{Reg: menuRegistry(2), MaxSteps: limit}
+		want := p.stepLimit()
+		if prompt := p.SystemPromptFor("g", "."); !strings.Contains(prompt, fmt.Sprintf("最多 %d 个步骤", want)) {
+			t.Errorf("MaxSteps=%d：提示词应告知上限 %d，实际未找到", limit, want)
+		}
+		if _, err := p.validate([]byte(planJSON(want)), "g"); err != nil {
+			t.Errorf("MaxSteps=%d：恰好 %d 步应通过，实际 %v", limit, want, err)
+		}
+		if _, err := p.validate([]byte(planJSON(want+1)), "g"); err == nil {
+			t.Errorf("MaxSteps=%d：%d 步应被拒", limit, want+1)
+		}
+	}
+}
+
 func TestExtractJSON(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{`{"a":1}`, `{"a":1}`},
