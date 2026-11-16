@@ -211,17 +211,34 @@ async function fetchLicenses() {
     ],
   ];
   const done = [];
+  const missing = [];
   for (const [url, name] of files) {
+    const dst = join(dir, name);
     try {
-      writeFileSync(join(dir, name), await get(url));
+      writeFileSync(dst, await get(url));
       done.push(name);
     } catch (err) {
-      writeFileSync(
-        join(dir, 'MISSING.txt'),
-        `以下许可证本次构建没取到，发版前需要补齐：\n${name} <- ${url}\n原因：${err.message}\n`,
-      );
-      console.warn(`  [warn] 许可证 ${name} 没取到：${err.message}`);
+      // A cached copy from an earlier successful fetch still satisfies the
+      // license obligation; only flag a license that is genuinely absent.
+      if (existsSync(dst) && statSync(dst).size > 0) {
+        done.push(name);
+        console.warn(
+          `  [warn] 许可证 ${name} 本次未刷新（${err.message}），沿用已缓存副本`,
+        );
+      } else {
+        missing.push(`${name} <- ${url}\n原因：${err.message}`);
+        console.warn(`  [warn] 许可证 ${name} 没取到：${err.message}`);
+      }
     }
+  }
+  const missingFile = join(dir, 'MISSING.txt');
+  if (missing.length > 0) {
+    writeFileSync(
+      missingFile,
+      `以下许可证本次构建没取到，发版前需要补齐：\n${missing.join('\n')}\n`,
+    );
+  } else {
+    rmSync(missingFile, { force: true });
   }
   return done;
 }
