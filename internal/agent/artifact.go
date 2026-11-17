@@ -25,6 +25,7 @@ type artifactExpectation struct {
 	exact     int
 	atLeast   int
 	jsonCheck bool
+	content   string
 }
 
 type artifactFact struct {
@@ -62,6 +63,7 @@ func verifyArtifacts(steps []types.StepResult) []artifactFact {
 				exact: -1, atLeast: -1,
 			}
 			if content, ok := st.FinalArgs["content"].(string); ok {
+				e.content = content
 				if argBool(st.FinalArgs, "append") {
 					e.atLeast = len(content)
 				} else {
@@ -147,6 +149,12 @@ func checkArtifact(e artifactExpectation) artifactFact {
 		case e.atLeast >= 0 && fi.Size() < int64(e.atLeast):
 			f.detail = fmt.Sprintf("文件在，但内容不足：实测 %d 字节，仅追加的内容就有 %d 字节", fi.Size(), e.atLeast)
 		default:
+			if e.exact >= 0 || e.atLeast >= 0 {
+				if broken, why := contentMismatch(e.path, e.content, e.exact >= 0); broken {
+					f.detail = why
+					return f
+				}
+			}
 			if e.jsonCheck {
 				if broken, why := jsonBroken(e.path); broken {
 					f.detail = why
@@ -154,7 +162,11 @@ func checkArtifact(e artifactExpectation) artifactFact {
 				}
 			}
 			f.ok = true
-			f.detail = fmt.Sprintf("文件存在，%d 字节", fi.Size())
+			if e.exact >= 0 || e.atLeast >= 0 {
+				f.detail = fmt.Sprintf("文件存在，%d 字节，内容回读一致", fi.Size())
+			} else {
+				f.detail = fmt.Sprintf("文件存在，%d 字节（内容未回读核实）", fi.Size())
+			}
 		}
 	}
 	return f
@@ -240,6 +252,28 @@ func jsonBroken(path string) (bool, string) {
 		if json.Unmarshal(ln, &v) != nil {
 			return true, "文件在、长度也对，但内容不是合法 JSON（格式不合法）"
 		}
+	}
+	return false, ""
+}
+
+// contentMismatch reads the file back and compares it to the intended content.
+// exact compares the whole file (overwrite); otherwise it checks the appended
+// suffix. The caller already checked length, so this catches same-length wrong
+// content that a size check alone would pass -- disk state, not self-report.
+func contentMismatch(path, content string, exact bool) (bool, string) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return true, "文件在，但回读失败：" + err.Error()
+	}
+	got := string(b)
+	if exact {
+		if got != content {
+			return true, "文件在、长度也对，但回读内容与写入内容不一致"
+		}
+		return false, ""
+	}
+	if !strings.HasSuffix(got, content) {
+		return true, "文件在，但回读内容末尾不是本次追加的内容"
 	}
 	return false, ""
 }

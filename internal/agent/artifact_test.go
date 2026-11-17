@@ -65,11 +65,9 @@ func TestVerifyArtifacts_MatchIsOK(t *testing.T) {
 
 func TestVerifyArtifacts_AppendChecksLowerBound(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "a.txt")
-	if err := os.WriteFile(p, []byte("旧的"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	putFile(t, p, "旧的新增")
 	if facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, "新增", true)}); !facts[0].ok {
-		t.Errorf("追加后长度足够，应判通过：%+v", facts[0])
+		t.Errorf("追加后长度足够且末尾是追加内容，应判通过：%+v", facts[0])
 	}
 	long := strings.Repeat("长", 100)
 	if facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, long, true)}); facts[0].ok {
@@ -328,7 +326,7 @@ func TestVerifyArtifacts_BOMTolerated(t *testing.T) {
 
 func TestVerifyArtifacts_AppendJSONNotChecked(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "log.json")
-	putFile(t, p, "上一轮写的内容")
+	putFile(t, p, "上一轮写的内容新追加的一段")
 	facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, "新追加的一段", true)})
 	if !facts[0].ok {
 		t.Errorf("追加写不判格式：%+v", facts[0])
@@ -349,6 +347,47 @@ func TestVerifyArtifacts_EmptyJSONNotFlagged(t *testing.T) {
 	putFile(t, p, "")
 	if facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, "", false)}); !facts[0].ok {
 		t.Errorf("空文件不该被当成格式错误：%+v", facts[0])
+	}
+}
+
+// N1: a overwrite whose file has the right byte length but the wrong content
+// must fail -- the old size-only check passed it. Disk readback, not self-report.
+func TestVerifyArtifacts_SameLengthWrongContentIsCaught(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "same.txt")
+	putFile(t, p, "XYZ")
+	facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, "ABC", false)})
+	if facts[0].ok {
+		t.Errorf("长度相同但内容不对，不该判通过：%+v", facts[0])
+	}
+	if !strings.Contains(facts[0].detail, "回读内容与写入内容不一致") {
+		t.Errorf("说明应点出回读内容不一致，实际 %q", facts[0].detail)
+	}
+}
+
+// N1: an append whose file is long enough but does not end with the appended
+// content (a silently failed append) must fail, not pass on the lower bound.
+func TestVerifyArtifacts_AppendSuffixMismatchIsCaught(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "log.txt")
+	putFile(t, p, "旧的内容很长")
+	facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, "新增", true)})
+	if facts[0].ok {
+		t.Errorf("末尾不是追加内容（静默追加失败），不该判通过：%+v", facts[0])
+	}
+	if !strings.Contains(facts[0].detail, "末尾不是本次追加的内容") {
+		t.Errorf("说明应点出追加末尾不符，实际 %q", facts[0].detail)
+	}
+}
+
+func TestVerifyArtifacts_ContentReadbackOKDetail(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "ok.txt")
+	content := "回读核实的内容"
+	putFile(t, p, content)
+	facts := verifyArtifacts([]types.StepResult{writeStep("s1", p, content, false)})
+	if !facts[0].ok {
+		t.Fatalf("内容一致应判通过：%+v", facts[0])
+	}
+	if !strings.Contains(facts[0].detail, "内容回读一致") {
+		t.Errorf("通过说明应标明已回读核实，实际 %q", facts[0].detail)
 	}
 }
 
