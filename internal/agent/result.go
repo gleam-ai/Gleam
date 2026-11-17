@@ -57,6 +57,18 @@ func statusOfExec(exec *Result) types.GoalStatus {
 	}
 }
 
+// completionStatus is acceptance-driven (result-oriented, not activity-oriented):
+// the caller only reaches it once completionReached has verified every acceptance
+// criterion and artifact, so the goal is a success even if some intermediate steps
+// failed along the way. With no acceptance criteria there is nothing to verify
+// against, so it falls back to the activity-based status.
+func completionStatus(exec *Result, acceptance []string) types.GoalStatus {
+	if len(acceptance) > 0 {
+		return types.GoalSuccess
+	}
+	return statusOfExec(exec)
+}
+
 // failureBreakdown counts the attribution distribution of failed steps.
 // Failure rate only answers "how much broke"; this distribution answers
 // "which layer to fix first" -- wrong parameters need parameter fixes, business

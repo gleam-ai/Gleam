@@ -107,6 +107,22 @@ func TestExecute_OutcomeSurvivesDedupe(t *testing.T) {
 	}
 }
 
+func TestCompletionStatus_AcceptanceDriven(t *testing.T) {
+	// Acceptance met (completionReached already verified it) means success even
+	// if some intermediate steps failed: result-oriented, not activity-oriented.
+	exec := &Result{Total: 3, Succeeded: 2, Failed: 1}
+	if got := completionStatus(exec, []string{"文件已写入"}); got != types.GoalSuccess {
+		t.Errorf("验收满足应判 success（即便有步骤失败），实际 %s", got)
+	}
+	if got := completionStatus(exec, nil); got != types.GoalPartial {
+		t.Errorf("无验收标准应回退活动导向 partial，实际 %s", got)
+	}
+	allOK := &Result{Total: 2, Succeeded: 2}
+	if got := completionStatus(allOK, nil); got != types.GoalSuccess {
+		t.Errorf("无验收标准但全成功应回退 success，实际 %s", got)
+	}
+}
+
 func TestBuildStepDigest_ReportsOutcomeAndFailure(t *testing.T) {
 	exec := &Result{
 		Total: 3,

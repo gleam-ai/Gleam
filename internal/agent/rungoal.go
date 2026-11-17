@@ -522,7 +522,7 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			if prog != nil && attempt == 1 {
 				prog.firstRound = true
 			}
-			result.Status = statusOfExec(exec)
+			result.Status = completionStatus(exec, plan.Acceptance)
 			if reflection.Suggestion != "" {
 				result.Suggestion = reflection.Suggestion
 			}
