@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,79 @@ func TestDelegateSubtask_MultiLayerTraceSurvivesSummary(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("子任务答案丢了链路层 %q（产出被截断）：\n%s", want, out)
 		}
+	}
+}
+
+// N2: a map-valued step output must reach the summary as readable JSON, not a
+// Go fmt dump like map[count:0 files:[]] that the main agent cannot parse.
+func TestDelegateSubtask_StructuredOutputIsReadableJSON(t *testing.T) {
+	client := llm.NewMock()
+	client.Enqueue("plan", `{"steps":[{"id":"s1","description":"列文件","tool":"mapout","args":{}}]}`)
+	a := newSubtaskTestAgent(t, client)
+	a.Reg.MustRegister(&funcTool{name: "mapout", perm: types.PermissionReadOnly,
+		fn: func(ctx context.Context, args map[string]any) (any, error) {
+			return map[string]any{"count": 0, "files": []string{}}, nil
+		}})
+
+	out, err := a.DelegateSubtask(context.Background(), "列文件", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "map[") {
+		t.Errorf("摘要混入 Go map dump：%s", out)
+	}
+	if !strings.Contains(out, `"count"`) || !strings.Contains(out, `"files"`) {
+		t.Errorf("结构化产出应以可读 JSON 呈现：%s", out)
+	}
+}
+
+// N2: when every step fails, the returned error must carry the full failure
+// causality (step id + untruncated error tail), not a 120-rune snippet.
+func TestDelegateSubtask_FailureKeepsFullCausality(t *testing.T) {
+	longErr := "第一行原因\n" + strings.Repeat("细节 ", 80) + "尾部关键信息XYZ"
+	client := llm.NewMock()
+	client.Enqueue("plan", `{"steps":[{"id":"s1","description":"炸","tool":"longfail","args":{}}]}`)
+	a := newSubtaskTestAgent(t, client)
+	a.Reg.MustRegister(&funcTool{name: "longfail", perm: types.PermissionReadOnly,
+		fn: func(ctx context.Context, args map[string]any) (any, error) {
+			return nil, errors.New(longErr)
+		}})
+
+	_, err := a.DelegateSubtask(context.Background(), "会失败", "")
+	if err == nil {
+		t.Fatal("全部步骤失败应返回错误")
+	}
+	if !strings.Contains(err.Error(), "尾部关键信息XYZ") {
+		t.Errorf("失败摘要丢了因果尾部（被截断）：%v", err)
+	}
+	if !strings.Contains(err.Error(), "s1") {
+		t.Errorf("失败摘要应标明哪步失败：%v", err)
+	}
+}
+
+// N2: a mixed success/failure subtask under the mock model must still surface
+// the failed step's full error in the deterministic answer, not hide it.
+func TestDelegateSubtask_MixedResultSurfacesFailure(t *testing.T) {
+	failErr := "失败原因\n" + strings.Repeat("上下文 ", 60) + "末尾标记ABC"
+	client := llm.NewMock()
+	client.Enqueue("plan", `{"steps":[
+		{"id":"s1","description":"成","tool":"counter","args":{}},
+		{"id":"s2","description":"败","tool":"mixedfail","args":{}}
+	]}`)
+	a := newSubtaskTestAgent(t, client)
+	a.Reg.MustRegister(&funcTool{name: "mixedfail", perm: types.PermissionReadOnly,
+		fn: func(ctx context.Context, args map[string]any) (any, error) {
+			return nil, errors.New(failErr)
+		}})
+
+	out, err := a.DelegateSubtask(context.Background(), "半成半败", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "末尾标记ABC") {
+		t.Errorf("混合结果的离线摘要应保留失败步完整因果：%s", out)
+	}
+	if !strings.Contains(out, "s2") {
+		t.Errorf("应标明失败步 s2：%s", out)
 	}
 }
