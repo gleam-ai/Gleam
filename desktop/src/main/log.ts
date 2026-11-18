@@ -52,7 +52,12 @@ export function initFileLogging(): void {
     for (const level of levels) {
       const original = console[level].bind(console);
       console[level] = (...args: unknown[]) => {
-        original(...args);
+        try {
+          original(...args);
+        } catch {
+          // stdout may be closed (EPIPE) when launched from Start menu or
+          // after the installer exits; file logging still works below.
+        }
         append(
           `${new Date().toISOString()} ${level.toUpperCase()} ${args.map(fmt).join(' ')}\n`,
         );
