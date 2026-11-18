@@ -252,7 +252,7 @@ func checkType(key string, v any, typ string) error {
 
 // TypeError builds an actionable validation error: which field, the expected
 // type, what actually arrived, and a concrete example of the correct form. A
-// bare "应为字符串" left the model unable to tell what it had sent wrong, so it
+// A bare type error left the model unable to tell what it had sent wrong, so it
 // spun on unrelated tools instead of fixing the argument (eval A5).
 func TypeError(key string, v any, want, example string) error {
 	return fmt.Errorf("参数 %q 应为%s，实际收到 %s；例如 %q: %s",

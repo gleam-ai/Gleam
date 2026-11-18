@@ -17,7 +17,7 @@ func newTools(t *testing.T) (*Tools, string) {
 }
 
 // eval A5: file.write must report a content type error actionably (field,
-// expected type, actual kind, example), not a bare "应为字符串" that leaves the
+// expected type, actual kind, example), not a bare type error that leaves the
 // model guessing what it sent wrong.
 func TestFileTools_WriteContentTypeErrorIsActionable(t *testing.T) {
 	tools, _ := newTools(t)
@@ -114,6 +114,15 @@ func TestFileTools_RejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, err := (&readTool{tools}).Execute(context.Background(), map[string]any{"path": filepath.Join("link", "secret.txt")}); err == nil {
 		t.Fatal("symlink escape should be rejected")
+	}
+	// Windows can mark a junction into another directory as an "untrusted mount
+	// point": walking it then fails before the boundary check can decide. The
+	// remaining assertions need to traverse the link, so skip with the OS error
+	// instead of reporting a false failure.
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat(filepath.Join(link, "__probe__")); err != nil && !os.IsNotExist(err) {
+			t.Skipf("junction is not traversable on this host: %v", err)
+		}
 	}
 	for _, path := range []string{"link/payload.txt", "link/not-created/nested/payload.txt"} {
 		t.Run(path, func(t *testing.T) {

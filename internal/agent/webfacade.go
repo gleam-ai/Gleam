@@ -571,7 +571,7 @@ func (a *Agent) ModelAdd(raw map[string]any) (map[string]any, error) {
 	}
 	err = a.updateConfig(func(cfg *config.Config) error {
 		if entry.ID == "" {
-			// UnixNano%100000 collides when two adds land in the same 100µs
+			// UnixNano%100000 collides when two adds land in the same 100us
 			// window; probe forward for a free slot under the config lock.
 			n := time.Now().UnixNano() % 100000
 			for modelIndex(cfg, fmt.Sprintf("model-%d", n)) >= 0 {

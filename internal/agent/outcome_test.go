@@ -192,3 +192,112 @@ func TestRunGoal_ReplanFeedbackCarriesStepResults(t *testing.T) {
 		t.Error("反馈里应指明是哪个步骤出的问题")
 	}
 }
+
+// The reported case: PDF extraction failed and the report was never written,
+// yet the model's reply said "done". No score, verdict or acceptance
+// checklist may turn that draft into a completed goal.
+func TestCompletionReached_ReplyIncompleteBlocks(t *testing.T) {
+	exec := &Result{
+		Total: 4, Succeeded: 2, Failed: 1, Skipped: 1,
+		ReplyText:       "已完成《markdown.pdf》的阅读与简报整理。",
+		ReplyIncomplete: true,
+	}
+	refl := types.Reflection{Score: 100, Verdict: "done", Reason: "报告已完成"}
+	if completionReached(refl, nil, exec, 80) {
+		t.Error("降级答复 + 无验收标准时不得判完成")
+	}
+	if completionReached(refl, []string{"简报已生成"}, exec, 80) {
+		t.Error("降级答复 + 有验收标准时同样不得判完成")
+	}
+	healthy := &Result{Total: 1, Succeeded: 1, ReplyText: "答案"}
+	if !completionReached(refl, nil, healthy, 80) {
+		t.Error("正常答复不该被新闸门误伤")
+	}
+	if got := completionStatus(exec, []string{"简报已生成"}); got == types.GoalSuccess {
+		t.Errorf("降级答复不得被验收导向判成 success，实际 %s", got)
+	}
+	if got := statusOfExec(&Result{Total: 1, Succeeded: 1, ReplyIncomplete: true}); got != types.GoalPartial {
+		t.Errorf("只有降级答复成功时也必须是 partial，实际 %s", got)
+	}
+}
+
+func TestBuildResult_ReplyIncompleteDoesNotClaimDone(t *testing.T) {
+	exec := &Result{
+		Total: 4, Succeeded: 2, Failed: 1, Skipped: 1,
+		ReplyText:       "已完成《markdown.pdf》的阅读与简报整理。报告内容：（步骤 s4 未成功：依赖步骤未成功: s3）",
+		ReplyIncomplete: true,
+		Steps: []types.StepResult{
+			{StepID: "s1", Tool: "file.write", Status: types.StepSucceeded},
+			{StepID: "s2", Tool: "shell.exec", Status: types.StepSucceeded, Outcome: types.OutcomeFailed, Error: "命令以退出码 1 结束"},
+			{StepID: "s3", Tool: "file.read", Status: types.StepFailed, Error: "cannot find the file specified"},
+			{StepID: "s4", Tool: "reply", Status: types.StepSucceeded},
+		},
+	}
+	refl := types.Reflection{Score: 100, Verdict: "done", Reason: "报告已完成"}
+	res := (&Agent{}).buildResult("阅读附件文档，提炼关键结论并整理成简报", exec, refl, nil, types.ContextBreakdown{}, "t1")
+	if strings.Contains(res.Summary, "已完成《markdown.pdf》") || strings.Contains(res.Summary, "报告已完成") {
+		t.Errorf("摘要不得复述模型或裁判的完成声明，实际 %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "任务未完成") || !strings.Contains(res.Summary, "草稿未予采信") {
+		t.Errorf("摘要必须明说未完成，实际 %q", res.Summary)
+	}
+	if res.Error == "" {
+		t.Error("结果应带上无法判定为完成的原因")
+	}
+	if completionReached(refl, nil, exec, 80) {
+		t.Error("裁判给 100/done 也必须被闸门拦住")
+	}
+}
+
+func TestHeuristicReflection_ReplyIncompleteIsNotDone(t *testing.T) {
+	exec := &Result{Total: 1, Succeeded: 1, ReplyIncomplete: true}
+	got := heuristicReflection(exec, "无反思器", false)
+	if got.Verdict == "done" || got.Score >= 80 {
+		t.Errorf("反思器不可用时，降级答复也不能兜底成 done，实际 %+v", got)
+	}
+	if !strings.Contains(got.Reason, "不完整") {
+		t.Errorf("原因应说明答复不完整，实际 %q", got.Reason)
+	}
+}
+
+func TestBuildStepDigest_ReplyIncompleteTellsNextRound(t *testing.T) {
+	got := buildStepDigest(&Result{Total: 2, Succeeded: 1, Failed: 1, ReplyIncomplete: true,
+		Steps: []types.StepResult{{StepID: "s1", Tool: "shell.exec", Status: types.StepFailed, Error: "退出码 1"}}})
+	if !strings.Contains(got, "不要在答复里声称完成") {
+		t.Errorf("重规划反馈应明确禁止声称完成，实际 %q", got)
+	}
+}
+
+func TestRunGoal_DegradedReplyNeverClaimsDone(t *testing.T) {
+	f := newFixture(t, []llm.Scripted{
+		planScript(`{"steps":[
+			{"id":"s1","description":"extract PDF text","tool":"fail","args":{}},
+			{"id":"s2","description":"final brief","tool":"reply","depends_on":["s1"],"args":{"text":"已完成《markdown.pdf》的阅读与简报整理。报告内容：{ref:s1.text}"}}
+		]}`),
+		reflectScript(100, "done", "报告已完成"),
+	})
+	f.a.Cfg.Agent.MaxReplans = 0
+	res := f.a.RunGoal(context.Background(), types.GoalRequest{Goal: "阅读附件文档，提炼关键结论并整理成简报", Mode: "auto"})
+
+	if res.Status == types.GoalSuccess {
+		t.Errorf("依赖失败却自称完成的任务不该成功，实际 %+v", res)
+	}
+	if strings.Contains(res.Summary, "已完成《markdown.pdf》") || strings.Contains(res.Summary, "报告已完成") {
+		t.Errorf("最终摘要不得复述模型或裁判的完成声明，实际 %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "任务未完成") {
+		t.Errorf("最终摘要必须明说未完成，实际 %q", res.Summary)
+	}
+	if res.Error == "" {
+		t.Error("结果应带上无法判定为完成的原因")
+	}
+	var draftKept bool
+	for _, st := range res.Steps {
+		if st.Tool == "reply" && st.Status == types.StepSucceeded {
+			draftKept = true
+		}
+	}
+	if !draftKept {
+		t.Error("best-effort 草稿应仍保留在执行结果里，供执行详情查看")
+	}
+}

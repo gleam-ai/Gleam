@@ -184,7 +184,7 @@ func TestPlanner_FencedOutput(t *testing.T) {
 
 // eval A3: planning must stream so a thinking model's long generation is not
 // cut off by a fixed non-streaming deadline. The progress callback is wired by
-// the caller but only fires via ChatStream — non-streaming Chat never invokes
+// the caller but only fires via ChatStream; non-streaming Chat never invokes
 // it, so a zero delta count means planning regressed to the blocking path.
 func TestPlanner_StreamsProgress(t *testing.T) {
 	out := "```json\n{\"steps\":[{\"id\":\"s1\",\"tool\":\"reply\",\"args\":{\"text\":\"hi\"}}]}\n```"
