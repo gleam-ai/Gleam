@@ -127,14 +127,19 @@ type Result struct {
 	ByID         map[string]*types.StepResult
 	ExecutedPlan types.Plan
 	ReplyText    string
-	Succeeded    int
-	Failed       int
-	Skipped      int
-	Empty        int
-	Total        int
-	Carried      int
-	Cancelled    bool
-	PreImages    []preImage
+	// ReplyIncomplete records that the final reply was produced best-effort
+	// while one of its evidence steps had failed. Executor is the only layer
+	// that sees both the degradation and the dependency results, so it owns
+	// this fact; the completion check and the summary only read it.
+	ReplyIncomplete bool
+	Succeeded       int
+	Failed          int
+	Skipped         int
+	Empty           int
+	Total           int
+	Carried         int
+	Cancelled       bool
+	PreImages       []preImage
 }
 
 type cachedCall struct {
@@ -153,9 +158,42 @@ type execState struct {
 	done     map[string]cachedCall
 	failed   map[string]string
 	inflight map[string]chan struct{}
+	degraded map[string]bool // reply steps whose args got an injected placeholder
 
 	grants *pathGrants
 	snap   *snapshotter
+}
+
+func (s *execState) markDegraded(id string) {
+	s.mu.Lock()
+	if s.degraded == nil {
+		s.degraded = map[string]bool{}
+	}
+	s.degraded[id] = true
+	s.mu.Unlock()
+}
+
+func (s *execState) wasDegraded(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.degraded[id]
+}
+
+// replyDepsMissing reports whether a reply step had an upstream step that did
+// not succeed. The model can write "done" without referencing the failed
+// step at all, so checking only the injected placeholders is not enough.
+func replyDepsMissing(step types.Step, state *execState) bool {
+	for _, dep := range step.DependsOn {
+		i, ok := state.idxOf[dep]
+		if !ok {
+			continue
+		}
+		dr := state.results[i]
+		if dr.Status != types.StepSucceeded || dr.Outcome == types.OutcomeFailed {
+			return true
+		}
+	}
+	return false
 }
 
 // Grants never outlive a task; write approval covers only the current step.
@@ -298,6 +336,7 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 		done:     map[string]cachedCall{},
 		failed:   map[string]string{},
 		inflight: map[string]chan struct{}{},
+		degraded: map[string]bool{},
 		grants:   e.Grants,
 		snap:     newSnapshotter(e.DataDir, taskID),
 	}
@@ -448,6 +487,11 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 		r := state.results[i]
 		res.Steps = append(res.Steps, r)
 		res.ByID[r.StepID] = &res.Steps[i]
+		if r.Tool == "reply" && r.Status == types.StepSucceeded && !res.ReplyIncomplete {
+			if state.wasDegraded(r.StepID) || replyDepsMissing(plan.Steps[i], state) {
+				res.ReplyIncomplete = true
+			}
+		}
 		if r.Carried {
 			res.Carried++
 		}
@@ -478,6 +522,9 @@ func (e *Executor) Execute(ctx context.Context, plan types.Plan, taskID, mode st
 			exec.Args = plan.Steps[i].Args
 		}
 		res.ExecutedPlan.Steps = append(res.ExecutedPlan.Steps, exec)
+	}
+	if res.ReplyIncomplete {
+		notify(progress(taskID, "execute", "⚠ 最终答复依赖的步骤未成功，本次不会判定为完成", 80, "warn"))
 	}
 	if ctx.Err() != nil {
 		res.Cancelled = true
@@ -665,12 +712,14 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 				return nil, false, fmt.Errorf("任务已取消")
 			}
 			if bestEffort {
+				state.markDegraded(step.ID)
 				return fmt.Sprintf("（步骤 %s 无结果）", id), true, nil
 			}
 			return nil, false, fmt.Errorf("引用的步骤 %q 不存在", id)
 		}
-		if dep.Status != types.StepSucceeded {
+		if dep.Status != types.StepSucceeded || dep.Outcome == types.OutcomeFailed {
 			if bestEffort {
+				state.markDegraded(step.ID)
 				return fmt.Sprintf("（步骤 %s 未成功：%s）", id, dep.Error), true, nil
 			}
 			return nil, false, fmt.Errorf("引用的步骤 %q 未成功执行", id)
@@ -678,6 +727,7 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		v, ok := navigate(dep.Output, path)
 		if !ok {
 			if bestEffort {
+				state.markDegraded(step.ID)
 				return fmt.Sprintf("（步骤 %s 结果缺少字段 %s）", id, path), true, nil
 			}
 			return nil, false, fmt.Errorf("步骤 %q 的结果中不存在字段 %q", id, path)

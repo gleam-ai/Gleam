@@ -263,6 +263,9 @@ func buildDigest(goal string, exec *Result, attempt int, acceptance []string, fa
 	}
 	fmt.Fprintf(&b, "\n统计：成功 %d / 失败 %d / 跳过 %d / 空结果 %d，共 %d 步。",
 		exec.Succeeded, exec.Failed, exec.Skipped, exec.Empty, exec.Total)
+	if exec.ReplyIncomplete {
+		b.WriteString("\n\n## 最终答复状态\n答复是在依赖步骤未成功的情况下尽力产出的，正文含降级占位，不能视为完成稿，也不得给出 done。")
+	}
 	if sec := artifactDigest(facts); sec != "" {
 		b.WriteString("\n\n")
 		b.WriteString(sec)
@@ -271,10 +274,13 @@ func buildDigest(goal string, exec *Result, attempt int, acceptance []string, fa
 }
 
 func buildStepDigest(exec *Result) string {
-	if exec == nil || len(exec.Steps) == 0 {
+	if exec == nil {
 		return ""
 	}
 	var b strings.Builder
+	if exec.ReplyIncomplete {
+		b.WriteString("- 最终答复依赖的步骤未成功，正文含降级占位；下一轮先补齐这些步骤，不要在答复里声称完成\n")
+	}
 	for _, st := range exec.Steps {
 		switch {
 		case st.Status == types.StepSucceeded && st.Outcome == types.OutcomeFailed:
@@ -302,6 +308,12 @@ func heuristicReflection(exec *Result, note string, hasChecks bool) types.Reflec
 		notePrefix = note + " "
 	}
 	switch {
+	case exec != nil && exec.ReplyIncomplete:
+		return types.Reflection{
+			Score:   40,
+			Verdict: "replan",
+			Reason:  notePrefix + "最终答复依赖的步骤未成功，答复不完整，不能判为完成",
+		}
 	case exec.Succeeded == exec.Total && exec.Total > 0:
 		if hasChecks {
 			return types.Reflection{

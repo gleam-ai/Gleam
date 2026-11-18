@@ -514,8 +514,9 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 		last = result
 
 		// Completion check: score at threshold or the model says done, AND all
-		// acceptance criteria pass AND artifact verification passes. Extracted
-		// into completionReached so each of the three guards is individually
+		// acceptance criteria pass AND artifact verification passes AND the
+		// final reply is not a degraded best-effort draft. Extracted into
+		// completionReached so each of the four guards is individually
 		// testable -- it used to be one long condition where a missing clause
 		// was invisible (see TestCompletionReached_*).
 		if completionReached(reflection, plan.Acceptance, exec, cfg.Agent.DoneThreshold) {

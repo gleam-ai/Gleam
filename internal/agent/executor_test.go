@@ -189,10 +189,11 @@ func TestExecute_DepFailureSkips(t *testing.T) {
 }
 
 // A redundant exploration step failing must not swallow the final answer the
-// other steps already gathered (eval C1: s3–s6 had the answer, s7 failed, reply
+// other steps already gathered (eval C1: s3-s6 had the answer, s7 failed, reply
 // was cascade-skipped and scored 0). The reply runs best-effort: it is delivered
 // with the available evidence, and a reference to the failed step degrades to an
-// inline placeholder instead of failing the whole reply.
+// inline placeholder instead of failing the whole reply. It is still a draft:
+// the engine must not let it count as a completed deliverable.
 func TestExecute_ReplySurvivesDepFailure(t *testing.T) {
 	e := &Executor{Reg: newTestRegistry(), Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}}
 	plan := types.Plan{Steps: []types.Step{
@@ -215,6 +216,48 @@ func TestExecute_ReplySurvivesDepFailure(t *testing.T) {
 	}
 	if res.Skipped != 0 {
 		t.Errorf("reply 不该被跳过，Skipped=%d", res.Skipped)
+	}
+	if !res.ReplyIncomplete {
+		t.Error("依赖失败的最终答复必须标为不完整，否则会被当成完成稿")
+	}
+}
+
+// The model may not reference the failed step at all and still write "done":
+// a missing dependency alone is enough to mark the reply as incomplete.
+func TestExecute_ReplyFailedDepWithoutRefIsIncomplete(t *testing.T) {
+	e := &Executor{Reg: newTestRegistry(), Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}}
+	plan := types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "fail"},
+		{ID: "s2", Tool: "reply", DependsOn: []string{"s1"}, Args: map[string]any{
+			"text": "已完成《markdown.pdf》的阅读与简报整理。",
+		}},
+	}}
+	res := e.Execute(context.Background(), plan, "t", "auto", false)
+	if res.ByID["s2"].Status != types.StepSucceeded {
+		t.Fatalf("best-effort reply 仍应产出草稿，实际 %+v", res.ByID["s2"])
+	}
+	if !strings.Contains(res.ReplyText, "已完成") {
+		t.Errorf("草稿原文应保留在执行结果里，实际 %q", res.ReplyText)
+	}
+	if !res.ReplyIncomplete {
+		t.Error("没有占位引用也不该把依赖失败的答复当成完成稿")
+	}
+}
+
+func TestExecute_ReplyWithHealthyDepsIsComplete(t *testing.T) {
+	e := &Executor{Reg: newTestRegistry(), Gate: safety.New("auto", nil, nil, nil, time.Second), Notifier: NopNotifier{}}
+	plan := types.Plan{Steps: []types.Step{
+		{ID: "s1", Tool: "counter"},
+		{ID: "s2", Tool: "reply", DependsOn: []string{"s1"}, Args: map[string]any{
+			"text": "答案：{ref:s1.text}",
+		}},
+	}}
+	res := e.Execute(context.Background(), plan, "t", "auto", false)
+	if res.ReplyIncomplete {
+		t.Error("依赖全部成功的正常答复不该被标为不完整")
+	}
+	if !strings.Contains(res.ReplyText, "hello") {
+		t.Errorf("正常答复应原样保留，实际 %q", res.ReplyText)
 	}
 }
 

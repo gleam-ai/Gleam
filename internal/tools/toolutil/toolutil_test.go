@@ -110,7 +110,7 @@ func TestValidateArgs_RequiredStringSlice(t *testing.T) {
 }
 
 // eval A5: a type error must tell the model what it sent wrong and how to fix
-// it — field, expected type, the actual received kind, and a concrete example —
+// it: field, expected type, the actual received kind, and a concrete example --
 // otherwise it spins on unrelated tools instead of correcting the argument.
 func TestValidateArgs_TypeErrorIsActionable(t *testing.T) {
 	cases := []struct {

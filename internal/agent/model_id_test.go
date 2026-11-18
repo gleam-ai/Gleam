@@ -3,7 +3,7 @@ package agent
 import "testing"
 
 // Regression: auto IDs used UnixNano%100000 alone, so two adds in the same
-// 100µs window produced duplicate IDs and the second add failed.
+// 100us window produced duplicate IDs and the second add failed.
 func TestModelAdd_RapidAddsGetUniqueIDs(t *testing.T) {
 	a := newBindingAgent(t)
 	seen := map[string]bool{}

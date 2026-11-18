@@ -27,7 +27,16 @@ func (a *Agent) buildResult(goal string, exec *Result, refl types.Reflection, ac
 		Changes:          buildChanges(exec.Steps, exec.PreImages),
 	}
 	res.Summary = exec.ReplyText
-	if res.Summary == "" {
+	switch {
+	case exec.ReplyIncomplete:
+		// A degraded reply is a draft, not a deliverable; the reflector's
+		// reason may claim success too, so neither reaches the summary.
+		res.Summary = fmt.Sprintf("任务未完成：最终答复所依赖的步骤未成功，答复草稿未予采信（原文可在执行详情查看）。执行了 %d 个步骤：成功 %d，失败 %d，跳过 %d。",
+			exec.Total, exec.Succeeded, exec.Failed, exec.Skipped)
+		if res.Error == "" {
+			res.Error = "最终答复依赖的步骤未成功，正文不完整，不能判定为完成。"
+		}
+	case res.Summary == "":
 		if exec.Succeeded == exec.Total && exec.Total > 0 {
 			res.Summary = fmt.Sprintf("已完成全部 %d 个步骤。", exec.Total)
 		} else {
@@ -46,12 +55,17 @@ func (a *Agent) buildResult(goal string, exec *Result, refl types.Reflection, ac
 
 func statusOfExec(exec *Result) types.GoalStatus {
 	switch {
+	case exec == nil:
+		return types.GoalFailed
 	case exec.Cancelled && exec.Succeeded == 0:
 		return types.GoalCancelled
-	case exec.Succeeded == exec.Total && exec.Total > 0:
-		return types.GoalSuccess
 	case exec.Succeeded == 0:
 		return types.GoalFailed
+	// A degraded reply must never become a green "completed".
+	case exec.ReplyIncomplete:
+		return types.GoalPartial
+	case exec.Succeeded == exec.Total && exec.Total > 0:
+		return types.GoalSuccess
 	default:
 		return types.GoalPartial
 	}
@@ -59,10 +73,13 @@ func statusOfExec(exec *Result) types.GoalStatus {
 
 // completionStatus is acceptance-driven (result-oriented, not activity-oriented):
 // the caller only reaches it once completionReached has verified every acceptance
-// criterion and artifact, so the goal is a success even if some intermediate steps
-// failed along the way. With no acceptance criteria there is nothing to verify
-// against, so it falls back to the activity-based status.
+// criterion, artifact and the final reply, so the goal is a success even if some
+// intermediate steps failed along the way. With no acceptance criteria there is
+// nothing to verify against, so it falls back to the activity-based status.
 func completionStatus(exec *Result, acceptance []string) types.GoalStatus {
+	if exec != nil && exec.ReplyIncomplete {
+		return statusOfExec(exec)
+	}
 	if len(acceptance) > 0 {
 		return types.GoalSuccess
 	}
@@ -104,7 +121,7 @@ func deriveTraceID(parts ...string) string {
 	return fmt.Sprintf("%010x", h.Sum64()&0xFFFFFFFFFF)
 }
 
-// completionReached decides whether this attempt counts as "done". All three
+// completionReached decides whether this attempt counts as "done". All four
 // guards are required:
 //
 //   - The model says done, or the score reaches the threshold -- the original
@@ -117,10 +134,15 @@ func deriveTraceID(parts ...string) string {
 //     alone is not enough: when artifact verification fails the reflector is
 //     squeezed into replan, but the score-at-threshold half still lets it
 //     through, so it must be judged independently here.
+//   - The final reply is not a degraded draft: a reply can claim "done" over a
+//     placeholder after an upstream failure; the other guards cannot see it.
 //
 // Extracted into its own function instead of staying inside the if: a missing
 // clause in a long condition is invisible; split apart, each is testable.
 func completionReached(refl types.Reflection, acceptance []string, exec *Result, doneThreshold int) bool {
+	if exec != nil && exec.ReplyIncomplete {
+		return false
+	}
 	if refl.Verdict != "done" && refl.Score < doneThreshold {
 		return false
 	}
