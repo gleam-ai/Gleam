@@ -50,3 +50,13 @@ release-output.log
 CODE_REVIEW_REPORT.md
 Gleam 技术设计文档.md
 docs/engineering/model-catalog*.md
+planning/
+RELEASE-PR-WORKFLOW.md
+test_output.txt
+
+# 本地草稿/备份（永不入库）
+.gleam_backup/
+.session-export/
+
+# 本机环境配置脚本（含个人邮箱/密钥指纹/代理地址，不入库）
+scripts/setup-codebuddy-env.sh

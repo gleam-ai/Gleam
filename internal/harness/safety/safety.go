@@ -148,23 +148,28 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 	perm := g.effectivePermission(t)
 	paths := g.pathsOf(ctx, t, args)
 	outside := g.filterOutside(ctx, paths)
+	sensitive := g.filterSensitive(ctx, paths)
 
 	if perm == types.PermissionReadOnly {
-		if len(outside) == 0 {
+		if len(outside) == 0 && len(sensitive) == 0 {
 			return Decision{NeedApproval: false, Risk: "low", Reason: "只读操作"}
 		}
 		// Reading outside the workspace is still a data-access decision: the
 		// user picks a workspace, not "whatever path the model names". Ask
 		// once here; approval widens the read boundary for this task. A whole
 		// plan already approved with the same paths is that one answer.
-		if preApproved {
+		if preApproved && len(sensitive) == 0 {
 			return Decision{NeedApproval: false, Risk: "medium", Reason: "计划已获用户批准", Outside: outside}
 		}
-		return Decision{
-			NeedApproval: true, Risk: "medium",
-			Reason:  "只读访问工作区外的路径：" + briefPaths(outside),
-			Outside: outside,
+		all := mergePaths(outside, sensitive)
+		reason := "只读访问工作区外的路径：" + briefPaths(outside)
+		switch {
+		case len(sensitive) > 0 && len(outside) > 0:
+			reason = "只读访问工作区外或敏感文件：" + briefPaths(all)
+		case len(sensitive) > 0:
+			reason = "读取敏感文件需要确认：" + briefPaths(sensitive)
 		}
+		return Decision{NeedApproval: true, Risk: "medium", Reason: reason, Outside: all}
 	}
 
 	g.mu.RLock()
@@ -184,11 +189,11 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 		return Decision{NeedApproval: true, Risk: risk, Reason: "高风险操作，必须人工确认", Outside: outside}
 	}
 
-	if trustedTool && len(outside) == 0 {
+	if trustedTool && len(outside) == 0 && len(sensitive) == 0 {
 		return Decision{NeedApproval: false, Risk: risk, Reason: fmt.Sprintf("工具 %s 在信任白名单中", t.Name())}
 	}
 
-	if preApproved {
+	if preApproved && len(sensitive) == 0 {
 		return Decision{NeedApproval: false, Risk: risk, Reason: "计划已获用户批准", Outside: outside}
 	}
 
@@ -200,12 +205,16 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 		if len(paths) == 0 {
 			return Decision{NeedApproval: true, Risk: risk, Reason: "无法确认操作路径，需要人工确认"}
 		}
-		if len(outside) > 0 {
-			return Decision{
-				NeedApproval: true, Risk: risk,
-				Reason:  "路径在工作区外：" + briefPaths(outside),
-				Outside: outside,
+		if len(outside) > 0 || len(sensitive) > 0 {
+			all := mergePaths(outside, sensitive)
+			reason := "路径在工作区外：" + briefPaths(outside)
+			switch {
+			case len(sensitive) > 0 && len(outside) > 0:
+				reason = "路径在工作区外或属于敏感文件：" + briefPaths(all)
+			case len(sensitive) > 0:
+				reason = "敏感文件需要确认：" + briefPaths(sensitive)
 			}
+			return Decision{NeedApproval: true, Risk: risk, Reason: reason, Outside: all}
 		}
 		return Decision{NeedApproval: false, Risk: risk, Reason: "操作路径均在信任路径内"}
 	}
@@ -219,6 +228,84 @@ func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, 
 		reason += "（批准后本会话不再询问该工具）"
 	}
 	return Decision{NeedApproval: true, Risk: risk, Reason: reason}
+}
+
+// filterSensitive returns paths that look like credentials or private keys,
+// even when they sit inside a trusted workspace root. They still use the same
+// one-time approval path: the point is to stop silent reads, not to make a
+// legitimate .env edit impossible.
+func (g *Gate) filterSensitive(ctx context.Context, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	// SetWorkspaceRoots mutates TrustedPaths under g.mu; snapshot it before
+	// reading so a workspace switch cannot race this check.
+	g.mu.RLock()
+	trusted := append([]string(nil), g.TrustedPaths...)
+	g.mu.RUnlock()
+	roots := toolutil.RootsFrom(ctx, trusted)
+	if len(roots) == 0 {
+		return nil
+	}
+	var out []string
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(roots[0], p)
+		}
+		p = filepath.Clean(p)
+		// Paths outside the roots already require approval; adding them here
+		// would only duplicate the prompt and the reason text.
+		if _, err := toolutil.ResolveInRoots(p, roots); err != nil {
+			continue
+		}
+		if sensitivePath(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// sensitivePath is deliberately conservative: names that almost always hold
+// credentials, private keys, or registry tokens. Matching files are still
+// readable after one approval; this only prevents a silent read.
+func sensitivePath(p string) bool {
+	norm := strings.ToLower(strings.ReplaceAll(p, "\\", "/"))
+	base := filepath.Base(norm)
+	switch base {
+	case ".env", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
+		"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials":
+		return true
+	}
+	if strings.HasPrefix(base, ".env.") {
+		return true
+	}
+	switch filepath.Ext(base) {
+	case ".pem", ".key", ".p12", ".pfx", ".keystore", ".jks":
+		return true
+	}
+	for _, seg := range []string{"/.ssh", "/.gnupg", "/.aws", "/.kube", "/.docker"} {
+		if strings.Contains(norm, seg+"/") || strings.HasSuffix(norm, seg) {
+			return true
+		}
+	}
+	return false
+}
+
+func mergePaths(a, b []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range append(append([]string(nil), a...), b...) {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 func (g *Gate) pathsOf(ctx context.Context, t types.Tool, args map[string]any) []string {

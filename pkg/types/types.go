@@ -229,6 +229,9 @@ type ToolEvent struct {
 	Error      string    `json:"error,omitempty"`
 	StartedAt  time.Time `json:"started_at,omitempty"`
 	DurationMS int64     `json:"duration_ms,omitempty"`
+	// ExitCode is the shell exit code when the tool reports one. A pointer keeps
+	// "exit 0" distinguishable from "not a process tool".
+	ExitCode *int `json:"exit_code,omitempty"`
 }
 
 const (

@@ -121,13 +121,13 @@ func shellQuote(s string) string {
 
 // PersistentShellTool exposes shell.persistent.
 type PersistentShellTool struct {
-	Shells         *PShells
-	Roots          []string
-	DefaultTimeout time.Duration
+	Shells      *PShells
+	Roots       []string
+	BaseTimeout time.Duration
 }
 
 func NewPersistentShell(shells *PShells, defaultTimeout time.Duration, roots ...string) types.Tool {
-	return &PersistentShellTool{Shells: shells, Roots: roots, DefaultTimeout: defaultTimeout}
+	return &PersistentShellTool{Shells: shells, Roots: roots, BaseTimeout: defaultTimeout}
 }
 
 func (t *PersistentShellTool) Name() string { return "shell.persistent" }
@@ -149,7 +149,7 @@ func (t *PersistentShellTool) Execute(ctx context.Context, args map[string]any) 
 	if err != nil {
 		return nil, err
 	}
-	timeout := time.Duration(toolutil.Int(args, "timeout_sec", int(t.DefaultTimeout/time.Second))) * time.Second
+	timeout := time.Duration(toolutil.Int(args, "timeout_sec", int(t.BaseTimeout/time.Second))) * time.Second
 	owner := pshellOwnerFrom(ctx)
 	return t.Shells.Exec(ctx, owner, cmd, timeout, t.Roots)
 }

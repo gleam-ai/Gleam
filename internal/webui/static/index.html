@@ -3,15 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#161615" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#F5F5F2" />
     <title>Gleam · 微光</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
     <link rel="stylesheet" href="/assets/01-base.css" />
     <link rel="stylesheet" href="/assets/02-shell.css" />
     <link rel="stylesheet" href="/assets/03-align.css" />
@@ -29,7 +23,7 @@
       (function () {
         try {
           var prefs = JSON.parse(localStorage.getItem('gleam-ui') || '{}');
-          var mode = prefs.themeMode || 'dark';
+          var mode = prefs.themeMode || 'light';
           var accent = prefs.accent || 'gleam';
           var dark =
             mode === 'dark' ||
@@ -1064,7 +1058,7 @@
                       />
                     </svg>
                     <span>添加文件夹</span
-                    ><span class="plus-sub">选择或切换工作区</span>
+                    ><span class="plus-sub">引用其中的文件（工作/编程）</span>
                   </button>
                 </div>
                 <!-- 执行方式下拉：权限（请我批准 / 完全访问）+ 任务档位 + 专家角色。按钮文字只读当前真实状态 -->
