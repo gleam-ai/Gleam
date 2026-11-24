@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, session } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { systemLang } from './locale';
@@ -27,6 +27,22 @@ initFileLogging();
 registerAppScheme();
 app.enableSandbox();
 
+// The packaged sidecar inherits this cwd and treats it as the default file-tool
+// root when no workspace has been saved yet. homedir() silently made the whole
+// user profile (including .ssh/.aws) a trusted workspace on first launch, so
+// use a dedicated directory and create it before spawn.
+function defaultWorkspaceDir(): string {
+  const dir = join(homedir(), 'Gleam');
+  try {
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch {
+    // If the home directory is not writable, use the dedicated app data dir
+    // instead of falling back to the whole profile.
+    return app.getPath('userData');
+  }
+}
+
 function sidecarSpec(): SidecarSpec {
   const exe = process.platform === 'win32' ? 'gleam.exe' : 'gleam';
   const args = (process.env.GLEAM_SIDECAR_ARGS || '')
@@ -45,7 +61,7 @@ function sidecarSpec(): SidecarSpec {
     return {
       bin: join(process.resourcesPath, 'bin', exe),
       args,
-      cwd: homedir(),
+      cwd: defaultWorkspaceDir(),
       extraPath,
     };
   }

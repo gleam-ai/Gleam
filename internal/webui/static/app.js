@@ -892,6 +892,30 @@ async function submitGoal() {
     // after the completion toast has already fired.
     if (!finishedTasks.has(task_id)) toast('目标已提交', 'success');
   } catch (err) {
+    // Agent admission is single-task on purpose, but "busy" is not a useful
+    // dead end: offer to stop the running task and retry.
+    if (err && err.status === 409) {
+      const stop = await confirmModal(
+        '有一个任务还在运行。先停止它，再提交这次目标吗？',
+        '智能体正忙',
+        { okText: '停止并重试' },
+      );
+      if (stop) {
+        try {
+          const { goals } = await api('GET', '/api/goals');
+          const running = (goals || []).find((g) => g.status === 'running');
+          if (running && running.task_id) {
+            await api('POST', `/api/goals/${running.task_id}/cancel`);
+            toast('已请求停止，请稍后重新提交', 'info');
+          } else {
+            toast('没找到正在运行的任务，请稍后重试', 'warning');
+          }
+        } catch (e) {
+          toast('停止失败：' + e.message, 'error');
+        }
+      }
+      return;
+    }
     toast(`提交失败：${err.message}`, 'error');
   } finally {
     btn.disabled = false;
@@ -1354,7 +1378,21 @@ async function addFileRef(absPath) {
   addRef('file', label, '@' + absPath);
   toast('已引用文件：' + label, 'success', 2500);
 }
+// Chat mode runs no tools: the model is told to hand local-file work over to
+// work/code mode. Accepting a folder reference here would create a chip that
+// can never be acted on, so block it at the single mutation point.
+function folderRefsBlocked() {
+  if (currentTask !== 'chat') return false;
+  toast(
+    '文件夹分析需要「工作」或「编程」模式：先切换模式再添加',
+    'error',
+    6000,
+  );
+  return true;
+}
+
 async function addFolderRef(absPath) {
+  if (folderRefsBlocked()) return;
   let label = absPath;
   try {
     const ws = await api('GET', '/api/workspace');
@@ -1396,6 +1434,7 @@ function pickSystemFile() {
   input.click();
 }
 function pickSystemFolder() {
+  if (folderRefsBlocked()) return;
   if (window.gleamDesktop && window.gleamDesktop.showOpenDialog) {
     window.gleamDesktop
       .showOpenDialog({ properties: ['openDirectory'] })
@@ -1790,6 +1829,8 @@ function renderTaskCard(info, prepend) {
     if (!existing.card.isConnected && !viewingConvo)
       $('#goal-feed').appendChild(existing.card);
     existing.info = info;
+    if (existing.slots.process)
+      existing.slots.process.open = !info.status || info.status === 'running';
     const badge = existing.card.querySelector('.goal-meta .badge');
     if (badge) badge.outerHTML = statusBadge(info.status);
     mountStopButton(
@@ -1824,7 +1865,12 @@ function renderTaskCard(info, prepend) {
   const timeline = el('div', 'timeline');
   timeline.dataset.role = 'timeline';
   timeline.setAttribute('role', 'log');
-  card.appendChild(timeline);
+  // Process is evidence, not the headline. Running cards keep it open so the
+  // user can watch; completed cards fold it (GLEAM-APP-DESIGN §1/§9).
+  const process = el('details', 'goal-process');
+  process.open = !info.status || info.status === 'running';
+  process.appendChild(el('summary', 'goal-process-head', '过程'));
+  process.appendChild(timeline);
 
   const errSlot = el('div');
   errSlot.hidden = true;
@@ -1843,12 +1889,14 @@ function renderTaskCard(info, prepend) {
     error: errSlot,
     checks: checkSlot,
     changes: changeSlot,
+    process,
   };
   card.appendChild(slots.approval);
   card.appendChild(slots.error);
+  card.appendChild(slots.summary);
   card.appendChild(slots.checks);
   card.appendChild(slots.changes);
-  card.appendChild(slots.summary);
+  card.appendChild(process);
   card.appendChild(slots.suggestion);
   card.appendChild(slots.skill);
 
@@ -2393,7 +2441,14 @@ function applyEvent(taskID, type, data) {
     const row = el('div', 'callout');
     row.dataset.toolKey = key;
     const label = data.phase === 'start' ? '调用' : '完成';
-    row.innerHTML = `<div class="callout-body"><div class="callout-title">${esc(label)} ${esc(data.tool || '工具')}</div>${esc(data.title || data.detail || data.error || '')}</div>`;
+    const bits = [];
+    if (typeof data.exit_code === 'number') bits.push('exit ' + data.exit_code);
+    if (data.duration_ms) bits.push((data.duration_ms / 1000).toFixed(1) + 's');
+    const meta = bits.length
+      ? `<div class="callout-meta">${esc(bits.join(' · '))}</div>`
+      : '';
+    const text = data.error || data.detail || data.title || '';
+    row.innerHTML = `<div class="callout-body"><div class="callout-title">${esc(label)} ${esc(data.tool || '工具')}</div><div>${esc(text)}</div>${meta}</div>`;
     tl.appendChild(row);
     tl.scrollTop = tl.scrollHeight;
   }
@@ -2660,6 +2715,7 @@ function applyResult(taskID, result) {
   }
   const t = tasks.get(taskID);
   if (!t) return;
+  if (t.slots.process) t.slots.process.open = false;
   t.info.status = result.status;
   t.info.result = result;
   // 任务定格了，卡片上还没裁决的审批就地失效：留着两个按钮等于邀请用户去点一个
@@ -6536,7 +6592,7 @@ const UIPrefs = (() => {
   const KEY = 'gleam-ui';
   let p = Object.assign(
     {
-      themeMode: 'dark',
+      themeMode: 'light',
       accent: 'gleam',
       lang: 'zh',
       font: 'sans',
@@ -8099,6 +8155,7 @@ const Onboarding = (function () {
   let providers = [];
   let selectedProvider = null;
   let selectedPlan = null;
+  let selectedModel = '';
   let selectedMode = 'auto';
 
   function show(step) {
@@ -8146,6 +8203,7 @@ const Onboarding = (function () {
         card.classList.add('selected');
         selectedProvider = p.id;
         selectedPlan = p.plans && p.plans[0] ? p.plans[0].kind : 'token';
+        selectedModel = (p.models && p.models[0]) || '';
         $('#ob-next-1').disabled = false;
       });
       box.appendChild(card);
@@ -8178,6 +8236,7 @@ const Onboarding = (function () {
     try {
       const r = await api('POST', '/api/llm/test', {
         provider_id: selectedProvider,
+        model: selectedModel,
         api_key: key,
       });
       if (r.ok) {
@@ -8220,6 +8279,7 @@ const Onboarding = (function () {
       const r = await api('POST', '/api/onboarding', {
         provider_id: selectedProvider,
         plan: selectedPlan || 'token',
+        model: selectedModel,
         api_key: key,
         mode: selectedMode || 'auto',
       });

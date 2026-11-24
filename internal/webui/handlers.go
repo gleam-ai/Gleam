@@ -21,6 +21,7 @@ import (
 	"gleam/internal/buildinfo"
 	harness "gleam/internal/harness"
 	"gleam/internal/harness/skill"
+	"gleam/internal/llm"
 	"gleam/internal/market"
 	"gleam/internal/tools/toolutil"
 	"gleam/pkg/types"
@@ -1369,10 +1370,21 @@ func (s *Server) handleOnboardingGet(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// onboardingModel fills the first preset model for the wizard, which has no
+// model picker. Settings still rejects an explicit provider switch with an
+// empty model (see TestWebUI_SettingsRejectsEmptyModelAndClearsStaleTiers).
+func onboardingModel(providerID string) string {
+	if p := llm.FindProvider(providerID); p != nil && len(p.Models) > 0 {
+		return strings.TrimSpace(p.Models[0])
+	}
+	return ""
+}
+
 func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProviderID string `json:"provider_id"`
 		Plan       string `json:"plan"`
+		Model      string `json:"model"`
 		APIKey     string `json:"api_key"`
 		Mode       string `json:"mode"`
 	}
@@ -1382,6 +1394,7 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 	}
 	body.ProviderID = strings.TrimSpace(body.ProviderID)
 	body.Plan = strings.TrimSpace(body.Plan)
+	body.Model = strings.TrimSpace(body.Model)
 	body.APIKey = strings.TrimSpace(body.APIKey)
 	body.Mode = strings.TrimSpace(body.Mode)
 	if body.ProviderID == "" {
@@ -1391,6 +1404,9 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 	if body.APIKey == "" {
 		writeErr(w, 400, "请填写 API Key")
 		return
+	}
+	if body.Model == "" {
+		body.Model = onboardingModel(body.ProviderID)
 	}
 	if body.Mode == "" {
 		body.Mode = "auto"
@@ -1402,7 +1418,7 @@ func (s *Server) handleOnboardingSave(w http.ResponseWriter, r *http.Request) {
 			"plan":        body.Plan,
 			"api_key":     body.APIKey,
 			"base_url":    "",
-			"model":       "",
+			"model":       body.Model,
 		},
 		"mode": body.Mode,
 	}

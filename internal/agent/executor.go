@@ -1186,7 +1186,27 @@ func toolEndEvent(taskID string, step types.Step, r types.StepResult) types.Tool
 		ev.Status = types.ToolFailed
 	}
 	ev.Error = types.Shorten(oneLine(r.Error), 160)
+	ev.Detail = toolDetail(step.Args)
+	if code, ok := exitCodeOf(r.Output); ok {
+		ev.ExitCode = &code
+	}
 	return ev
+}
+
+func exitCodeOf(v any) (int, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	switch x := m["exit_code"].(type) {
+	case int:
+		return x, true
+	case int64:
+		return int(x), true
+	case float64:
+		return int(x), true
+	}
+	return 0, false
 }
 
 var toolDetailKeys = []string{"path", "file", "file_path", "dir", "command", "cmd", "query", "pattern", "url", "name"}

@@ -5,7 +5,7 @@
  *   - 窄导航轨 + 次级列表 + 主区；强调绿 sparingly（CTA / 激活 / 状态）
  *   - 胶囊控件、轻阴影、细线图标；过程日志默认折叠
  *   - 动效：只动 transform/opacity、120–340ms
- * 字体：Outfit（界面）/ JetBrains Mono（数据）· 8pt 网格
+ * 字体：系统 UI 字体栈（界面）/ 系统等宽字体（数据，优先 JetBrains Mono）· 8pt 网格
  * ============================================================ */
 
 :root {
@@ -45,10 +45,10 @@
 
   /* ---- 字体 ---- */
   --font-sans:
-    "Outfit", -apple-system, "Segoe UI Variable Display", "Segoe UI",
+    -apple-system, "Segoe UI Variable Display", "Segoe UI",
     "Microsoft YaHei UI", "PingFang SC", sans-serif;
   --font-mono:
-    "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    ui-monospace, "Cascadia Code", Consolas, "JetBrains Mono", monospace;
   --fs-xs: 12px;
   --fs-sm: 13px;
   --fs-md: 14px;
@@ -1424,6 +1424,25 @@ body::before {
 }
 
 /* ============ 组件：时间线 ============ */
+.goal-process {
+  margin-top: var(--space-3);
+}
+.goal-process-head {
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
+  list-style: none;
+}
+.goal-process-head::-webkit-details-marker {
+  display: none;
+}
+.goal-process-head::before {
+  content: "▸";
+  margin-right: 6px;
+}
+.goal-process[open] .goal-process-head::before {
+  content: "▾";
+}
 .timeline {
   position: relative;
   padding-left: var(--space-5);
@@ -1455,8 +1474,9 @@ body::before {
   background: var(--color-card);
   border: 2px solid var(--color-border);
 }
+/* 完成是背景，不是新闻：中性点，不用 accent/success（GLEAM-APP-DESIGN §1）。 */
 .timeline-item--done::before {
-  background: var(--color-accent);
+  background: var(--color-fg-faint);
   border-color: transparent;
 }
 .timeline-item--error::before {
@@ -2149,6 +2169,12 @@ details.run-group {
 }
 .callout-title {
   font-weight: 600;
+}
+.callout-meta {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-fg-faint);
 }
 
 /* 评分环 */

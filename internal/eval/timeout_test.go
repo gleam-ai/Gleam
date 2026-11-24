@@ -38,7 +38,7 @@ func TestRunnerTimeoutControlsCaseDeadline(t *testing.T) {
 		want    time.Duration
 	}{
 		{"custom", 30 * time.Second, 30 * time.Second},
-		{"default", 0, DefaultTimeout},
+		{"default", 0, BaseTimeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &deadlineLLM{}

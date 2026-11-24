@@ -126,13 +126,14 @@ function buildCSP(html: string): string {
   return [
     "default-src 'self'",
     `script-src 'self' ${inlineScriptHashes(html).join(' ')}`.trim(),
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "img-src 'self' data: blob: https:",
     "connect-src 'self'",
-    // Remote iframes run inside a privileged app:// document; do not allow
-    // arbitrary http(s) content to be embedded there.
-    "frame-src 'none'",
+    // The preview pane is an iframe. Keep app:// out of frame-src (it is the
+    // privileged shell) and allow remote http(s) pages; the iframe's sandbox
+    // attribute still removes top-navigation and same-origin shell access.
+    'frame-src http: https:',
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",

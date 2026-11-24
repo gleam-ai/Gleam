@@ -216,6 +216,42 @@ func TestFileTools_Search(t *testing.T) {
 	}
 }
 
+func TestFileTools_SearchSkipsVendorDirs(t *testing.T) {
+	tools, ws := newTools(t)
+	ctx := context.Background()
+	for _, dir := range []string{
+		filepath.Join(ws, "node_modules", "pkg"),
+		filepath.Join(ws, ".git", "objects"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(ws, "keep.txt"),
+		filepath.Join(ws, "node_modules", "pkg", "skip.txt"),
+		filepath.Join(ws, ".git", "skip.txt"),
+	} {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	st := &searchTool{tools}
+	r, err := st.Execute(ctx, map[string]any{"root": ".", "pattern": "*.txt"})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	rm := r.(map[string]any)
+	if rm["count"] != 1 {
+		t.Fatalf("count = %v, files = %v（node_modules/.git 应被跳过）", rm["count"], rm["files"])
+	}
+	files := rm["files"].([]string)
+	if len(files) != 1 || !strings.HasSuffix(files[0], "keep.txt") {
+		t.Errorf("files = %v", files)
+	}
+}
+
 func TestFileTools_LargeReadTruncates(t *testing.T) {
 	tools, ws := newTools(t)
 	big := filepath.Join(ws, "big.txt")

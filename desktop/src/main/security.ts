@@ -21,10 +21,14 @@ function isAppURL(raw: string): boolean {
   }
 }
 
-function isExternalHTTP(raw: string): boolean {
+function isExternalOpenable(raw: string): boolean {
   try {
     const u = new URL(raw);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    return (
+      u.protocol === 'http:' ||
+      u.protocol === 'https:' ||
+      u.protocol === 'mailto:'
+    );
   } catch {
     return false;
   }
@@ -41,7 +45,7 @@ export function hardenContents(contents: WebContents): void {
   contents.on('will-redirect', guardNav);
 
   contents.setWindowOpenHandler(({ url }) => {
-    if (isExternalHTTP(url)) void shell.openExternal(url);
+    if (isExternalOpenable(url)) void shell.openExternal(url);
     else console.warn(`[security] blocked window.open(${url})`);
     return { action: 'deny' };
   });
@@ -284,8 +288,8 @@ export function installIpc(
   ipcMain.handle(
     'desktop:openExternal',
     guard(async (_e, url: unknown) => {
-      if (typeof url !== 'string' || !isExternalHTTP(url))
-        throw new Error('only http(s) URLs can be opened externally');
+      if (typeof url !== 'string' || !isExternalOpenable(url))
+        throw new Error('only http(s)/mailto URLs can be opened externally');
       await shell.openExternal(url);
       return true;
     }),

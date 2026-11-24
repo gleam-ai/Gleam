@@ -19,16 +19,16 @@ import (
 const maxOutput = 64 * 1024
 
 type Tool struct {
-	DefaultTimeout time.Duration
-	Roots          []string
+	BaseTimeout time.Duration
+	Roots       []string
 	// When Jobs is non-nil, background=true is supported: the command goes into the background job table and a job id is returned immediately.
 	Jobs *Jobs
 }
 
-func New(defaultTimeout time.Duration) *Tool { return &Tool{DefaultTimeout: defaultTimeout} }
+func New(defaultTimeout time.Duration) *Tool { return &Tool{BaseTimeout: defaultTimeout} }
 
 func NewWithRoots(defaultTimeout time.Duration, roots ...string) *Tool {
-	return &Tool{DefaultTimeout: defaultTimeout, Roots: roots}
+	return &Tool{BaseTimeout: defaultTimeout, Roots: roots}
 }
 
 func (t *Tool) Name() string { return "shell.exec" }
@@ -75,9 +75,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (any, error) {
 		}, nil
 	}
 
-	timeout := time.Duration(toolutil.Int(args, "timeout_sec", int(t.DefaultTimeout/time.Second))) * time.Second
+	timeout := time.Duration(toolutil.Int(args, "timeout_sec", int(t.BaseTimeout/time.Second))) * time.Second
 	if timeout <= 0 {
-		timeout = t.DefaultTimeout
+		timeout = t.BaseTimeout
 	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second

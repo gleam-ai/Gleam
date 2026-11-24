@@ -323,6 +323,15 @@ func (t *deleteTool) Execute(ctx context.Context, args map[string]any) (any, err
 	return map[string]any{"path": p, "deleted": true}, nil
 }
 
+// Recursive search should not spend its 20s budget walking dependency and
+// VCS internals. Listing a directory still shows them; only the walk skips.
+var searchSkipDirs = map[string]bool{
+	"node_modules": true,
+	".git":         true,
+	".svn":         true,
+	".hg":          true,
+}
+
 type searchTool struct{ *Tools }
 
 func (t *searchTool) Name() string { return "file.search" }
@@ -359,6 +368,9 @@ func (t *searchTool) Execute(ctx context.Context, args map[string]any) (any, err
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("搜索超时")
+		}
+		if d.IsDir() && searchSkipDirs[d.Name()] {
+			return filepath.SkipDir
 		}
 		if !d.IsDir() {
 			if ok, _ := filepath.Match(pattern, d.Name()); ok {

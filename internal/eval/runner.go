@@ -9,7 +9,7 @@ import (
 	"gleam/pkg/types"
 )
 
-const DefaultTimeout = 60 * time.Second
+const BaseTimeout = 60 * time.Second
 
 type Runner struct {
 	Agent   *agent.Agent
@@ -184,7 +184,7 @@ func (r *Runner) runCaseOnce(ctx context.Context, c Case) CaseResult {
 
 	to := r.Timeout
 	if to <= 0 {
-		to = DefaultTimeout
+		to = BaseTimeout
 	}
 	cctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
