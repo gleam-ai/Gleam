@@ -37,11 +37,11 @@ bash scripts/verify.sh --quick
 python scripts/check-version-owner.py
 ```
 
-### 2. 本地提交（不签名也可以，后面会重签）
+### 2. 本地提交（本机签名）
 
 ```bash
-git checkout -b chore/release-x.y.z
-git add -A
+git switch -c chore/release-x.y.z
+git add <逐个文件路径>          # 只加指定文件，禁 git add -A
 git commit -m "chore(release): bump to x.y.z"
 ```
 
@@ -52,8 +52,7 @@ git commit -m "chore(release): bump to x.y.z"
 gpg --list-secret-keys --keyid-format=long | grep <YOUR_KEY_ID>
 ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"
 
-# 推送（需要代理）
-export HTTPS_PROXY=http://127.0.0.1:6789 HTTP_PROXY=http://127.0.0.1:6789
+# 推送（SSH 直连，无需代理）
 git push -u origin chore/release-x.y.z
 
 # 建 PR
@@ -71,10 +70,9 @@ SHA=$(gh pr view <PR_NUMBER> --json headRefOid -q .headRefOid)
 gh api repos/gleam-ai/Gleam/commits/$SHA/check-runs --jq '.check_runs[] | {name, status, conclusion}'
 ```
 
-### 5. 合并（需要用户批准）
+### 5. 合并（本机直接执行）
 
 ```bash
-# 用户批准后执行
 gh pr merge <PR_NUMBER> --admin --squash --delete-branch
 ```
 
@@ -101,12 +99,11 @@ C:\Software\Gleam\resources\bin\gleam.exe doctor --strict
 C:\Software\Gleam\resources\bin\gleam.exe eval --layer smoke --strict --mock-llm
 ```
 
-### 7. 发布（需要用户批准）
+### 7. 发布（本机直接执行）
 
 ```bash
-# 打标签
+# 打标签（SSH 直连，无需代理）
 git tag vx.y.z
-export HTTPS_PROXY=http://127.0.0.1:6789 HTTP_PROXY=http://127.0.0.1:6789
 git push origin vx.y.z
 
 # 建 Release + 上传 13 个资产
@@ -133,9 +130,11 @@ curl -s https://github.com/gleam-ai/Gleam/releases/latest/download/latest.yml | 
 | 版本号漂移 | check-version-owner.py 报红 | 三处 + 官网两处全同步 |
 | CodeQL 单独 gate | PR checks 显示 success 但 CodeQL 还在跑 | `gh pr checks --watch` 等所有 |
 
-## 分工边界
+## 执行边界（全部本机完成）
 
-- **codebuddy（本机）**：改码 + 闸门 + 本地提交
-- **Qoder（或手动）**：签名推送 + 建 PR + 合并 + 打包 + 发布
+所有环节——改码、闸门、签名提交、推送、建 PR、合并、构建 CLI 产物、打包桌面安装包、装机实测、打 tag、上传资产、转正 release、官网同步——**全部在本机执行**，不再分流到另一台机器或远程环境。
 
-如果 codebuddy 环境配好了（GPG/代理/SSH），可以执行全流程，但合并和发布前仍需用户批准。
+- 签名：本机 Git Bash 的 gpg 有私钥 `9E38B022C8D5FC28`，`commit.gpgsign=true` 已全局配置。
+- 网络：`git push/pull` 走 SSH 直连；`gh` 走 HTTPS API 直连，均无需代理。
+- 唯一需要代理的环节：`npm run pack:win` 下载 electron 二进制（electron CDN `20.247.x:443` 直连超时），前置本机代理 `HTTPS_PROXY/HTTP_PROXY=http://127.0.0.1:6789`。
+- 合并与发布：本机直接执行，无需额外确认。
