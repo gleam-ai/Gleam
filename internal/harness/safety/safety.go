@@ -296,7 +296,7 @@ func sensitivePath(p string) bool {
 }
 
 func mergePaths(a, b []string) []string {
-	out := make([]string, 0, len(a)+len(b))
+	var out []string
 	seen := map[string]bool{}
 	for _, p := range append(append([]string(nil), a...), b...) {
 		if seen[p] {
