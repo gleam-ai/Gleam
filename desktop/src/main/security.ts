@@ -36,10 +36,13 @@ function isExternalOpenable(raw: string): boolean {
 
 export function hardenContents(contents: WebContents): void {
   const guardNav = (e: Electron.Event, url: string) => {
-    if (!isAppURL(url)) {
-      e.preventDefault();
-      console.warn(`[security] blocked navigation to ${url}`);
-    }
+    if (isAppURL(url)) return;
+    e.preventDefault();
+    // The shell never leaves app://. A same-tab link to the outside world used
+    // to die here with only a console line; hand it to the system browser the
+    // same way window.open is handled below.
+    if (isExternalOpenable(url)) void shell.openExternal(url);
+    else console.warn(`[security] blocked navigation to ${url}`);
   };
   contents.on('will-navigate', guardNav);
   contents.on('will-redirect', guardNav);

@@ -20,6 +20,10 @@ func newRepo(t *testing.T) string {
 		{"init"},
 		{"config", "user.email", "test@example.invalid"},
 		{"config", "user.name", "Gleam Test"},
+		// Temp repos must not inherit global commit.gpgsign: signing needs a
+		// keyboxd that is absent on this machine, and these cases test worktree
+		// behavior, not signatures.
+		{"config", "commit.gpgsign", "false"},
 	} {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {

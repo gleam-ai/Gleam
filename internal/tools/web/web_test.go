@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -181,6 +182,11 @@ func TestWeb_ExtractsHTMLText(t *testing.T) {
 
 func TestWeb_RechecksDNSAtDialTime(t *testing.T) {
 	tool := New()
+	// Keep this case independent of the machine's proxy settings. With
+	// HTTP_PROXY set, the pinned dialer connects to the proxy host instead of
+	// the target, so the second resolve never happens and the rebinding path
+	// would not be exercised at all.
+	tool.HTTP.Transport = &http.Transport{Proxy: nil}
 	calls := 0
 	tool.lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
 		calls++
@@ -196,8 +202,37 @@ func TestWeb_RechecksDNSAtDialTime(t *testing.T) {
 	if !strings.Contains(err.Error(), "拒绝访问本机或内网地址") {
 		t.Fatalf("应报内网拦截，实际: %v", err)
 	}
-	if calls < 2 {
-		t.Fatalf("解析应至少发生两次（校验 + 连接），实际 %d", calls)
+	if calls != 2 {
+		t.Fatalf("解析应恰好两次（校验 + 连接），实际 %d", calls)
+	}
+}
+
+func TestWeb_PinnedDialRejectsPrivateProxyAddress(t *testing.T) {
+	// Reproduces the failure seen on hosts with a loopback HTTP proxy: the
+	// pinned dialer receives the proxy address, short-circuits resolve via
+	// net.ParseIP, and rejects it before the target resolver is consulted a
+	// second time. This pins the conservative behaviour so a later change to
+	// proxy handling cannot silently weaken the private-network guard.
+	proxy, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := New()
+	tool.HTTP.Transport = &http.Transport{Proxy: http.ProxyURL(proxy)}
+	calls := 0
+	tool.lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+		calls++
+		return []net.IP{net.ParseIP("93.184.216.34")}, nil
+	}
+	_, err = tool.Execute(context.Background(), map[string]any{"url": "http://rebind.example/"})
+	if err == nil {
+		t.Fatal("proxied dial to a private address must be rejected")
+	}
+	if !strings.Contains(err.Error(), "拒绝访问本机或内网地址") {
+		t.Fatalf("应报内网拦截，实际: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("proxy dial must not re-resolve the target, got %d calls", calls)
 	}
 }
 

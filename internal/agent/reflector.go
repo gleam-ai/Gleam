@@ -234,6 +234,60 @@ func scoreFromChecks(checks []types.CheckResult) int {
 	return passed * 100 / len(checks)
 }
 
+// Budgets, in runes, for the evidence handed to the judge. Every step used to
+// be cut to 300, including the reply itself, so the judge was asked to verify a
+// deliverable it could only see the first paragraph of and failed the check for
+// "cannot see the rest" -- a guaranteed replan loop on any real answer.
+const (
+	reflectToolRunes    = 1200 // per tool step
+	reflectReplyRunes   = 4000 // the reply is the deliverable under acceptance
+	reflectDigestRunes  = 9000 // all step outputs together
+	reflectToolMinRunes = 300  // a squeezed tool step never goes below this
+)
+
+// reflectCaps returns the per-step output cap. The reply keeps its budget
+// while tool steps are squeezed; only when the tool steps are at their floor
+// is everything scaled down together.
+func reflectCaps(steps []types.StepResult) []int {
+	caps := make([]int, len(steps))
+	total := 0
+	for i, st := range steps {
+		caps[i] = reflectToolRunes
+		if st.Tool == "reply" {
+			caps[i] = reflectReplyRunes
+		}
+		total += caps[i]
+	}
+	if total <= reflectDigestRunes {
+		return caps
+	}
+	over := total - reflectDigestRunes
+	for i, st := range steps {
+		if over <= 0 {
+			break
+		}
+		if st.Tool == "reply" {
+			continue
+		}
+		cut := over
+		if room := caps[i] - reflectToolMinRunes; cut > room {
+			cut = room
+		}
+		caps[i] -= cut
+		over -= cut
+	}
+	if over <= 0 {
+		return caps
+	}
+	scale := float64(reflectDigestRunes) / float64(total)
+	for i := range caps {
+		if c := int(float64(caps[i]) * scale); c > 0 {
+			caps[i] = c
+		}
+	}
+	return caps
+}
+
 func buildDigest(goal string, exec *Result, attempt int, acceptance []string, facts []artifactFact) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## 用户目标\n%s\n", goal)
@@ -244,7 +298,8 @@ func buildDigest(goal string, exec *Result, attempt int, acceptance []string, fa
 		}
 	}
 	fmt.Fprintf(&b, "\n## 第 %d 次尝试的执行结果\n", attempt)
-	for _, st := range exec.Steps {
+	caps := reflectCaps(exec.Steps)
+	for i, st := range exec.Steps {
 		fmt.Fprintf(&b, "- [%s] %s (%s)", st.Status, st.StepID, st.Tool)
 		switch {
 		case st.Status == types.StepSucceeded && st.Outcome == types.OutcomeFailed:
@@ -253,7 +308,7 @@ func buildDigest(goal string, exec *Result, attempt int, acceptance []string, fa
 			fmt.Fprintf(&b, "，输出: <tool_result tool=%q>（空结果，不是错误）</tool_result>", st.Tool)
 		case st.Status == types.StepSucceeded:
 			fmt.Fprintf(&b, "，输出: <tool_result tool=%q>%s</tool_result>",
-				st.Tool, types.Shorten(stringify(st.Output), 300))
+				st.Tool, types.Shorten(stringify(st.Output), caps[i]))
 		case st.Status == types.StepFailed:
 			fmt.Fprintf(&b, "，错误: %s", types.Shorten(st.Error, 200))
 		default:

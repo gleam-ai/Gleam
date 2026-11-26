@@ -39,6 +39,9 @@ type Executor struct {
 	// pre_tool runs after the gate approves and right before execution
 	// (exit 2 blocks), post_tool notifies after the finish.
 	Hooks *HookRunner
+	// Composer rewrites a reply step from the evidence its dependencies
+	// returned; nil keeps the planned text as written (see ReplyComposer).
+	Composer ReplyComposer
 }
 
 type StepSink interface {
@@ -739,6 +742,9 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		r.Error = err.Error()
 		r.ErrorKind = types.ErrParam
 		return finalize()
+	}
+	if step.Tool == "reply" && (len(step.DependsOn) > 0 || hasRefs(step.Args)) {
+		args = e.composeReply(ctx, args)
 	}
 	r.FinalArgs = args
 	if err := toolutil.ValidateArgs(tool, args); err != nil {

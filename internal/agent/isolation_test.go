@@ -23,7 +23,10 @@ func gitRepo(t *testing.T, dir string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("环境里没有 git")
 	}
-	steps := [][]string{{"init"}, {"config", "user.email", "t@example.invalid"}, {"config", "user.name", "Gleam Test"}}
+	// Temp repos must not inherit global commit.gpgsign: signing needs a
+	// keyboxd that is absent on this machine, and these cases test isolation
+	// behavior, not signatures.
+	steps := [][]string{{"init"}, {"config", "user.email", "t@example.invalid"}, {"config", "user.name", "Gleam Test"}, {"config", "commit.gpgsign", "false"}}
 	for _, a := range steps {
 		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", a, err, out)

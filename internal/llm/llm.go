@@ -144,6 +144,7 @@ const (
 	MarkerToolPick = "[GLEAM-TASK:TOOL_PICK]"
 	MarkerReview   = "[GLEAM-TASK:REVIEW]"
 	MarkerChatChk  = "[GLEAM-TASK:CHAT_CHECK]"
+	MarkerCompose  = "[GLEAM-TASK:COMPOSE]"
 )
 
 func KindOf(system string) string {
@@ -162,6 +163,8 @@ func KindOf(system string) string {
 		return "tool_pick"
 	case contains(system, MarkerReview):
 		return "review"
+	case contains(system, MarkerCompose):
+		return "compose"
 	case contains(system, MarkerChatChk):
 		return "chat_check"
 	case contains(system, MarkerChat):
