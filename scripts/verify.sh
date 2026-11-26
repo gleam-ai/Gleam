@@ -9,7 +9,7 @@
 #   1 格式与引用 gofmt + §ref —— 文本层的机器可读约定（代码文本 + 文档文本）
 #   2 静态   go vet         —— 可疑构造（无用赋值、可疑的类型转换、错用的锁……）
 #   3 编译   go build       —— 语法与类型自洽
-#   4 行为   go test        —— 单元 / 集成测试全绿
+#   4 行为   go test + desktop IPC 冒烟 —— 单元 / 集成测试全绿
 #   5 端到端 smoke          —— 真实二进制、真实文件路径跑得通
 #   6 就绪   doctor + eval  —— 配置与数据目录就绪；评测基线不倒退
 #
@@ -187,7 +187,11 @@ smoke_layer() {
 # ── 第 2/3/4 层 · 走 go_retry（带环境噪声重试，实现见 scripts/lib/gonoise.sh） ──
 vet_layer() { go_retry "go vet" go vet ./...; }
 build_layer() { go_retry "go build" go build ./...; }
-test_layer() { go_retry "go test" go test ./... -count=1 -timeout 300s; }
+test_layer() {
+  go_retry "go test" go test ./... -count=1 -timeout 300s || return 1
+  # Desktop IPC contract has no Go coverage; the command lives in desktop/package.json.
+  npm --prefix desktop test || return 1
+}
 
 # ── 第 6 层 · 就绪与评测回归 ──
 # 仍然**不用 `go run`**：本机实测它会偶发解析不到标准库（5 次里中 1 次）。

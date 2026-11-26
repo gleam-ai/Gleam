@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"gleam/internal/llm"
@@ -157,11 +159,17 @@ func (a *Agent) reviewer() Reviewer {
 
 // Anti-spin (in-place spinning detection across replans)
 
-// noteSteps records this round's actually executed step fingerprints,
-// returning the fingerprint that reached the threshold and how many rounds it
-// appeared in. A fingerprint counts once per round -- multiple results from
-// deduplication are not counted twice. Only steps that actually ran count:
-// steps skipped due to a failed dependency are not an attempt.
+// noteSteps records the set of step fingerprints this round actually executed,
+// returning the round fingerprint that reached the threshold and how many
+// rounds it appeared in.
+//
+// The unit is the whole round, not one step. Counting steps on their own
+// flagged any replan that reuses a cheap read -- every plan for "look at this
+// project" starts by listing the root -- as spinning, even when the rest of the
+// plan had changed. Only a round whose executed steps are all the same counts
+// as a repeat. The set is order-insensitive and a fingerprint counts once per
+// round, so results from deduplication are not counted twice. Skipped steps
+// (a failed dependency) are not an attempt.
 func (a *Agent) noteSteps(taskID string, steps []types.StepResult) (fp string, rounds int) {
 	if a == nil {
 		return "", 0
@@ -171,7 +179,17 @@ func (a *Agent) noteSteps(taskID string, steps []types.StepResult) (fp string, r
 		return "", 0
 	}
 	th := c.Agent.StuckThreshold
-	seen := make(map[string]struct{}, len(steps))
+	var ran []string
+	for _, st := range steps {
+		if st.Status != types.StepSucceeded && st.Status != types.StepFailed {
+			continue
+		}
+		ran = append(ran, stepFingerprint(st.Tool, st.FinalArgs))
+	}
+	round := roundFingerprint(ran)
+	if round == "" {
+		return "", 0
+	}
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
 	if a.stuck == nil {
@@ -182,26 +200,42 @@ func (a *Agent) noteSteps(taskID string, steps []types.StepResult) (fp string, r
 		counts = map[string]int{}
 		a.stuck[taskID] = counts
 	}
-	for _, st := range steps {
-		if st.Status != types.StepSucceeded && st.Status != types.StepFailed {
-			continue
-		}
-		f := stepFingerprint(st.Tool, st.FinalArgs)
-		if _, dup := seen[f]; dup {
-			continue
-		}
-		seen[f] = struct{}{}
-		counts[f]++
-		if counts[f] >= th {
-			return f, counts[f]
-		}
+	counts[round]++
+	if counts[round] >= th {
+		return round, counts[round]
 	}
 	return "", 0
 }
 
-// describeFingerprint restores a "tool|args" fingerprint into a
-// human-readable sentence.
+// roundFingerprint is the sorted, de-duplicated list of the step fingerprints
+// a round executed. Step ids and order are left out on purpose: a replan that
+// renumbers or reorders the same calls is the same round.
+func roundFingerprint(fps []string) string {
+	if len(fps) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), fps...)
+	sort.Strings(sorted)
+	out := sorted[:1]
+	for _, f := range sorted[1:] {
+		if f != out[len(out)-1] {
+			out = append(out, f)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// describeFingerprint restores a round fingerprint into a human-readable
+// phrase: one action is named alone, several are listed.
 func describeFingerprint(fp string) string {
+	parts := strings.Split(fp, "\n")
+	if len(parts) > 1 {
+		names := make([]string, 0, len(parts))
+		for _, p := range parts {
+			names = append(names, describeFingerprint(p))
+		}
+		return "同一组操作（" + strings.Join(names, "、") + "）"
+	}
 	i := indexOf(fp, "|")
 	if i < 0 {
 		return fp

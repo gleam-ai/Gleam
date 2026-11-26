@@ -51,6 +51,10 @@ func TestBranchAndCommit(t *testing.T) {
 	run("init")
 	run("config", "user.email", "test@example.invalid")
 	run("config", "user.name", "Gleam Test")
+	// Temp repos must not inherit global commit.gpgsign: signing needs a
+	// keyboxd that is absent on this machine, and these cases test the git
+	// tools, not signatures.
+	run("config", "commit.gpgsign", "false")
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +109,7 @@ func TestPushArgvForceWithLease(t *testing.T) {
 	mk(work, "init")
 	mk(work, "config", "user.email", "test@example.invalid")
 	mk(work, "config", "user.name", "Gleam Test")
+	mk(work, "config", "commit.gpgsign", "false")
 	mk(work, "remote", "add", "origin", bare)
 	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)

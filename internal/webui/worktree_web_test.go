@@ -28,6 +28,10 @@ func gitInit(t *testing.T, dir string) {
 	}
 	for _, a := range [][]string{
 		{"init"}, {"config", "user.email", "t@example.invalid"}, {"config", "user.name", "Gleam Test"},
+		// Temp repos must not inherit global commit.gpgsign: signing needs a
+		// keyboxd that is absent on this machine, and these cases test worktree
+		// behavior, not signatures.
+		{"config", "commit.gpgsign", "false"},
 	} {
 		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", a, err, out)

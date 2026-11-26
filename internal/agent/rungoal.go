@@ -446,6 +446,9 @@ func (a *Agent) runGoalLoop(ctx context.Context, req types.GoalRequest, goal, mo
 			// extra copy.
 			Reviewer: a.reviewer(),
 			Hooks:    a.Hooks,
+			// A reply that cites earlier steps is a draft written before any
+			// of them ran; the main model rewrites it from what they returned.
+			Composer: NewReplyComposer(a.PrimaryLLM(), taskID),
 		}
 		// Deep review: hand the whole plan to the main model before execution.
 		// A veto goes to the user -- approved, continue; rejected, stop here.

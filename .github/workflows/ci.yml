@@ -148,17 +148,45 @@ jobs:
         run: |
           "$(go env GOPATH)/bin/shfmt" -d -i 2 -ci scripts/*.sh scripts/lib/*.sh
 
+  # Desktop IPC contract smoke. Kept as its own job on purpose: inside `test`
+  # a failing `go test` would skip it and the signal would be lost. The command
+  # itself is owned by desktop/package.json (same one as verify.sh layer 4).
+  desktop-contract:
+    name: Desktop contract (IPC smoke)
+    runs-on: windows-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # typescript is a devDependency here; the harness transpiles src/*.ts.
+      - name: Install desktop dev dependencies
+        run: npm --prefix desktop ci
+
+      - name: Desktop IPC contract smoke
+        run: npm --prefix desktop test
+
   ci-success:
     name: CI Success
     if: ${{ always() }}
-    needs: [format-vet-build, test, style]
+    needs: [format-vet-build, test, style, desktop-contract]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         shell: bash
         run: |
           set -euo pipefail
-          for r in "${{ needs.format-vet-build.result }}" "${{ needs.test.result }}" "${{ needs.style.result }}"; do
+          for r in "${{ needs.format-vet-build.result }}" "${{ needs.test.result }}" "${{ needs.style.result }}" "${{ needs.desktop-contract.result }}"; do
             echo "result=$r"
             if [ "$r" != "success" ]; then
               echo "job did not succeed: $r"

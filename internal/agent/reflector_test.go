@@ -70,7 +70,14 @@ func TestReflector_DigestTruncated(t *testing.T) {
 	if !strings.Contains(digest, "第 2 次") || !strings.Contains(digest, "目标文本") {
 		t.Errorf("digest 缺少关键字段")
 	}
-	if strings.Contains(digest, strings.Repeat("x", 1000)) {
+	// Truncation still applies, at the tool-step cap rather than a flat 300:
+	// the flat cut also chopped the reply itself, which left the judge unable
+	// to verify the deliverable (see reflectCaps). The JSON wrapper shares the
+	// cap, so the exact run is a little shorter than the cap itself.
+	if !strings.Contains(digest, strings.Repeat("x", 1100)) {
+		t.Error("输出应保留到工具步上限附近（远多于旧的 300）")
+	}
+	if strings.Contains(digest, strings.Repeat("x", reflectToolRunes)) {
 		t.Error("输出应被截断")
 	}
 	_ = llm.MarkerPlan

@@ -3,9 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
-const fs = require('node:fs');
-const Module = require('node:module');
-const ts = require('typescript');
+const path = require('node:path');
+const { loadTsModule } = require('./helpers/electron-harness');
 
 function createHarness(hostOverrides = {}, { packaged = true } = {}) {
   const handlers = new Map();
@@ -36,44 +35,19 @@ function createHarness(hostOverrides = {}, { packaged = true } = {}) {
     ...hostOverrides,
   };
 
-  const updaterPath = require.resolve('../src/main/updater.ts');
-  const protocolPath = require.resolve('../src/main/protocol.ts');
-  delete require.cache[updaterPath];
-  delete require.cache[protocolPath];
-  const originalLoad = Module._load;
-  const originalTypeScriptLoader = require.extensions['.ts'];
-  require.extensions['.ts'] = (module, filename) => {
-    const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-      compilerOptions: {
-        module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2022,
-        esModuleInterop: true,
+  const updaterPath = path.join(__dirname, '..', 'src', 'main', 'updater.ts');
+  const protocolPath = path.join(__dirname, '..', 'src', 'main', 'protocol.ts');
+  loadTsModule(updaterPath, {
+    electron,
+    mocks: {
+      'electron-updater': { autoUpdater },
+      'node:child_process': {
+        spawn: () => assert.fail('installer must not be spawned'),
       },
-    }).outputText;
-    module._compile(output, filename);
-  };
-  const previousAppImage = process.env.APPIMAGE;
-  process.env.APPIMAGE = 'test.AppImage';
-  Module._load = function (request) {
-    if (request === 'electron') return electron;
-    if (request === 'electron-updater') return { autoUpdater };
-    if (request === 'node:child_process') {
-      return { spawn: () => assert.fail('installer must not be spawned') };
-    }
-    return originalLoad.apply(this, arguments);
-  };
-  try {
-    require(updaterPath).installUpdater(host);
-  } finally {
-    Module._load = originalLoad;
-    if (originalTypeScriptLoader) {
-      require.extensions['.ts'] = originalTypeScriptLoader;
-    } else {
-      delete require.extensions['.ts'];
-    }
-    if (previousAppImage === undefined) delete process.env.APPIMAGE;
-    else process.env.APPIMAGE = previousAppImage;
-  }
+    },
+    env: { APPIMAGE: 'test.AppImage' },
+    reset: [protocolPath],
+  }).installUpdater(host);
 
   const event = { senderFrame: { parent: null, url: 'app://gleam/' } };
   return {

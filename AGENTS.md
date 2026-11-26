@@ -28,7 +28,7 @@
 | 格式与引用 | `gofmt -l ./internal ./pkg ./cmd`；`scripts/check-*.py` |
 | 静态检查 | `go vet ./...` |
 | 编译 | `go build ./...` |
-| 行为 | `go test ./... -count=1 -timeout 300s` |
+| 行为 | `go test ./... -count=1 -timeout 300s`；`npm --prefix desktop test`（desktop IPC 契约冒烟，命令定义在 `desktop/package.json`） |
 | 端到端 | `bash scripts/smoke.sh`；`bash scripts/smoke-replay.sh` |
 | 编辑器协议 | `node vscode-gleam/scripts/smoke-engine.js ./bin/gleam.exe`（随第 6 层跑） |
 | 就绪与评测 | `bin/gleam.exe doctor --strict`；`bin/gleam.exe eval --layer smoke --strict` |

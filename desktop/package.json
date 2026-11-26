@@ -12,7 +12,7 @@
     "fetch:runtimes": "node scripts/fetch-runtimes.mjs",
     "build:ts": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/updater.test.js",
+    "test": "node --test test/updater.test.js test/ipc.test.js",
     "build": "npm run build:sidecar && npm run build:ts",
     "dev": "npm run build && electron .",
     "start": "electron .",

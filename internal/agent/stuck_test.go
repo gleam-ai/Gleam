@@ -101,6 +101,38 @@ func TestStuck_DedupeNotCountedTwice(t *testing.T) {
 	}
 }
 
+// Replans for one goal routinely share a cheap first step (listing the root of
+// the workspace) while the rest of the plan changes. That is not spinning: a
+// real run was aborted three times in a row on exactly this, with three
+// different plans.
+func TestStuck_SharedStepInDifferentPlansNotFlagged(t *testing.T) {
+	f := newFixture(t, nil)
+	f.a.Cfg.Agent.StuckThreshold = 3
+	f.a.initUsage("t-shared")
+	list := types.StepResult{Tool: "file.list", Status: types.StepSucceeded, FinalArgs: map[string]any{"path": "."}}
+	others := []types.StepResult{
+		{Tool: "file.read", Status: types.StepSucceeded, FinalArgs: map[string]any{"path": "README.md"}},
+		{Tool: "web.fetch", Status: types.StepFailed, FinalArgs: map[string]any{"url": "https://example.com"}},
+		{Tool: "reply", Status: types.StepSucceeded, FinalArgs: map[string]any{"text": "done"}},
+	}
+	for i, other := range others {
+		if fp, rounds := f.a.noteSteps("t-shared", []types.StepResult{list, other}); fp != "" {
+			t.Fatalf("round %d shares only one step and must not count as a repeat: %s (%d)", i+1, describeFingerprint(fp), rounds)
+		}
+	}
+	// That pair has now run once. The same pair again, then once more with
+	// the steps in the other order, is the same round: the third time fires.
+	f.a.noteSteps("t-shared", []types.StepResult{list, others[0]})
+	fp, rounds := f.a.noteSteps("t-shared", []types.StepResult{others[0], list})
+	if fp == "" || rounds != 3 {
+		t.Fatalf("the identical round repeated three times must be flagged, got fp=%q rounds=%d", fp, rounds)
+	}
+	desc := describeFingerprint(fp)
+	if !strings.HasPrefix(desc, "同一组操作（") || !strings.Contains(desc, "file.list") || !strings.Contains(desc, "file.read") {
+		t.Errorf("description = %q, want it to list the whole round", desc)
+	}
+}
+
 func TestStuck_SkippedStepsNotCounted(t *testing.T) {
 	f := newFixture(t, nil)
 	f.a.Cfg.Agent.StuckThreshold = 2
