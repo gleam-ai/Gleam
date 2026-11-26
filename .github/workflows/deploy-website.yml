@@ -1,4 +1,4 @@
-name: Deploy Website to GitHub Pages
+name: Deploy Website
 
 on:
   push:
@@ -17,6 +17,11 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Two targets from one push, both serving the same `website/` directory:
+#   deploy         -> GitHub Pages  (gleam-ai.github.io/Gleam/)
+#   deploy-edgeone -> EdgeOne Makers (gleam.wangjn.top via CNAME)
+# The EdgeOne job needs the EDGEONE_PAGES_API_TOKEN repository secret
+# (Makers console -> Settings -> API Token). It fails loudly when it is missing.
 jobs:
   deploy:
     environment:
@@ -33,3 +38,22 @@ jobs:
           path: website
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  deploy-edgeone:
+    name: Deploy to EdgeOne Makers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: website
+          persist-credentials: false
+      - name: Stage the site without the bundled binaries
+        run: rsync -a --exclude dist website/ site/
+      - name: Install EdgeOne CLI
+        run: npm install -g edgeone@latest
+      - name: Deploy
+        working-directory: site
+        env:
+          PAGES_SOURCE: skills
+          EDGEONE_PAGES_API_TOKEN: ${{ secrets.EDGEONE_PAGES_API_TOKEN }}
+        run: edgeone makers deploy -n gleam --json
