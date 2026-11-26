@@ -49,12 +49,14 @@ jobs:
           persist-credentials: false
       - name: Stage the site without the bundled binaries
         run: rsync -a --exclude dist website/ site/
-      # Pin the target project by ID. With token auth the CLI did not resolve
-      # the project by name and created a second one; the ID is not a secret.
+      # Pin the target project by ID. Project names are unique across all
+      # EdgeOne workspaces and the CLI silently falls back to a suffixed name
+      # when the plain one is taken elsewhere, so a name-only deploy can land
+      # in the wrong project. The ID is not a secret.
       - name: Pin the EdgeOne project
         run: |
           mkdir -p site/.edgeone
-          echo '{"Name":"gleam","ProjectId":"makers-lyn8mnqyssfm"}' > site/.edgeone/project.json
+          echo '{"Name":"gleam-u44smebo","ProjectId":"makers-bogmlykye5lo"}' > site/.edgeone/project.json
       - name: Install EdgeOne CLI
         run: npm install -g edgeone@latest
       - name: Deploy
@@ -62,4 +64,4 @@ jobs:
         env:
           PAGES_SOURCE: skills
           EDGEONE_PAGES_API_TOKEN: ${{ secrets.EDGEONE_PAGES_API_TOKEN }}
-        run: edgeone makers deploy -n gleam --json
+        run: edgeone makers deploy -n gleam-u44smebo --json
