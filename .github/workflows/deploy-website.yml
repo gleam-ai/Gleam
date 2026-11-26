@@ -49,6 +49,12 @@ jobs:
           persist-credentials: false
       - name: Stage the site without the bundled binaries
         run: rsync -a --exclude dist website/ site/
+      # Pin the target project by ID. With token auth the CLI did not resolve
+      # the project by name and created a second one; the ID is not a secret.
+      - name: Pin the EdgeOne project
+        run: |
+          mkdir -p site/.edgeone
+          echo '{"Name":"gleam","ProjectId":"makers-lyn8mnqyssfm"}' > site/.edgeone/project.json
       - name: Install EdgeOne CLI
         run: npm install -g edgeone@latest
       - name: Deploy
