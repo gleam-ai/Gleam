@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/gleam-ai/Gleam?color=22c55e)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
-[Download v0.0.40](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
+[Download v0.0.41](https://github.com/gleam-ai/Gleam/releases/latest) · [Website](https://gleam.wangjn.top) · [Docs](docs/)
 
 </div>
 
@@ -25,17 +25,17 @@ Built from scratch in Go with **zero third-party dependencies**, the core is a s
 
 <img src="assets/screenshots/gleam-desktop-2026-10-23.png" alt="Gleam Desktop with CUA Integration">
 
-## What's new in v0.0.40
+## What's new in v0.0.41
 
-- **Replies that cite earlier steps are rewritten from evidence**: a `reply` step referencing other steps was a draft written before any of them ran; the main model now rewrites it from what its dependencies actually returned (skipped for nil or mock clients)
-- **Loop detection counts whole rounds**: a tool reused legitimately across different rounds no longer reads as stuck
-- **Explicit reflector digest budgets**: 1200 bytes per tool step / 4000 per reply / 9000 total, replacing a fixed 300-byte cut
-- **Same-tab external links open in the system browser**: links without `target=_blank` (http / https / mailto) were silently cancelled before; other schemes stay blocked
-- **Desktop IPC contract smoke in CI**: in-process coverage of 23 channels (20 invoke + 3 events), run by `verify.sh` layer 4 and a new `desktop-contract` CI job
+- **Text-only delegation no longer needs approval**: `agent.delegate` in `answer` mode makes a single model call with no tools; `task` mode still asks, and a user override always wins. Unattended runs used to reject text-extraction steps, skip their dependents, and report the task as `partial`.
+- **Unattended refusals are reported honestly**: a new `unattended` flag and `ErrStepUnattended` distinguish no-approver situations from an actual user refusal, and audit logs record `unattended` instead of `denied`
+- **Steps must reference earlier results instead of guessing values**: the planner rule now says so explicitly; a real-model rerun still caught a fabricated order id once, which acceptance testing rejected
+- **Step timeouts no longer depend on a timer having fired**: classification uses the deadline, removing a source of flaky failures under parallel load
+- **No more lost credential writes on Windows**: opening a contended lockfile returned Access is denied and was treated as a plain error; it is now retried as contention
+- **Failures show concrete next steps**: the execution-details dialog shows a suggestion above the retry button, with matching English strings
+- **computer-use no longer fakes success**: with no backend an action fails as unavailable; mock mode must be explicitly enabled and marks its results
 
-**Known issue**: with a real model a task can still end as `partial` — the planner may pick approval-gated tools (`agent.delegate`, `shell.exec`) for read-only goals, and a final round with two successful steps can still report `0/100`. Not fixed in this release.
-
-Earlier releases (v0.0.27–v0.0.39) are documented in [CHANGELOG.md](CHANGELOG.md); per-version release notes and publishing guides are archived under [docs/releases/](docs/releases/).
+Earlier releases (v0.0.27–v0.0.40) are documented in [CHANGELOG.md](CHANGELOG.md); per-version release notes and publishing guides are archived under [docs/releases/](docs/releases/).
 
 ## What you get
 
