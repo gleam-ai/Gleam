@@ -145,7 +145,7 @@ func (g *Gate) EvaluateStepIn(ctx context.Context, t types.Tool, args map[string
 }
 
 func (g *Gate) evaluate(ctx context.Context, t types.Tool, args map[string]any, preApproved bool) Decision {
-	perm := g.effectivePermission(t)
+	perm := g.permissionFor(t, args)
 	paths := g.pathsOf(ctx, t, args)
 	outside := g.filterOutside(ctx, paths)
 	sensitive := g.filterSensitive(ctx, paths)
@@ -647,6 +647,24 @@ func (g *Gate) EgressStats() EgressReport {
 
 func (g *Gate) EffectivePermission(t types.Tool) types.Permission {
 	return g.effectivePermission(t)
+}
+
+// permissionFor is the class a concrete call is judged by. A tool may lower
+// its own class for arguments without the gated side effect, but only when the
+// user has not pinned the tool to a class of their own.
+func (g *Gate) permissionFor(t types.Tool, args map[string]any) types.Permission {
+	perm := g.effectivePermission(t)
+	if _, overridden := g.OverrideOf(t.Name()); overridden {
+		return perm
+	}
+	ap, ok := t.(types.ArgPermission)
+	if !ok {
+		return perm
+	}
+	if p := ap.PermissionForArgs(args); p < perm {
+		return p
+	}
+	return perm
 }
 
 func (g *Gate) effectivePermission(t types.Tool) types.Permission {

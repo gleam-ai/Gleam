@@ -5,6 +5,7 @@ package filelock
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 )
@@ -17,12 +18,26 @@ type Lock struct {
 	f *os.File
 }
 
+// openLockFile is a seam so tests can stand in for the OS refusing the open.
+var openLockFile = func(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+}
+
 // TryAcquire opens (creating if needed) the lockfile at path and attempts the
 // exclusive lock once, returning ErrLocked if another process holds it. The
 // caller must Release the returned Lock.
 func TryAcquire(path string) (*Lock, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := openLockFile(path)
 	if err != nil {
+		// On Windows the open itself can be refused while another handle
+		// holds or is waiting on the lock ("Access is denied"), so LockFileEx
+		// never gets to report contention. Without this mapping Acquire
+		// returned at once and a concurrent writer lost the key it was
+		// saving. The raw OS error stays in the message so a real permission
+		// problem is still readable when the retry budget runs out.
+		if openMeansHeld(err) {
+			return nil, fmt.Errorf("%w: 打开锁文件: %w", ErrLocked, err)
+		}
 		return nil, err
 	}
 	if err := lockFile(f); err != nil {

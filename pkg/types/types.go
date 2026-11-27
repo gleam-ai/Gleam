@@ -54,6 +54,14 @@ type PathAware interface {
 	Paths(ctx context.Context, args map[string]any) []string
 }
 
+// ArgPermission lets a tool lower its own permission class for arguments
+// that cannot have the side effect the class exists to gate. The gate only
+// ever moves the class down (toward PermissionReadOnly), never up, and an
+// explicit per-tool override set by the user always wins over it.
+type ArgPermission interface {
+	PermissionForArgs(args map[string]any) Permission
+}
+
 // ArgNormalizer lets a tool repair loosely typed arguments before validation.
 // Models occasionally hand a free-text field a list of paragraphs or a wrapper
 // object instead of a string; a tool that knows what the value means can
@@ -303,6 +311,10 @@ type ApprovalRequest struct {
 type ApprovalResponse struct {
 	Approved bool   `json:"approved"`
 	Note     string `json:"note,omitempty"`
+	// Unattended marks a denial that no person made: the host had no way to
+	// ask (closed stdin, no approval channel). The step still fails, but the
+	// error must not read as the user having rejected it.
+	Unattended bool `json:"unattended,omitempty"`
 }
 
 type GoalMode string
@@ -542,6 +554,11 @@ type ScheduleJobView struct {
 }
 
 var ErrStepRejected = fmt.Errorf("用户拒绝执行该操作")
+
+// ErrStepUnattended is the denial nobody made: the step needs a person to
+// confirm it and the host had no way to ask one. Same failure class as a
+// rejection, but the wording must not blame the user.
+var ErrStepUnattended = fmt.Errorf("需要人工确认，但当前运行无人审批，操作未执行")
 
 func (s Step) Describe() string {
 	if s.Description != "" {

@@ -87,8 +87,11 @@ export HTTPS_PROXY=http://127.0.0.1:6789 HTTP_PROXY=http://127.0.0.1:6789
 cd desktop && npm run pack:win
 
 # 装机实测（静默安装）
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
-./dist/Gleam-Setup.exe /S '/D=C:\Software\Gleam'
+# 必须从 PowerShell 启动安装器，不能在 Git Bash 里直接 exec：
+# Git Bash 会吃掉 /D= 里的反斜杠（C:\Software\Gleam 变成 C:SoftwareGleam），
+# 安装器把它当成盘符相对路径，解包落进自己的临时目录，退出码 0 但目标目录是空的，
+# 而且会先卸掉旧版。MSYS_NO_PATHCONV / MSYS2_ARG_CONV_EXCL 都挡不住。
+#   PowerShell> Start-Process -FilePath .\dist\Gleam-Setup.exe -ArgumentList '/S','/D=C:\Software\Gleam' -Wait -PassThru | Select-Object ExitCode
 
 # 版本校验（注意：用 resources/bin/gleam.exe，不是根目录的 Gleam.exe）
 C:\Software\Gleam\resources\bin\gleam.exe version
@@ -120,12 +123,17 @@ curl -s https://github.com/gleam-ai/Gleam/releases/latest/download/latest.yml | 
 # <time id="dl-date" datetime="2026-xx-xx">2026-xx-xx</time>
 ```
 
+官网由 `.github/workflows/deploy-website.yml` 在 master 上 `website/**` 变动时自动发布，一次推送发两处：
+EdgeOne Makers 项目（`gleam.wangjn.top` 的源站）和 GitHub Pages 镜像（`gleam-ai.github.io/Gleam/`）。
+EdgeOne 那一步依赖仓库 Secret `EDGEONE_PAGES_API_TOKEN`，缺了该 job 直接失败；流程速查见 `scripts/QUICK-RELEASE.md` 第 6 节。
+
 ## 常见陷阱
 
 | 陷阱 | 症状 | 解决 |
 |---|---|---|
 | electron-builder 代理 | `pack:win` 报 ETIMEDOUT | 前置 `HTTPS_PROXY=... HTTP_PROXY=...` |
-| cmd //c 交互陷阱 | 安装器不跑，停在 cmd 提示符 | 直接 exec：`./dist/Gleam-Setup.exe /S '/D=...'` |
+| cmd //c 交互陷阱 | 安装器不跑，停在 cmd 提示符 | 不要用 `cmd //c`；用 PowerShell `Start-Process` 启动安装器 |
+| Git Bash 直接 exec 安装器 | 退出码 0、进程存活约 45 秒，但安装目录是空的，旧版已被卸掉 | Git Bash 吃掉 `/D=` 里的反斜杠；只能从 PowerShell `Start-Process -ArgumentList '/S','/D=C:\Software\Gleam'` 启动 |
 | Gleam.exe 大小写冲突 | `gleam.exe version` 卡住 | 用 `resources/bin/gleam.exe` |
 | 版本号漂移 | check-version-owner.py 报红 | 三处 + 官网两处全同步 |
 | CodeQL 单独 gate | PR checks 显示 success 但 CodeQL 还在跑 | `gh pr checks --watch` 等所有 |

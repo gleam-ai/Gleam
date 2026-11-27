@@ -382,4 +382,4 @@ jobs:
 
 **最后更新**: 2026-11-02  
 **维护者**: Gleam Team  
-**联系方式**: support@gleam.wangjn.top
+**联系方式**: 见 [SECURITY.md](../../SECURITY.md)（问题反馈请走 GitHub Issues）

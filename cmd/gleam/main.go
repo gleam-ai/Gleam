@@ -851,18 +851,26 @@ func (c *consoleNotifier) OnApproval(req types.ApprovalRequest) types.ApprovalRe
 	}
 	to := approvalTimeout(c.approvalTimeout)
 	fmt.Fprintf(os.Stderr, "允许执行吗? [y/N]（%v 秒内未答复将自动拒绝）> ", int(to.Seconds()))
-	ch := make(chan string, 1)
+	type answer struct {
+		line string
+		err  error
+	}
+	ch := make(chan answer, 1)
 	go func() {
 		line, err := c.stdin.ReadString('\n')
-		if err != nil {
-			ch <- ""
-			return
-		}
-		ch <- strings.TrimSpace(line)
+		ch <- answer{strings.TrimSpace(line), err}
 	}()
 	select {
-	case line := <-ch:
-		if line == "y" || line == "Y" || line == "yes" {
+	case a := <-ch:
+		if a.err != nil && a.line == "" {
+			// EOF or a closed pipe before anyone typed: nobody is there to
+			// answer. Say so, instead of recording the user as having refused.
+			return types.ApprovalResponse{
+				Approved: false, Unattended: true,
+				Note: "标准输入不可交互，无法审批",
+			}
+		}
+		if a.line == "y" || a.line == "Y" || a.line == "yes" {
 			return types.ApprovalResponse{Approved: true}
 		}
 		return types.ApprovalResponse{Approved: false, Note: "用户拒绝"}

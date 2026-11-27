@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"gleam/internal/filelock"
 )
@@ -15,12 +16,17 @@ import (
 // the property under test (completed writes never clobber each other) from
 // load-induced starvation. Without the cross-process lock SetLLMAPIKey never
 // returns ErrLocked, so a real lost update still surfaces as a missing key.
+// The retry bound is a time budget, not an attempt count: how many attempts
+// starvation lasts depends on machine load, while a few seconds is far longer
+// than any honest writer needs and still ends the test on a real deadlock.
 func setKey(s *Store, key, host string) error {
-	for attempt := 0; ; attempt++ {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
 		err := s.SetLLMAPIKey(key, host)
-		if !errors.Is(err, filelock.ErrLocked) || attempt >= 4 {
+		if !errors.Is(err, filelock.ErrLocked) || time.Now().After(deadline) {
 			return err
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

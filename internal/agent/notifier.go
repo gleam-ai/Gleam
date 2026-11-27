@@ -47,7 +47,7 @@ type NopNotifier struct{}
 
 func (NopNotifier) OnProgress(types.ProgressEvent) {}
 func (NopNotifier) OnApproval(types.ApprovalRequest) types.ApprovalResponse {
-	return types.ApprovalResponse{}
+	return types.ApprovalResponse{Unattended: true, Note: "无审批通道"}
 }
 func (NopNotifier) OnSuggestion(string, string)             {}
 func (NopNotifier) OnSuggestSkill(string, types.SkillDraft) {}
@@ -64,7 +64,7 @@ func (f fanout) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	for _, n := range f {
 		return n.OnApproval(req)
 	}
-	return types.ApprovalResponse{}
+	return types.ApprovalResponse{Unattended: true, Note: "无审批通道"}
 }
 func (f fanout) OnSuggestion(taskID, text string) {
 	for _, n := range f {

@@ -541,17 +541,32 @@ func NewAgentDelegate(d Delegator) types.Tool { return &agentDelegateTool{d} }
 
 func (t *agentDelegateTool) Name() string { return "agent.delegate" }
 func (t *agentDelegateTool) Description() string {
-	return "把子任务委派出去，隔离上下文。两种模式：" +
-		"mode=answer（默认）单次 LLM 调用直接作答，适合并行探索、信息检索等不需要动手的子目标；" +
+	return "把子任务委派给子模型，隔离上下文。两种模式：" +
+		"mode=answer（默认）一次模型调用直接作答，不调用任何工具、不需要审批，适合并行探索、信息检索，" +
+		"以及对前序步骤的结果做提取、比较、下结论这类纯文本处理；" +
 		"mode=task 子任务独立执行：先规划步骤再真实调用工具（只读类工具），返回执行结果摘要，" +
-		"适合需要实际查看文件、跑检索才能回答的子目标。task 模式更慢更贵，能用 answer 就用 answer。"
+		"适合需要实际查看文件、跑检索才能回答的子目标。task 模式更慢更贵、需要审批，能用 answer 就用 answer。"
 }
 func (t *agentDelegateTool) Permission() types.Permission { return types.PermissionUserApproved }
+
+// PermissionForArgs: the answer mode is one model completion with no tools,
+// no files and no network of its own -- the same kind of call planning already
+// makes -- so it is judged as read-only. Treating it as an approval-level step
+// made every "extract / compare / conclude from earlier results" step pop a
+// dialog, and on a host with nobody to ask it failed the whole task. The task
+// mode runs tools and keeps the approval.
+func (t *agentDelegateTool) PermissionForArgs(args map[string]any) types.Permission {
+	switch toolutil.Str(args, "mode") {
+	case "", "answer":
+		return types.PermissionReadOnly
+	}
+	return types.PermissionUserApproved
+}
 func (t *agentDelegateTool) Schema() map[string]any {
 	return toolutil.Schema("委派子任务", []string{"goal"}, map[string]any{
 		"goal": toolutil.SchemaProp("子目标描述：要解决什么、期望什么产出", "string"),
 		"role": toolutil.SchemaProp("可选：专家角色 ID（coder/analyst/writer/researcher/pm/ops），默认 general", "string"),
-		"mode": toolutil.SchemaProp("answer=单次作答（默认）；task=独立执行（规划+工具，有步数与时长上限）", "string"),
+		"mode": toolutil.SchemaProp("answer=单次作答（默认，不调工具、免审批；提取/比较/下结论用它）；task=独立执行（规划+调用工具，需要审批，有步数与时长上限）", "string"),
 	})
 }
 func (t *agentDelegateTool) Execute(ctx context.Context, args map[string]any) (any, error) {

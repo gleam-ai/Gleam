@@ -35,6 +35,9 @@ cd desktop && npm run pack:win
 `latest.yml`。**三件套缺一不可**——`latest.yml` 是 electron-updater 的更新频道文件，
 缺了它应用内「检查更新」直接 404（v0.0.34 的事故）。拷进 `dist/` 再上传。
 
+装机实测的静默安装**只能从 PowerShell 启动安装器**，在 Git Bash 里直接 exec 会装不上并卸掉旧版。
+命令与原因见 `.codebuddy/rules/release-workflow.md` 第 6 步（唯一出处）。
+
 ## 5. 上传 Release
 
 ```bash
@@ -52,5 +55,7 @@ gh release download v0.0.XX -p latest.yml -O -   # version 必须是新版本
 ## 6. 官网
 
 改 `website/index.html` 与 `website/index-zh.html` 的 `dl-version` / `dl-date`，
-push 到 master 后 `.github/workflows/deploy-website.yml` 自动部署到 gleam.wangjn.top。
+push 到 master 后 `.github/workflows/deploy-website.yml` 自动发布，一次推送发两处：
+EdgeOne Makers 项目（`gleam.wangjn.top` 的源站）和 GitHub Pages 镜像（`gleam-ai.github.io/Gleam/`）。
+EdgeOne 那一步用仓库 Secret `EDGEONE_PAGES_API_TOKEN` 鉴权，缺失时该 job 直接失败。
 下载按钮指向 `releases/latest/download/...`，资产名不变就不用改链接。

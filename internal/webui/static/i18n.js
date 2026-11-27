@@ -1069,6 +1069,27 @@ const I18N_EN = {
   未知版本: 'Unknown version',
   未设置密钥: 'No key set',
   未达标说明: 'Why it fell short',
+  自检建议: 'Self-check note',
+  '有步骤没通过审批：重新发送后在审批卡上点「允许」，或在「工具」页调整该工具的权限。':
+    "A step did not pass approval: send the goal again and click Allow on the approval card, or change that tool's permission on the Tools page.",
+  '有步骤需要你亲自处理：按卡片上的提示操作后再试。':
+    'A step needs you: follow the prompt on the card, then try again.',
+  '有步骤超时：把目标拆小后重试，或在配置里调大 step_timeout_secs。':
+    'A step timed out: split the goal into smaller parts, or raise step_timeout_secs in the config.',
+  '有步骤找不到对象：确认目标里的文件、路径或字段确实存在。':
+    'A step could not find something: check that the file, path or field in the goal really exists.',
+  '有步骤参数不对：核对目标里的文件名与字段名后重试。':
+    'A step got the wrong arguments: check the file and field names in the goal, then try again.',
+  '有步骤拿到的结果格式不对：展开技术详情，看是哪一步的产出出了问题。':
+    'A step received malformed output: open Technical details to see which step produced it.',
+  '工具返回了业务错误：展开技术详情，按原文提示处理后重试。':
+    'A tool returned a business error: open Technical details, follow the message, then try again.',
+  '模型或网络一侧出错：检查网络与模型配置后重试。':
+    'The model or network failed: check the connection and model settings, then try again.',
+  '引擎内部错误：展开技术详情查看原文，可用 gleam replay 回放这次任务。':
+    'Engine error: open Technical details for the raw message; gleam replays this task.',
+  '展开技术详情查看原文；可从「执行详情」回看每一步的结果。':
+    "Open Technical details for the raw message; Execution details shows every step's result.",
   未配置: 'Not configured',
   未配置模型: 'No model configured',
   本地版: 'Local build',

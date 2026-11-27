@@ -445,7 +445,7 @@ func (s *Service) OnTool(ev types.ToolEvent) {
 
 func (s *Service) OnApproval(req types.ApprovalRequest) types.ApprovalResponse {
 	if s.Conn == nil {
-		return types.ApprovalResponse{Approved: false, Note: "无审批通道"}
+		return types.ApprovalResponse{Approved: false, Note: "无审批通道", Unattended: true}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.Agent.Gate.ApprovalTimeoutDuration())
 	defer cancel()
