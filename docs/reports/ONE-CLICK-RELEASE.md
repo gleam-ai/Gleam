@@ -281,10 +281,9 @@ bash scripts/multi-platform-release.sh
 
 ## 📞 联系方式与支持
 
-- **技术支持**: support@gleam.wangjn.top
 - **问题反馈**: https://github.com/gleam-ai/Gleam/issues
 - **讨论社区**: https://github.com/gleam-ai/Gleam/discussions
-- **紧急联系**: security@gleam.wangjn.top
+- **安全问题**: 按 [SECURITY.md](../../SECURITY.md) 的私有披露渠道上报
 
 ---
 

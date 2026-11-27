@@ -308,7 +308,7 @@ func planMaxRisk(reg *registry.Registry, plan types.Plan) string {
 		if !ok {
 			continue
 		}
-		switch t.Permission() {
+		switch stepPermission(t, st.Args) {
 		case types.PermissionFullAccess:
 			return "high"
 		case types.PermissionUserApproved:
@@ -316,6 +316,20 @@ func planMaxRisk(reg *registry.Registry, plan types.Plan) string {
 		}
 	}
 	return risk
+}
+
+// stepPermission is the class one concrete step is judged by: the tool's own
+// class, lowered when the tool says these arguments cannot have the gated
+// side effect. Mirrors the safety gate, so a plan is not approved as a whole
+// for a step the gate would have let through unasked.
+func stepPermission(t types.Tool, args map[string]any) types.Permission {
+	base := t.Permission()
+	if ap, ok := t.(types.ArgPermission); ok {
+		if p := ap.PermissionForArgs(args); p < base {
+			return p
+		}
+	}
+	return base
 }
 
 // SetNotifier replaces the event sink (called when the service layer wires up).

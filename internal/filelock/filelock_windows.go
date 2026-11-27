@@ -9,6 +9,16 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// openMeansHeld reports whether a failed open of the lockfile means "someone
+// else is in the lock" rather than a broken path. Both codes are what Windows
+// answers while another handle holds the byte range or is being scanned by
+// a filter driver right after the file was created; neither says anything
+// about the file itself being unusable.
+func openMeansHeld(err error) bool {
+	return errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		errors.Is(err, windows.ERROR_SHARING_VIOLATION)
+}
+
 // Lock a single byte at offset zero; unlock must use the same range.
 func lockFile(f *os.File) error {
 	var ov windows.Overlapped

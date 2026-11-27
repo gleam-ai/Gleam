@@ -8,3 +8,4 @@ import "os"
 // caller's in-process mutex still applies. Not a build target we ship.
 func lockFile(*os.File) error   { return nil }
 func unlockFile(*os.File) error { return nil }
+func openMeansHeld(error) bool  { return false }

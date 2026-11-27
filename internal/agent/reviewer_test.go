@@ -64,8 +64,13 @@ func TestReviewer_BlockedActionEscalatesToHuman(t *testing.T) {
 		t.Errorf("被审核模型标记的动作必须经人工确认，实际 %v", res.ByID["s1"].Status)
 	}
 	audit := gate.RecentAudit(10)
-	if len(audit) == 0 || audit[0].Action != "denied" {
+	if len(audit) == 0 || (audit[0].Action != "denied" && audit[0].Action != "unattended") {
 		t.Errorf("被拒操作必须留痕，实际 %+v", audit)
+	}
+	// NopNotifier has no channel to a person: the record must say nobody was
+	// asked, not that the user refused.
+	if len(audit) > 0 && audit[0].Action != "unattended" {
+		t.Errorf("无审批通道时应记为 unattended，实际 %q", audit[0].Action)
 	}
 }
 

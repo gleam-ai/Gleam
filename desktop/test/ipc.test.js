@@ -21,6 +21,13 @@ const COMPUTER_USE_MAIN = path.join(
   'computer_use',
   'main.ts',
 );
+const COMPUTER_USE_SERVER = path.join(
+  __dirname,
+  '..',
+  'src',
+  'computer_use',
+  'server.ts',
+);
 const APP_URL = 'app://gleam/';
 const MAIN_SOURCES = ['security.ts', 'updater.ts', 'tray.ts'];
 const HANDLE_RE = /ipcMain\.handle\(\s*'([^']+)'/g;
@@ -417,6 +424,80 @@ test('other guarded channels stay reachable and reject unknown actions', async (
   assert.deepEqual(await main.invoke('desktop:showOpenDialog', {}), [
     'C:/tmp/a.txt',
   ]);
+});
+
+// The computer-use module is not wired yet (pinned below), but its handlers
+// must already be honest. With no backend an action fails, and the dry-run
+// backend flags every result. The server used to fall back to the dry run on
+// its own and answer success for a click that never happened.
+function createComputerUseHarness(env) {
+  const handlers = new Map();
+  loadTsModule(COMPUTER_USE_MAIN, {
+    electron: {
+      ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
+    },
+    env: {
+      CUA_BINARY: path.join(os.tmpdir(), 'no-such-cua-binary'),
+      ...env,
+    },
+    reset: [COMPUTER_USE_SERVER],
+  });
+  return {
+    invoke: (channel, args) => handlers.get(channel)({}, args),
+    channels: () => [...handlers.keys()].sort(),
+  };
+}
+
+test('computer-use: with no backend, actions fail instead of faking success', async () => {
+  const cu = createComputerUseHarness({ GLEAM_CUA_MODE: '' });
+  assert.deepEqual(cu.invoke('computer-use:health'), {
+    available: false,
+    mode: 'unavailable',
+    mock: false,
+  });
+  for (const [channel, args] of [
+    ['computer-use:screenshot', undefined],
+    ['computer-use:click', { x: 10, y: 20 }],
+    ['computer-use:type', { text: 'hello' }],
+    ['computer-use:open_app', { app_name: 'notepad' }],
+  ]) {
+    const result = await cu.invoke(channel, args);
+    assert.equal(result.success, false, channel);
+    assert.equal(result.unavailable, true, channel);
+    assert.match(result.error, /no computer-use backend/);
+  }
+});
+
+test('computer-use: the dry-run backend is opt-in and flags every result', async () => {
+  const cu = createComputerUseHarness({ GLEAM_CUA_MODE: 'mock' });
+  assert.deepEqual(cu.invoke('computer-use:health'), {
+    available: false,
+    mode: 'mock',
+    mock: true,
+  });
+  const shot = await cu.invoke('computer-use:screenshot');
+  assert.equal(shot.success, true);
+  assert.equal(shot.mock, true);
+  assert.equal(typeof shot.data, 'string');
+  assert.equal(
+    (await cu.invoke('computer-use:click', { x: 1, y: 2 })).mock,
+    true,
+  );
+});
+
+test('computer-use: invalid arguments never reach a backend', async () => {
+  const cu = createComputerUseHarness({ GLEAM_CUA_MODE: 'mock' });
+  const bad = [
+    ['computer-use:click', { x: Number.NaN, y: 2 }, /finite numbers/],
+    ['computer-use:type', { text: 42 }, /text must be a string/],
+    ['computer-use:open_app', { app_name: '  ' }, /non-empty string/],
+  ];
+  for (const [channel, args, pattern] of bad) {
+    const result = await cu.invoke(channel, args);
+    assert.equal(result.success, false, channel);
+    assert.equal(result.mock, undefined, channel);
+    assert.match(result.error, pattern);
+  }
 });
 
 // Known gap, pinned so a future wiring change cannot silently pass. The

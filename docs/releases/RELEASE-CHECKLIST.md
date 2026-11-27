@@ -354,7 +354,7 @@ Create `~/.gleam/taskrouter.json` for advanced settings:
 ### If critical issues arise:
 1. **Temporarily disable CUA**: `GLEAM_CUA_ENABLED=false`
 2. **Rollback to v0.0.24**: `git checkout v0.0.24 && go build`
-3. **Report to team**: Email `security@gleam.wangjn.top`
+3. **Report to team**: 按 [SECURITY.md](../../SECURITY.md) 的安全披露渠道上报（不要发到公开 Issue）
 4. **Create incident ticket**: Link this checklist as evidence
 
 ---

@@ -621,13 +621,14 @@ func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskI
 	if e.Notifier != nil {
 		go func() { respCh <- e.Notifier.OnApproval(req) }()
 	} else {
-		respCh <- types.ApprovalResponse{Approved: false, Note: "无审批通道"}
+		respCh <- types.ApprovalResponse{Approved: false, Note: "无审批通道", Unattended: true}
 	}
 	actx, acancel := context.WithTimeout(ctx, e.Gate.ApprovalTimeoutDuration())
 	var note string
+	unattended := false
 	select {
 	case resp := <-respCh:
-		approved, note = resp.Approved, resp.Note
+		approved, note, unattended = resp.Approved, resp.Note, resp.Unattended
 	case <-actx.Done():
 		if ctx.Err() != nil {
 			r.Status = types.StepSkipped
@@ -648,7 +649,10 @@ func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskI
 	}
 	if e.Gate != nil {
 		action := "approved"
-		if !approved {
+		switch {
+		case unattended:
+			action = "unattended"
+		case !approved:
 			action = "denied"
 		}
 		e.Gate.Record(safety.AuditEntry{
@@ -658,7 +662,11 @@ func (e *Executor) awaitApproval(ctx context.Context, r *types.StepResult, taskI
 	}
 	if !approved {
 		r.Status = types.StepFailed
-		r.Error = types.ErrStepRejected.Error()
+		if unattended {
+			r.Error = types.ErrStepUnattended.Error()
+		} else {
+			r.Error = types.ErrStepRejected.Error()
+		}
 		if note != "" {
 			r.Error += "（" + note + "）"
 		}
@@ -938,7 +946,7 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 		executed = true
 		tctx, cancel := context.WithTimeout(ctx, timeout)
 		out, err := tool.Execute(tctx, args)
-		timedOut := tctx.Err() != nil && ctx.Err() == nil
+		timedOut := ctx.Err() == nil && pastDeadline(tctx)
 		cancel()
 		if ctx.Err() != nil {
 			r.Status = types.StepSkipped
@@ -1004,6 +1012,18 @@ func (e *Executor) runStep(ctx context.Context, state *execState, step types.Ste
 				fmt.Sprintf("⏳ %s 超时，自动重试（第 %d/%d 次）", step.ID, attempt, attempts-1), 0, "warn"))
 		}
 	}
+}
+
+// pastDeadline reads the deadline off the clock, not only off tctx.Err(). The
+// cancellation that sets Err runs on a timer goroutine; under load it can run
+// after the tool has already returned, and the late failure would then be
+// filed as an ordinary error with the wrong ErrorKind instead of a timeout.
+func pastDeadline(tctx context.Context) bool {
+	if tctx.Err() != nil {
+		return true
+	}
+	deadline, ok := tctx.Deadline()
+	return ok && !time.Now().Before(deadline)
 }
 
 func substituteArgs(args map[string]any, resolve func(ref string) (any, bool, error)) (map[string]any, error) {

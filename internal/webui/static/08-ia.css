@@ -251,6 +251,14 @@ html[data-theme="light"] {
   font-weight: 600;
   color: var(--color-fg);
 }
+/* 下一步 / 自检建议：接在摘要后面，同样的字号与弱化色——建议是记录的一部分，
+   不是新的告警。 */
+.fail-next {
+  margin-top: 4px;
+}
+.fail-next-block {
+  margin: 8px 0;
+}
 .fail-detail {
   margin-top: 4px;
 }

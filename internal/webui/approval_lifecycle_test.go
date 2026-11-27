@@ -112,7 +112,11 @@ func TestWebUI_ContinuousReadOnlyConversationNoApproval(t *testing.T) {
 					"goal": fmt.Sprintf("请回答第 %d 个问题", i), "task_mode": mode,
 					"mode": "plan_first", "conversation_id": id,
 				})
-				done := f.waitTask(out["task_id"].(string), 2*time.Second)
+				// A turn is plan + execute + reflect through a real HTTP server; two
+				// seconds only holds when the machine is idle, and a slow machine is
+				// not the property under test. The generous bound still fails fast
+				// on a turn that never finishes.
+				done := f.waitTask(out["task_id"].(string), 15*time.Second)
 				if done["status"] != "success" {
 					t.Fatalf("turn %d failed: %v", i, done)
 				}

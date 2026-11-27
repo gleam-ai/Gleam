@@ -1706,6 +1706,63 @@ function failSummary(error) {
   return line ? line.trim().slice(0, 60) : '任务失败';
 }
 
+// What to do next after a failure. Reads only what the engine already
+// computed in structured form -- failure_breakdown (failed steps counted by
+// error kind) and the reflector's suggestion -- never the error text: the
+// text carries no reliable structure (GLEAM-APP-DESIGN section 6.6).
+// At most one line per kind is shown, so a failure stays a record and does
+// not turn into a wall of advice.
+const FAIL_NEXT_ORDER = [
+  'permission',
+  'needs_human',
+  'timeout',
+  'not_found',
+  'param',
+  'format',
+  'business',
+  'upstream',
+  'internal',
+  'unknown',
+];
+const FAIL_NEXT = {
+  permission:
+    '有步骤没通过审批：重新发送后在审批卡上点「允许」，或在「工具」页调整该工具的权限。',
+  needs_human: '有步骤需要你亲自处理：按卡片上的提示操作后再试。',
+  timeout: '有步骤超时：把目标拆小后重试，或在配置里调大 step_timeout_secs。',
+  not_found: '有步骤找不到对象：确认目标里的文件、路径或字段确实存在。',
+  param: '有步骤参数不对：核对目标里的文件名与字段名后重试。',
+  format: '有步骤拿到的结果格式不对：展开技术详情，看是哪一步的产出出了问题。',
+  business: '工具返回了业务错误：展开技术详情，按原文提示处理后重试。',
+  upstream: '模型或网络一侧出错：检查网络与模型配置后重试。',
+  internal:
+    '引擎内部错误：展开技术详情查看原文，可用 gleam replay 回放这次任务。',
+  unknown: '展开技术详情查看原文；可从「执行详情」回看每一步的结果。',
+};
+function failNextSteps(result) {
+  const out = [];
+  const bd = (result && result.failure_breakdown) || {};
+  let top = '';
+  for (const kind of FAIL_NEXT_ORDER) {
+    if (bd[kind] > 0 && (!top || bd[kind] > bd[top])) top = kind;
+  }
+  if (top && FAIL_NEXT[top])
+    out.push({ label: '下一步', text: FAIL_NEXT[top] });
+  const sugg =
+    result && typeof result.suggestion === 'string'
+      ? result.suggestion.trim()
+      : '';
+  if (sugg) out.push({ label: '自检建议', text: sugg });
+  return out;
+}
+function failNextHTML(result) {
+  return failNextSteps(result)
+    .map(
+      (s) =>
+        `<p class="fail-note-text fail-next"><span class="fail-note-label">${esc(s.label)}</span>${esc(s.text)}</p>`,
+    )
+    .join('');
+}
+
 function refreshWorkbench() {
   const all = [...tasks.values()];
   const counts = { all: all.length, active: 0, done: 0, attention: 0 };
@@ -2775,7 +2832,7 @@ function applyResult(taskID, result) {
         result.status === 'partial'
           ? '<span class="fail-note-label">未达标说明</span>'
           : '';
-      errSlot.innerHTML = `<div class="fail-note">${ICONS.alert}<div class="fail-note-body"><p class="fail-note-text">${label}${esc(failSummary(result.error))}</p><details class="fail-detail"><summary>技术详情</summary><pre class="fail-raw">${esc(result.error)}</pre></details></div></div>`;
+      errSlot.innerHTML = `<div class="fail-note">${ICONS.alert}<div class="fail-note-body"><p class="fail-note-text">${label}${esc(failSummary(result.error))}</p>${failNextHTML(result)}<details class="fail-detail"><summary>技术详情</summary><pre class="fail-raw">${esc(result.error)}</pre></details></div></div>`;
       errSlot.hidden = false;
     } else {
       errSlot.hidden = true;
@@ -6061,6 +6118,14 @@ async function openTaskDetail(taskID) {
       if (info.result && info.result.error) {
         const e = el('div', 'callout callout--error', info.result.error);
         box.appendChild(e);
+      }
+      // The recovery buttons sit right below: the next step is said here, in
+      // the same structured form the task card uses, so the two never differ.
+      const next = failNextHTML(info.result);
+      if (next) {
+        const n = el('div', 'fail-next-block');
+        n.innerHTML = next;
+        box.appendChild(n);
       }
       const chSlot = el('div');
       renderChangesInto(chSlot, taskID, info.result && info.result.changes);
