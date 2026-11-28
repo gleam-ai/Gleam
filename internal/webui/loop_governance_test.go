@@ -3,6 +3,8 @@ package webui
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +32,111 @@ func TestSecurityAudit_EmptyThenRecorded(t *testing.T) {
 	}
 	if s, _ := e["time"].(string); s == "" {
 		t.Error("留痕应带时间，否则无法复盘")
+	}
+}
+
+func TestSecurityAudit_DirectToolApprovalWiring(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		outside  bool
+		approved bool
+		action   string
+		status   int
+	}{
+		{name: "automatic", action: "auto", status: http.StatusOK},
+		{name: "approved_outside", outside: true, approved: true, action: "approved", status: http.StatusOK},
+		{name: "denied_outside", outside: true, action: "denied", status: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, nil)
+			logPath := filepath.Join(f.dataDir, "audit.jsonl")
+			f.agent.Gate.SetAuditPath(logPath)
+			root := f.ws
+			if tc.outside {
+				root = t.TempDir()
+			}
+			path := filepath.Join(root, "out.txt")
+			const content = "private-direct-tool-content"
+			body, err := json.Marshal(map[string]any{
+				"name": "file.write", "args": map[string]any{"path": path, "content": content},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			events := f.srv.subscribe()
+			defer f.srv.unsubscribe(events)
+			type callResult struct {
+				response *http.Response
+				err      error
+			}
+			done := make(chan callResult, 1)
+			go func() {
+				resp, err := http.Post(f.ts.URL+"/api/tools/call", "application/json", strings.NewReader(string(body)))
+				done <- callResult{resp, err}
+			}()
+			if tc.outside {
+				select {
+				case event := <-events:
+					if event.Type != "approval" {
+						t.Fatalf("event = %s, want approval", event.Type)
+					}
+					var approval map[string]any
+					if err := json.Unmarshal(event.Data, &approval); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := os.Stat(path); !os.IsNotExist(err) {
+						t.Fatalf("tool executed before approval: %v", err)
+					}
+					f.call("POST", "/api/approvals/"+approval["id"].(string), map[string]any{"approved": tc.approved})
+				case <-time.After(2 * time.Second):
+					t.Fatal("direct tool call did not request approval")
+				}
+			}
+			select {
+			case result := <-done:
+				if result.err != nil {
+					t.Fatal(result.err)
+				}
+				defer result.response.Body.Close()
+				var response map[string]any
+				if err := json.NewDecoder(result.response.Body).Decode(&response); err != nil {
+					t.Fatal(err)
+				}
+				if result.response.StatusCode != tc.status {
+					t.Fatalf("status = %d, want %d: %v", result.response.StatusCode, tc.status, response)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("direct tool call did not complete")
+			}
+			data, err := os.ReadFile(path)
+			if tc.status == http.StatusOK {
+				if err != nil || string(data) != content {
+					t.Fatalf("allowed write failed: %q, %v", data, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("denied call wrote a file: %q, %v", data, err)
+			}
+			audit := f.call("GET", "/api/security/audit", nil)
+			entries := audit["entries"].([]any)
+			if audit["count"] != float64(1) || len(entries) != 1 {
+				t.Fatalf("direct call missing from audit API: %v", audit)
+			}
+			entry := entries[0].(map[string]any)
+			if entry["tool"] != "file.write" || entry["action"] != tc.action || entry["risk"] != "medium" {
+				t.Errorf("unexpected audit decision: %v", entry)
+			}
+			persisted, err := safety.LoadAuditLog(logPath, 0)
+			if err != nil || len(persisted) != 1 || persisted[0].Action != tc.action {
+				t.Fatalf("persisted audit differs: %+v, %v", persisted, err)
+			}
+			encoded, err := json.Marshal(audit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), content) {
+				t.Error("audit API leaked file content")
+			}
+		})
 	}
 }
 
