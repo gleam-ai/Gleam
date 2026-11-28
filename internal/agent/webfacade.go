@@ -112,8 +112,16 @@ func (a *Agent) DirectToolCall(ctx context.Context, name string, args map[string
 	}
 	// Pin the roots for this call so a concurrent workspace switch cannot move
 	// the boundary between approval and execution.
-	ctx = toolutil.WithRoots(ctx, a.workspaceRoots())
+	roots := a.workspaceRoots()
+	ctx = toolutil.WithRoots(ctx, roots)
 	dec := a.Gate.EvaluateStepIn(ctx, tool, args, false)
+	entry := safety.AuditEntry{Tool: tool.Name(), Risk: dec.Risk, Action: "auto", Reason: dec.Reason}
+	if err := ctx.Err(); err != nil {
+		entry.Action, entry.Detail = "cancelled", err.Error()
+		a.Gate.Record(entry)
+		return nil, err
+	}
+	var approvalErr error
 	if dec.NeedApproval {
 		detail, err := json.Marshal(args)
 		if err != nil {
@@ -124,9 +132,31 @@ func (a *Agent) DirectToolCall(ctx context.Context, name string, args map[string
 			Risk:   dec.Risk,
 			Reason: dec.Reason,
 		})
-		if !resp.Approved {
-			return nil, fmt.Errorf("操作被拒绝: %s", resp.Note)
+		entry.Action, entry.Detail = "approved", resp.Note
+		switch {
+		case resp.Unattended:
+			entry.Action = "unattended"
+		case !resp.Approved:
+			entry.Action = "denied"
 		}
+		if !resp.Approved {
+			approvalErr = fmt.Errorf("操作被拒绝: %s", resp.Note)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		entry.Action, entry.Detail = "cancelled", err.Error()
+		a.Gate.Record(entry)
+		return nil, err
+	}
+	a.Gate.Record(entry)
+	if approvalErr != nil {
+		return nil, approvalErr
+	}
+	if len(dec.Outside) > 0 {
+		ctx = toolutil.WithRoots(ctx, appendRoots(roots, dec.Outside...))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	out, err := tool.Execute(ctx, args)
 	if err != nil {
